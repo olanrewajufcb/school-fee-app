@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: school-fee-app
+
+  # PostgreSQL for production
+  datasource:
+    url: jdbc:postgresql://db:5432/schoolfeedb
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # Disable H2 console in production
+  h2:
+    console:
+      enabled: false
+
+  mail:
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+server:
+  port: 8080
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:}
+    expiration: 86400000
+
+logging:
+  level:
+    com.fee.app.schoolfeeapp: INFO
+    org.springframework.security: WARN

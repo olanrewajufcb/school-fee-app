@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: schoolfee-db
+    environment:
+      POSTGRES_DB: schoolfeedb
+      POSTGRES_USER: schoolfee_user
+      POSTGRES_PASSWORD: strong_db_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U schoolfee_user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - schoolfee-network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.5
+    container_name: schoolfee-keycloak
+    command: start-dev
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak_user
+      KC_DB_PASSWORD: keycloak_password
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8081
+      KC_HTTP_PORT: 8081
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: strong_admin_password
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./keycloak/import:/opt/keycloak/data/import
+    entrypoint: >
+      /bin/sh -c "
+      /opt/keycloak/bin/kc.sh start-dev --import-realm
+      "
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: schoolfee-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_USERNAME: schoolfee_user
+      DB_PASSWORD: strong_db_password
+      JWT_SECRET: mySecureSecretKey1234567890
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/schoolfeedb
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - schoolfee-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: schoolfee-frontend
+    environment:
+      VITE_API_URL: http://localhost:8080/api
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - schoolfee-network
+    restart: unless-stopped
+
+  # MailHog (for testing email notifications)
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: schoolfee-mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - schoolfee-network
+
+volumes:
+  postgres_data:
+
+networks:
+  schoolfee-network:
+    driver: bridge
+    internal: true

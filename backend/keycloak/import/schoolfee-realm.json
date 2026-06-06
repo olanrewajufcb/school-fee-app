@@ -1,0 +1,353 @@
+{
+  "id": "schoolfee",
+  "realm": "schoolfee",
+  "displayName": "SchoolFee",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "rememberMe": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 5,
+
+  "accessTokenLifespan": 1800,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+
+  "defaultRole": {
+    "name": "default-roles-schoolfee",
+    "description": "Default role for all SchoolFee users",
+    "composite": true,
+    "clientRole": false,
+    "containerId": "schoolfee"
+  },
+
+  "requiredCredentials": ["password"],
+  "passwordPolicy": "length(8) and digits(1) and upperCase(1) and lowerCase(1)",
+
+  "roles": {
+    "realm": [
+      {
+        "name": "SUPER_ADMIN",
+        "description": "Platform administrator — manages all schools"
+      },
+      {
+        "name": "SCHOOL_ADMIN",
+        "description": "School administrator — manages one school"
+      },
+      {
+        "name": "ACCOUNTANT",
+        "description": "School accountant — manages fees and payments"
+      },
+      {
+        "name": "TEACHER",
+        "description": "Teacher — limited access to assigned classes"
+      },
+      {
+        "name": "PARENT",
+        "description": "Parent — views children's fees and results"
+      },
+      {
+        "name": "API_ACCESS",
+        "description": "Service account for payment webhooks"
+      }
+    ]
+  },
+
+  "groups": [],
+
+  "defaultGroups": [],
+
+  "clients": [
+    {
+      "id": "f8c3de3d-1fea-4d7c-a8b0-29f63c4c3454",
+      "clientId": "schoolfee-backend",
+      "name": "SchoolFee Backend API",
+      "description": "Spring Boot resource server",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "backend-secret-change-in-production",
+      "bearerOnly": true,
+      "consentRequired": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "publicClient": false,
+      "frontchannelLogout": false,
+      "protocol": "openid-connect",
+      "attributes": {
+        "use.refresh.tokens": "true",
+        "client_credentials.use_refresh_token": "false",
+        "display.on.consent.screen": "false"
+      },
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "tenant-school-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "school_id",
+            "jsonType.label": "String",
+            "user.attribute": "school_id"
+          }
+        },
+        {
+          "name": "tenant-user-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "user_id"
+          }
+        },
+        {
+          "name": "tenant-user-type",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "user_type",
+            "jsonType.label": "String",
+            "user.attribute": "user_type"
+          }
+        },
+        {
+          "name": "tenant-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true"
+          }
+        },
+        {
+          "name": "phone-claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "phone_number",
+            "jsonType.label": "String",
+            "user.attribute": "phone"
+          }
+        }
+      ],
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "roles",
+        "profile",
+        "email",
+        "tenant-context"
+      ],
+      "optionalClientScopes": [
+        "phone",
+        "offline_access"
+      ]
+    },
+
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "clientId": "schoolfee-web",
+      "name": "SchoolFee Web Application",
+      "description": "React PWA frontend",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "web-secret-change-in-production",
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://localhost:3000/*",
+        "https://schoolfee.app/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://schoolfee.app"
+      ],
+      "bearerOnly": false,
+      "consentRequired": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "publicClient": true,
+      "frontchannelLogout": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:3000/*##https://schoolfee.app/*",
+        "pkce.code.challenge.method": "S256",
+        "display.on.consent.screen": "false"
+      },
+      "fullScopeAllowed": false,
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "roles",
+        "profile",
+        "email",
+        "tenant-context"
+      ],
+      "optionalClientScopes": [
+        "phone",
+        "offline_access"
+      ]
+    }
+  ],
+
+  "clientScopes": [
+    {
+      "name": "tenant-context",
+      "description": "Core tenant claims: school_id, user_id, user_type, roles",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "Your school identity for access"
+      },
+      "protocolMappers": [
+        {
+          "name": "tc-school-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "school_id",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "school_id",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "tc-user-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "user_id"
+          }
+        },
+        {
+          "name": "tc-user-type",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "user_type",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "user_type",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "tc-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true"
+          }
+        },
+        {
+          "name": "tc-phone",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "phone",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "phone_number",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "offline_access",
+      "description": "Offline access for PWA",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "Allow offline access to your account"
+      }
+    }
+  ],
+
+  "defaultDefaultClientScopes": [
+    "web-origins",
+    "acr",
+    "roles",
+    "profile",
+    "email",
+    "tenant-context"
+  ],
+
+  "defaultOptionalClientScopes": [
+    "phone",
+    "offline_access"
+  ],
+
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"permissions\":{\"view\":[\"admin\"],\"edit\":[\"admin\"]}},{\"name\":\"email\",\"displayName\":\"${email}\",\"required\":{\"roles\":[\"user\"]},\"validations\":{\"email\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]}},{\"name\":\"firstName\",\"displayName\":\"${firstName}\",\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]}},{\"name\":\"lastName\",\"displayName\":\"${lastName}\",\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]}},{\"name\":\"phone\",\"displayName\":\"Phone Number\",\"required\":{\"roles\":[\"user\"]},\"validations\":{\"pattern\":{\"pattern\":\"^\\\\+?[0-9]{10,15}$\",\"error-message\":\"Enter a valid phone number (e.g., +2348012345678)\"}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]}},{\"name\":\"user_type\",\"displayName\":\"User Type\",\"required\":{\"roles\":[\"admin\"]},\"validations\":{\"options\":{\"options\":[\"SUPER_ADMIN\",\"SCHOOL_ADMIN\",\"ACCOUNTANT\",\"TEACHER\",\"PARENT\",\"SERVICE_ACCOUNT\"]}},\"permissions\":{\"view\":[\"admin\"],\"edit\":[\"admin\"]}},{\"name\":\"school_id\",\"displayName\":\"School ID\",\"required\":{\"roles\":[\"admin\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\"]},\"annotations\":{\"formHint\":\"* for super admins, school UUID for all others\"}}]}"
+          ]
+        }
+      }
+    ]
+  },
+
+  "internationalizationEnabled": false,
+  "defaultLocale": "en",
+
+  "keycloakVersion": "24.0.5",
+  "userManagedAccessAllowed": false,
+
+  "eventsEnabled": true,
+  "eventsListeners": ["jboss-logging"],
+  "adminEventsEnabled": true
+}

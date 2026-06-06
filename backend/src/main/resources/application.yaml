@@ -1,0 +1,76 @@
+spring:
+  application:
+    name: school-fee-app
+
+  r2dbc:
+    username: schoolfee
+    password: ${SCHOOL_FEE_DB_PASSWORD:schoolfee_secret}
+    properties:
+      schema: auth,school,fee,payment,notification,outbox
+    url: r2dbc:postgresql://${DB_HOST:localhost}:5432/schoolfee_db?schema=
+    pool:
+      max-create-connection-time: 2s
+      initial-size: 5
+      max-size: 10
+
+  flyway:
+    user: fee_user
+    password: ${FLYWAY_DB_PASSWORD:fee_pwd}
+    url: jdbc:postgresql://${DB_HOST:localhost}:5432/schoolfee_db
+    enabled: true
+    locations: classpath:db/migration
+    schemas: auth,school,fee,payment,notification,outbox
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    out-of-order: false
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8081/realms/schoolfee
+          jwk-set-uri: http://localhost:8081/realms/schoolfee/protocol/openid-connect/certs
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.schoolfee: DEBUG
+    org.springframework.security: INFO
+
+notification:
+  sms:
+    provider: AFRICAS_TALKING
+    api-key: ${AFRICAS_TALKING_API_KEY:}
+    username: ${AFRICAS_TALKING_USERNAME:sandbox}
+    sender-id: ${AFRICAS_TALKING_SENDER_ID:SCHOOLFEE}
+    enabled: ${SMS_ENABLED:false}
+
+  whatsapp:
+    phone-number-id: ${WA_PHONE_NUMBER_ID:}
+    access-token: ${WA_ACCESS_TOKEN:}
+    business-account-id: ${WA_BUSINESS_ACCOUNT_ID:}
+    enabled: ${WHATSAPP_ENABLED:false}
+
+keycloak:
+  realm: schoolfee
+  auth-server-url: ${KEYCLOAK_URL:http://localhost:8081}
+  resource: schoolfee-backend
+  credentials:
+    secret: ${KEYCLOAK_CLIENT_SECRET:backend-secret-change-in-production}
+  bearer-only: true
+  principal-attribute: preferred_username
+
+  # Admin credentials for user management
+  admin:
+    username: ${KEYCLOAK_ADMIN_USER:admin}
+    password: ${KEYCLOAK_ADMIN_PASSWORD:admin123}
+    client-id: admin-cli
+
+payment:
+  paystack:
+    secret-key: ${PAYSTACK_SECRET_KEY:sk_test_default}
+    public-key: ${PAYSTACK_PUBLIC_KEY:pk_test_default}
+    base-url: https://api.paystack.co
+    callback-url: ${PAYSTACK_CALLBACK_URL:https://api.schoolfee.app/api/v1/webhooks/paystack/callback}

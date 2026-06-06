@@ -1,0 +1,174 @@
+name: Commit Stage
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: olanrewajufcb/school-fee-app/backend
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+
+    # PostgreSQL service container for integration tests
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: school_fee_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Code vulnerability scanning
+        uses: anchore/scan-action@v3
+        id: scan
+        with:
+          path: "${{ github.workspace }}"
+          fail-build: false
+          severity-cutoff: high
+          sarif: true
+
+      - name: Upload vulnerability report
+        uses: github/codeql-action/upload-sarif@v3
+        if: success() || failure()
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif}}
+
+      - name: Build, unit tests and integration tests
+        run: |
+          chmod +x ./gradlew
+          ./gradlew build jacocoTestCoverageVerification
+        env:
+          SPRING_R2DBC_URL: r2dbc:postgresql://localhost:5432/school_fee_test
+          SPRING_R2DBC_USERNAME: test_user
+          SPRING_R2DBC_PASSWORD: test_pass
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: build/test-results/**/TEST-*.xml
+          retention-days: 7
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v3
+        with:
+          file: build/reports/jacoco/test/jacocoTestReport.xml
+          fail_ci_if_error: false
+
+  package:
+    name: Package and Publish
+    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: [build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch full history for proper versioning
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Generate version tag
+        id: version
+        run: |
+          echo "VERSION=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          echo "GIT_REF=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_OUTPUT
+
+      - name: Build container image
+        run: |
+          chmod +x gradlew
+          ./gradlew bootBuildImage \
+            --imageName ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }} \
+            --buildpack io.buildpacks.spring-boot
+        
+      - name: Tag latest image
+        run: |
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: OCI image vulnerability scanning
+        uses: anchore/scan-action@v3
+        id: scan
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
+          fail-build: false
+          severity-cutoff: high
+          sarif: true
+      - name: Upload vulnerability report
+        uses: github/codeql-action/upload-sarif@v3
+        if: success() || failure()
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+
+      - name: Log into container registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish container image (versioned)
+        run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
+      
+      - name: Publish container image (latest)
+        run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
+          format: spdx-json
+          output-file: sbom.json
+      
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom.json
+          retention-days: 90
+

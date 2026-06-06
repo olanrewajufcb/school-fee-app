@@ -1,0 +1,29 @@
+spring:
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/school_fee_test
+    username: test_user
+    password: test_pass
+
+  flyway:
+    enabled: true
+    url: jdbc:postgresql://localhost:5432/school_fee_test  # JDBC for Flyway
+    user: test_user
+    password: test_pass
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  # Disable Kafka during tests if not needed
+  cloud:
+    stream:
+      kafka:
+        binder:
+          brokers: ${spring.embedded.kafka.brokers:localhost:9092}
+
+  # Test-specific logging
+  main:
+    allow-bean-definition-overriding: true
+
+logging:
+  level:
+    org.flywaydb: DEBUG
+    org.springframework.r2dbc: DEBUG
