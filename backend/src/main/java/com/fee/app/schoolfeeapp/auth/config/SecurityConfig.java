@@ -6,12 +6,15 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverterAdapter;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.ServerSecurityContextRepository;
+import org.springframework.core.convert.converter.Converter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsConfigurationSource;
 import org.springframework.web.cors.reactive.CorsWebFilter;
@@ -20,7 +23,11 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Configuration
 @EnableWebFluxSecurity
@@ -47,9 +54,20 @@ public class SecurityConfig {
                             // Public endpoints
                             .pathMatchers("/api/v1/auth/login").permitAll()
                             .pathMatchers("/api/v1/auth/keycloak-config").permitAll()
+                            .pathMatchers("/api/v1/auth/check-account").permitAll()
+                            .pathMatchers("/api/v1/auth/send-otp").permitAll()
+                            .pathMatchers("/api/v1/auth/verify-otp").permitAll()
+                            .pathMatchers("/api/v1/auth/set-password").permitAll()
                             .pathMatchers("/api/public/**").permitAll()
                             .pathMatchers("/api/health").permitAll()
                             .pathMatchers("/actuator/health").permitAll()
+                            // 1. Whitelist Swagger UI and OpenAPI docs
+                            .pathMatchers(
+                                    "/swagger-ui.html",
+                                    "/swagger-ui/**",
+                                    "/v3/api-docs/**",
+                                    "/webjars/**"
+                            ).permitAll()
 
                             // Webhook endpoints (no auth, IP whitelisted by gateway)
                             .pathMatchers("/api/v1/webhooks/**").permitAll()
@@ -82,15 +100,42 @@ public class SecurityConfig {
          */
         @Bean
         public ReactiveJwtAuthenticationConverterAdapter jwtAuthenticationConverter() {
-            JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter =
-                    new JwtGrantedAuthoritiesConverter();
-            grantedAuthoritiesConverter.setAuthoritiesClaimName("realm_access.roles");
-            grantedAuthoritiesConverter.setAuthorityPrefix("ROLE_");
-
             JwtAuthenticationConverter jwtConverter = new JwtAuthenticationConverter();
-            jwtConverter.setJwtGrantedAuthoritiesConverter(grantedAuthoritiesConverter);
+            jwtConverter.setJwtGrantedAuthoritiesConverter(new SchoolFeeJwtAuthoritiesConverter());
 
             return new ReactiveJwtAuthenticationConverterAdapter(jwtConverter);
+        }
+
+        /**
+         * Converts both Keycloak realm roles and the app-specific user_type claim
+         * into Spring Security ROLE_* authorities.
+         */
+        static class SchoolFeeJwtAuthoritiesConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
+            @Override
+            public Collection<GrantedAuthority> convert(Jwt jwt) {
+                Set<GrantedAuthority> authorities = new HashSet<>();
+
+                Object realmAccessClaim = jwt.getClaim("realm_access");
+                if (realmAccessClaim instanceof Map<?, ?> realmAccess) {
+                    Object rolesClaim = realmAccess.get("roles");
+                    if (rolesClaim instanceof Collection<?> roles) {
+                        roles.stream()
+                                .filter(String.class::isInstance)
+                                .map(String.class::cast)
+                                .filter(role -> !role.isBlank())
+                                .map(role -> role.startsWith("ROLE_") ? role : "ROLE_" + role)
+                                .map(SimpleGrantedAuthority::new)
+                                .forEach(authorities::add);
+                    }
+                }
+
+                String userType = jwt.getClaimAsString("user_type");
+                if (userType != null && !userType.isBlank()) {
+                    authorities.add(new SimpleGrantedAuthority("ROLE_" + userType));
+                }
+
+                return authorities;
+            }
         }
 
         /**

@@ -95,6 +95,7 @@ public class PaystackGateway implements PaymentGateway {
                             .gatewayTransactionRef(reference)
                             .status("PROCESSING")
                             .message("Paystack payment initialized. Redirect to: " + authorizationUrl)
+                            .authorizationUrl(authorizationUrl)
                             .rawResponse(response.toString())
                             .expiresInSeconds(3600) // Paystack gives 1 hour
                             .build());
@@ -189,88 +190,7 @@ public class PaystackGateway implements PaymentGateway {
                 && !secretKey.contains("default"));
     }
 
-    // ========================================================================
-    // ADDITIONAL PAYSTACK-SPECIFIC METHODS
-    // ========================================================================
 
-    /**
-     * Generate a checkout URL for hosted payment page.
-     * Useful for web-based payments where the parent is redirected to Paystack.
-     */
-    public Mono<String> getCheckoutUrl(UUID paymentId, BigDecimal amount, String email, String customerName) {
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("email", email);
-        body.put("amount", toKobo(amount));
-        body.put("currency", CURRENCY);
-        body.put("reference", paymentId.toString());
-        body.put("callback_url", callbackUrl);
-
-        ObjectNode metadata = objectMapper.createObjectNode();
-        metadata.put("payment_id", paymentId.toString());
-        body.set("metadata", metadata);
-
-        return webClient.post()
-                .uri(baseUrl + "/transaction/initialize")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + secretKey)
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .map(response -> response.path("data").path("authorization_url").asText());
-    }
-
-    /**
-     * List banks for bank transfer option.
-     */
-    public Mono<JsonNode> listBanks() {
-        return webClient.get()
-                .uri(baseUrl + "/bank?currency=" + CURRENCY)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + secretKey)
-                .retrieve()
-                .bodyToMono(JsonNode.class);
-    }
-
-    /**
-     * Resolve account number for bank transfer verification.
-     */
-    public Mono<JsonNode> resolveAccountNumber(String accountNumber, String bankCode) {
-        return webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path(baseUrl + "/bank/resolve")
-                        .queryParam("account_number", accountNumber)
-                        .queryParam("bank_code", bankCode)
-                        .build())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + secretKey)
-                .retrieve()
-                .bodyToMono(JsonNode.class);
-    }
-
-    /**
-     * Refund a payment.
-     */
-    public Mono<GatewayResponse> refund(String transactionReference, BigDecimal amount) {
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("transaction", transactionReference);
-
-        if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
-            body.put("amount", toKobo(amount));
-        }
-
-        return webClient.post()
-                .uri(baseUrl + "/refund")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + secretKey)
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .map(response -> GatewayResponse.builder()
-                        .gatewayTransactionRef(response.path("data").path("id").asText())
-                        .status(response.path("data").path("status").asText())
-                        .message(response.path("message").asText())
-                        .rawResponse(response.toString())
-                        .expiresInSeconds(0)
-                        .build());
-    }
 
     private long toKobo(BigDecimal amount) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {

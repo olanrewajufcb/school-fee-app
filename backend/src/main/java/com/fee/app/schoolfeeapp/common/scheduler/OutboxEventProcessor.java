@@ -14,11 +14,13 @@ import com.fee.app.schoolfeeapp.fee.domain.FeeCategory;
 import com.fee.app.schoolfeeapp.fee.repository.FeeCategoryRepository;
 import com.fee.app.schoolfeeapp.notification.domain.NotificationTemplate;
 import com.fee.app.schoolfeeapp.notification.repository.NotificationTemplateRepository;
+import com.fee.app.schoolfeeapp.notification.service.EmailService;
 import com.fee.app.schoolfeeapp.school.events.SchoolCreatedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.keycloak.representations.idm.UserRepresentation;
+import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -44,6 +46,7 @@ public class OutboxEventProcessor {
     private final UserRepository userRepository;
     private final NotificationTemplateRepository notificationTemplateRepository;
     private final FeeCategoryRepository feeCategoryRepository;
+    private final EmailService emailService;
 
     private static final int BATCH_SIZE = 50;
     private static final int MAX_RETRIES = 3;
@@ -167,7 +170,9 @@ public class OutboxEventProcessor {
 
             // Step 1: Create Keycloak user
             return createKeycloakStaffUser(payload)
-                    .flatMap(keycloakUserId -> {
+                    .flatMap(keycloakResult -> {
+                        UUID keycloakUserId = keycloakResult.userId();
+                        String tempPassword = keycloakResult.temporaryPassword();
                         log.info("Keycloak user created: keycloakId={}", keycloakUserId);
 
                         // Step 2: Update local user with Keycloak ID
@@ -175,7 +180,7 @@ public class OutboxEventProcessor {
                                 .doOnSuccess(updatedUser ->
                                         log.info("Local user updated with Keycloak ID: userId={}, keycloakId={}",
                                                 updatedUser.getId(), updatedUser.getKeycloakId()))
-                                .then(sendCredentialsEmail(keycloakUserId, payload));
+                                .then(sendStaffWelcomeEmail(tempPassword, payload));
                     })
                     .doOnSuccess(v -> log.info("Staff account setup completed: userId={}", payload.getUserId()))
                     .doOnError(e -> log.error("Failed to setup staff account: userId={}", payload.getUserId(), e));
@@ -187,25 +192,21 @@ public class OutboxEventProcessor {
     }
 
     /**
-     * Send credentials email via Keycloak.
+     * Send credentials welcome email to staff.
      */
-    private Mono<Void> sendCredentialsEmail(UUID keycloakUserId, StaffCreatedEvent payload) {
-                    return Mono.fromCallable(() -> {
-                                String keycloakIdStr = keycloakUserId.toString();
-                                keycloakAdminService.sendPasswordResetEmail(keycloakIdStr);
-                                log.info("Credentials email sent to: {}", payload.getEmail());
-                                return keycloakIdStr;
-                            })
-                            .subscribeOn(Schedulers.boundedElastic())
-                            .doOnError(ex -> log.error("Failed to send credentials email to: {}", payload.getEmail(), ex))
-                            .onErrorMap(ex -> new SchoolFeeException("Failed to send credentials email", ex))
-                            .then();
+    private Mono<Void> sendStaffWelcomeEmail(String tempPassword, StaffCreatedEvent payload) {
+        return emailService.sendStaffWelcomeEmail(
+                payload.getEmail(),
+                payload.getSchoolName() != null ? payload.getSchoolName() : "School",
+                tempPassword)
+            .doOnSuccess(v -> log.info("Staff welcome email sent: email={}", payload.getEmail()))
+            .doOnError(e -> log.error("Failed to send staff welcome email: email={}", payload.getEmail(), e));
     }
 
     /**
      * Create staff user in Keycloak.
      */
-    private Mono<UUID> createKeycloakStaffUser(StaffCreatedEvent payload) {
+    private Mono<KeycloakUserResult> createKeycloakStaffUser(StaffCreatedEvent payload) {
         UserRepresentation kcUser = new UserRepresentation();
         kcUser.setUsername(payload.getEmail());
         kcUser.setEmail(payload.getEmail());
@@ -303,31 +304,30 @@ public class OutboxEventProcessor {
   }
 
   private Mono<Void> sendAdminWelcomeEmail(SchoolCreatedEvent payload) {
-    if (payload.adminKeycloakId() == null) {
+    if (payload.adminEmail() == null || payload.adminTemporaryPassword() == null) {
       log.warn(
-          "Skipping admin welcome email because no admin Keycloak user exists yet: schoolId={}",
+          "Skipping admin welcome email because admin email or temporary password is missing: schoolId={}",
           payload.schoolId());
       return Mono.empty();
     }
 
-    return Mono.fromRunnable(
-            () -> keycloakAdminService.sendPasswordResetEmail(payload.adminKeycloakId().toString()))
-        .subscribeOn(Schedulers.boundedElastic())
+    return emailService.sendAdminWelcomeEmail(
+            payload.adminEmail(),
+            payload.schoolName(),
+            payload.adminTemporaryPassword())
         .doOnSuccess(
             v ->
                 log.info(
-                    "Admin welcome/password email sent: schoolId={}, adminKeycloakId={}",
+                    "Admin welcome email sent: schoolId={}, email={}",
                     payload.schoolId(),
-                    payload.adminKeycloakId()))
+                    payload.adminEmail()))
         .doOnError(
-            error ->
+            e ->
                 log.error(
-                    "Failed to send admin welcome/password email: schoolId={}, adminKeycloakId={}",
+                    "Failed to send admin welcome email: schoolId={}, email={}",
                     payload.schoolId(),
-                    payload.adminKeycloakId(),
-                    error))
-        .onErrorMap(error -> new SchoolFeeException("Failed to send admin welcome email", error))
-        .then();
+                    payload.adminEmail(),
+                    e));
   }
 
   private Mono<Void> createDefaultNotificationTemplates(UUID schoolId) {

@@ -26,13 +26,13 @@ public class NotificationLog {
   private String channel;
 
   @Column("total_sent")
-  private Integer totalSent = 0;
+  private Integer totalSent;
 
   @Column("total_delivered")
-  private Integer totalDelivered = 0;
+  private Integer totalDelivered;
 
   @Column("total_failed")
-  private Integer totalFailed = 0;
+  private Integer totalFailed;
 
   @Column("total_cost")
   private BigDecimal totalCost;

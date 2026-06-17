@@ -208,7 +208,7 @@ class ClassControllerIntegrationTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(validRequest(session.getId(), "Primary 1"))
                     .exchange()
-                    .expectStatus().isBadRequest()
+                    .expectStatus().isNotFound()
                     .expectBody()
                     .jsonPath("$.success").isEqualTo(false)
                     .jsonPath("$.errors[0].code").isEqualTo("SCHOOL_NOT_FOUND");
@@ -425,7 +425,7 @@ class ClassControllerIntegrationTest {
                     .get()
                     .uri("/api/v1/schools/current/classes")
                     .exchange()
-                    .expectStatus().isBadRequest()
+                    .expectStatus().isNotFound()
                     .expectBody()
                     .jsonPath("$.success").isEqualTo(false)
                     .jsonPath("$.errors[0].code").isEqualTo("SCHOOL_NOT_FOUND");
@@ -523,7 +523,7 @@ class ClassControllerIntegrationTest {
                     .get()
                     .uri("/api/v1/schools/current/classes/{classId}", cls.getId())
                     .exchange()
-                    .expectStatus().isBadRequest()
+                    .expectStatus().isNotFound()
                     .expectBody()
                     .jsonPath("$.success").isEqualTo(false)
                     .jsonPath("$.errors[0].code").isEqualTo("SCHOOL_NOT_FOUND");
@@ -689,7 +689,7 @@ class ClassControllerIntegrationTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(new UpdateClassRequest("Primary 1 Gold", null, null, null))
                     .exchange()
-                    .expectStatus().isBadRequest()
+                    .expectStatus().isNotFound()
                     .expectBody()
                     .jsonPath("$.success").isEqualTo(false)
                     .jsonPath("$.errors[0].code").isEqualTo("SCHOOL_NOT_FOUND");
@@ -846,7 +846,7 @@ class ClassControllerIntegrationTest {
                     .delete()
                     .uri("/api/v1/schools/current/classes/{classId}", cls.getId())
                     .exchange()
-                    .expectStatus().isBadRequest()
+                    .expectStatus().isNotFound()
                     .expectBody()
                     .jsonPath("$.success").isEqualTo(false)
                     .jsonPath("$.errors[0].code").isEqualTo("SCHOOL_NOT_FOUND");

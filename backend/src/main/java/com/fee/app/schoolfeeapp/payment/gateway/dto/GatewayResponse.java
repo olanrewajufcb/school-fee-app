@@ -11,6 +11,7 @@ public record GatewayResponse(
         String gatewayTransactionRef,
         String status,
         String message,
+        String authorizationUrl,
         String rawResponse,
         int expiresInSeconds
 ) {}

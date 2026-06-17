@@ -44,4 +44,9 @@ public interface ResultService {
     // Grading Rules
     Mono<GradingRuleResponse> configureGradingRules(GradingRuleRequest request);
     Mono<GradingRuleResponse> getGradingRules();
+
+    // Lookups
+    Mono<List<SubjectLookupResponse>> getSubjectsForClass(UUID classId);
+    Mono<List<CaComponentLookupResponse>> getCaComponents();
+    Mono<List<ExamLookupResponse>> getExamsForTerm(UUID termId);
 }

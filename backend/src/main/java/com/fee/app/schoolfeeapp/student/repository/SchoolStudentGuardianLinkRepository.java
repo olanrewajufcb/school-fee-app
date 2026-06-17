@@ -42,8 +42,9 @@ public interface SchoolStudentGuardianLinkRepository extends ReactiveCrudReposit
     @Query("""
         SELECT l.* FROM school.student_guardian_links l
         JOIN school.student_guardians g ON l.guardian_id = g.id
-        WHERE g.user_id = :userId AND l.student_id = :studentId
-          AND l.deleted_at IS NULL AND g.deleted_at IS NULL
+        JOIN auth.users u ON g.user_id = u.id
+        WHERE u.keycloak_id = :userId AND l.student_id = :studentId
+          AND l.deleted_at IS NULL AND g.deleted_at IS NULL AND u.deleted_at IS NULL
         """)
     Mono<StudentGuardianLink> findByGuardianUserIdAndStudentId(UUID userId, UUID studentId);
 
@@ -52,13 +53,15 @@ public interface SchoolStudentGuardianLinkRepository extends ReactiveCrudReposit
         FROM school.student_guardian_links l
         JOIN school.student_guardians g ON l.guardian_id = g.id
         JOIN school.students s ON s.id = l.student_id
-        WHERE g.user_id = :userId
+        JOIN auth.users u ON g.user_id = u.id
+        WHERE u.keycloak_id = :userId
           AND l.student_id = :studentId
           AND s.school_id = :schoolId
           AND l.can_view_fees = true
           AND l.deleted_at IS NULL
           AND g.deleted_at IS NULL
           AND s.deleted_at IS NULL
+          AND u.deleted_at IS NULL
         """)
     Mono<StudentGuardianLink> findFeeAccessByGuardianUserIdAndStudentIdAndSchoolId(
             UUID userId, UUID studentId, UUID schoolId);

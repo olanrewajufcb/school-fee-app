@@ -343,4 +343,61 @@ public class FeeReportingRepository {
             BigDecimal amount,
             int transactions) {
     }
+
+    public Flux<UUID> getOutstandingFeeIds(UUID schoolId, UUID termId, String filter, LocalDate today) {
+        String deadlineCondition = switch (filter.toUpperCase()) {
+            case "DUE_IN_3_DAYS" -> "sf.due_date = :dueInThreeDays";
+            case "DUE_TODAY" -> "sf.due_date = :today";
+            case "OVERDUE" -> "sf.due_date < :today";
+            default -> "1=1";
+        };
+
+        return databaseClient.sql(String.format("""
+                WITH payment_totals AS (
+                    SELECT
+                        le.student_fee_id,
+                        COALESCE(SUM(ABS(le.amount)), 0)::numeric AS collected
+                    FROM fee.ledger_entries le
+                    JOIN fee.student_fees sf ON sf.id = le.student_fee_id
+                    JOIN fee.fee_structures fs ON fs.id = sf.fee_structure_id
+                    WHERE sf.school_id = :schoolId
+                      AND fs.school_id = :schoolId
+                      AND fs.term_id = :termId
+                      AND fs.deleted_at IS NULL
+                      AND le.entry_type = 'PAYMENT'
+                      AND COALESCE(le.is_reversed, false) = false
+                      AND le.deleted_at IS NULL
+                    GROUP BY le.student_fee_id
+                ),
+                balances AS (
+                    SELECT
+                        sf.id AS student_fee_id,
+                        sf.due_date,
+                        GREATEST(
+                            GREATEST(
+                                sf.total_amount - COALESCE(sf.discount_amount, 0) + COALESCE(sf.late_fee_amount, 0),
+                                0::numeric
+                            ) - COALESCE(pt.collected, 0),
+                            0::numeric
+                        ) AS outstanding
+                    FROM fee.student_fees sf
+                    JOIN fee.fee_structures fs ON fs.id = sf.fee_structure_id
+                    LEFT JOIN payment_totals pt ON pt.student_fee_id = sf.id
+                    WHERE sf.school_id = :schoolId
+                      AND fs.school_id = :schoolId
+                      AND fs.term_id = :termId
+                      AND fs.deleted_at IS NULL
+                )
+                SELECT student_fee_id
+                FROM balances sf
+                WHERE outstanding > 0
+                  AND %s
+                """, deadlineCondition))
+                .bind("schoolId", schoolId)
+                .bind("termId", termId)
+                .bind("today", today)
+                .bind("dueInThreeDays", today.plusDays(3))
+                .map((row, metadata) -> row.get("student_fee_id", UUID.class))
+                .all();
+    }
 }

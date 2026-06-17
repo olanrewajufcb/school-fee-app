@@ -1,5 +1,6 @@
 package com.fee.app.schoolfeeapp.auth.util;
 
+import com.fee.app.schoolfeeapp.auth.config.SchoolIdContextFilter;
 import com.fee.app.schoolfeeapp.common.exceptions.UnauthorizedException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -37,11 +38,20 @@ public class JwtUtils {
     @SuppressWarnings("unchecked")
     public Set<String> getRoles(Jwt jwt) {
         Map<String, Object> realmAccess = jwt.getClaim("realm_access");
-        if (realmAccess == null) {
-            return Collections.emptySet();
+        Set<String> roles = new HashSet<>();
+        if (realmAccess != null) {
+            List<String> realmRoles = (List<String>) realmAccess.get("roles");
+            if (realmRoles != null) {
+                roles.addAll(realmRoles);
+            }
         }
-        List<String> roles = (List<String>) realmAccess.get("roles");
-        return roles != null ? new HashSet<>(roles) : Collections.emptySet();
+
+        String userType = getUserType(jwt);
+        if (userType != null && !userType.isBlank()) {
+            roles.add(userType);
+        }
+
+        return roles;
     }
     
 
@@ -56,13 +66,21 @@ public class JwtUtils {
                 .filter(Authentication::isAuthenticated)
                 .switchIfEmpty(Mono.error(
                         new UnauthorizedException("User not authenticated")))
-                .map(this::extractUserFromAuthentication);
+                .map(this::extractUserFromAuthentication)
+                .flatMap(user -> Mono.deferContextual(ctx -> {
+                    if (user.isSuperAdmin() && ctx.hasKey(SchoolIdContextFilter.SCHOOL_ID_KEY)) {
+                        user.setSchoolId(ctx.get(SchoolIdContextFilter.SCHOOL_ID_KEY));
+                    }
+                    return Mono.just(user);
+                }));
     }
     
     private SchoolFeeUser extractUserFromAuthentication(Authentication authentication) {
         if (authentication instanceof JwtAuthenticationToken jwtAuth) {
             Jwt jwt = jwtAuth.getToken();
-            
+
+            log.debug("Extracting user from JWT. All claims: {}", jwt.getClaims());
+
             return SchoolFeeUser.builder()
                     .userId(UUID.fromString(jwt.getSubject()))
                     .username(jwt.getClaimAsString("preferred_username"))

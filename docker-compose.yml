@@ -6,15 +6,16 @@ services:
     image: postgres:16-alpine
     container_name: schoolfee-db
     environment:
-      POSTGRES_DB: schoolfeedb
-      POSTGRES_USER: schoolfee_user
-      POSTGRES_PASSWORD: strong_db_password
+      POSTGRES_DB: schoolfee_db
+      POSTGRES_USER: sch_fee_user
+      POSTGRES_PASSWORD: sch_pwd
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backend/init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U schoolfee_user"]
+      test: ["CMD-SHELL", "pg_isready -U sch_fee_user"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -27,21 +28,23 @@ services:
     command: start-dev
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_URL: jdbc:postgresql://postgres:5432/sch_keycloak
       KC_DB_USERNAME: keycloak_user
       KC_DB_PASSWORD: keycloak_password
-      KC_HOSTNAME: localhost
+      KC_HOSTNAME_STRICT: false
       KC_HOSTNAME_PORT: 8081
-      KC_HTTP_PORT: 8081
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: strong_admin_password
+      KC_HTTP_ENABLED: true
+      KEYCLOAK_ADMIN: superadmin
+      KEYCLOAK_ADMIN_PASSWORD: Admin123!
     ports:
-      - "8081:8081"
+      - "8081:8080"
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - schoolfee-network
     volumes:
-      - ./keycloak/import:/opt/keycloak/data/import
+      - ./backend/keycloak/import:/opt/keycloak/data/import
     entrypoint: >
       /bin/sh -c "
       /opt/keycloak/bin/kc.sh start-dev --import-realm
@@ -55,15 +58,23 @@ services:
     container_name: schoolfee-backend
     environment:
       SPRING_PROFILES_ACTIVE: prod
-      DB_USERNAME: schoolfee_user
-      DB_PASSWORD: strong_db_password
+      DB_HOST: postgres
+      SCHOOL_FEE_DB_PASSWORD: sch_pwd
+      FLYWAY_DB_PASSWORD: sch_pwd
       JWT_SECRET: mySecureSecretKey1234567890
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/schoolfeedb
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_USER: superadmin
+      KEYCLOAK_ADMIN_PASSWORD: Admin123!
+      KEYCLOAK_CLIENT_SECRET: backend-secret-change-in-production
+      MAIL_HOST: mailhog
+      MAIL_PORT: 1025
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_started
     networks:
       - schoolfee-network
     restart: unless-stopped
@@ -89,10 +100,10 @@ services:
       - schoolfee-network
     restart: unless-stopped
 
-  # MailHog (for testing email notifications)
+  # Mailpit (modern MailHog replacement for testing email notifications, natively supports arm64)
   mailhog:
-    image: mailhog/mailhog:v1.0.1
-    container_name: schoolfee-mailhog
+    image: axllent/mailpit:latest
+    container_name: schoolfee-mailpit
     ports:
       - "1025:1025"  # SMTP
       - "8025:8025"  # Web UI
@@ -105,4 +116,4 @@ volumes:
 networks:
   schoolfee-network:
     driver: bridge
-    internal: true
+#    internal: true

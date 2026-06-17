@@ -3,19 +3,19 @@ spring:
     name: school-fee-app
 
   r2dbc:
-    username: schoolfee
-    password: ${SCHOOL_FEE_DB_PASSWORD:schoolfee_secret}
+    username: sch_fee_user
+    password: ${SCHOOL_FEE_DB_PASSWORD:sch_pwd}
     properties:
       schema: auth,school,fee,payment,notification,outbox
-    url: r2dbc:postgresql://${DB_HOST:localhost}:5432/schoolfee_db?schema=
+    url: r2dbc:postgresql://${DB_HOST:localhost}:5432/schoolfee_db
     pool:
       max-create-connection-time: 2s
       initial-size: 5
       max-size: 10
 
   flyway:
-    user: fee_user
-    password: ${FLYWAY_DB_PASSWORD:fee_pwd}
+    user: sch_fee_user
+    password: ${FLYWAY_DB_PASSWORD:sch_pwd}
     url: jdbc:postgresql://${DB_HOST:localhost}:5432/schoolfee_db
     enabled: true
     locations: classpath:db/migration
@@ -23,6 +23,18 @@ spring:
     baseline-on-migrate: true
     validate-on-migrate: true
     out-of-order: false
+
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${MAIL_SMTP_AUTH:false}
+          starttls:
+            enable: ${MAIL_SMTP_STARTTLS:false}
 
   security:
     oauth2:
@@ -36,16 +48,16 @@ server:
 
 logging:
   level:
-    com.schoolfee: DEBUG
+    com.fee.app.schoolfeeapp: DEBUG
     org.springframework.security: INFO
 
 notification:
   sms:
     provider: AFRICAS_TALKING
-    api-key: ${AFRICAS_TALKING_API_KEY:}
+    api-key: ${AFRICAS_TALKING_API_KEY:atsk_6fdf4d83564f871c7f00c41ba6f6abf58a541b4ccc56d23c4c6a9fb200f23680de05484e}
     username: ${AFRICAS_TALKING_USERNAME:sandbox}
     sender-id: ${AFRICAS_TALKING_SENDER_ID:SCHOOLFEE}
-    enabled: ${SMS_ENABLED:false}
+    enabled: ${SMS_ENABLED:true}
 
   whatsapp:
     phone-number-id: ${WA_PHONE_NUMBER_ID:}
@@ -64,13 +76,17 @@ keycloak:
 
   # Admin credentials for user management
   admin:
-    username: ${KEYCLOAK_ADMIN_USER:admin}
-    password: ${KEYCLOAK_ADMIN_PASSWORD:admin123}
+    username: ${KEYCLOAK_ADMIN_USER:superadmin}
+    password: ${KEYCLOAK_ADMIN_PASSWORD:Admin123!}
     client-id: admin-cli
 
 payment:
   paystack:
-    secret-key: ${PAYSTACK_SECRET_KEY:sk_test_default}
-    public-key: ${PAYSTACK_PUBLIC_KEY:pk_test_default}
+    secret-key: ${PAYSTACK_SECRET_KEY:sk_test_44e35083ad3aebf5a33ea349b4c62dc2b3a823ac}
+    public-key: ${PAYSTACK_PUBLIC_KEY:pk_test_f24d08f3095b7c18ebca8e06e57d5f9fb5ff81fd}
     base-url: https://api.paystack.co
-    callback-url: ${PAYSTACK_CALLBACK_URL:https://api.schoolfee.app/api/v1/webhooks/paystack/callback}
+    callback-url: ${PAYSTACK_CALLBACK_URL:https://reverb-impale-daytime.ngrok-free.dev/api/v1/webhooks/paystack/callback}
+
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:3000}
+

@@ -223,7 +223,7 @@ class ReceiptControllerIntegrationTest {
                 )
                 """)
                 .bind("userId", userId)
-                .bind("keycloakId", UUID.randomUUID())
+                .bind("keycloakId", userId)
                 .bind("schoolId", SCHOOL_ID)
                 .bind("email", email)
                 .bind("phone", "2348" + Math.abs(userId.hashCode()))

@@ -393,7 +393,7 @@ class ResultControllerIntegrationTest {
                 )
                 """)
                 .bind("userId", USER_ID)
-                .bind("keycloakId", UUID.randomUUID())
+                .bind("keycloakId", USER_ID)
                 .bind("schoolId", SCHOOL_ID)
                 .bind("email", "result-user@gis.edu")
                 .bind("userType", userType)

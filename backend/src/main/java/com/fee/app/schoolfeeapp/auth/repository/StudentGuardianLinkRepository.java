@@ -14,7 +14,8 @@ public interface StudentGuardianLinkRepository extends ReactiveCrudRepository<St
   @Query(
 """
 SELECT
-  s.id,
+  s.id as student_id,
+  l.guardian_id as guardian_id,
   s.first_name,
   s.last_name,
   s.admission_number,
@@ -26,20 +27,14 @@ SELECT
 FROM school.student_guardian_links l
 JOIN school.students s ON s.id = l.student_id
 LEFT JOIN school.classes c ON c.id = s.current_class_id
-WHERE l.guardian_id = :guardianId AND l.deletedAt = Null
+WHERE l.guardian_id = :guardianId AND l.deleted_at IS NULL
 """)
   Flux<StudentGuardianLinkProjection> findByGuardianIdAndDeletedAtIsNull(UUID guardianId);
 
   @Query(
 """
-SELECT
-  l.id,
-  l.relationship,
-  l.can_view_fees,
-  l.can_view_results,
-  l.can_view_attendance
-FROM school.student_guardian_links l
-WHERE l.deleted_at = null
+SELECT * FROM school.student_guardian_links l
+WHERE l.guardian_id = :guardianId AND l.deleted_at IS NULL
 """)
   Flux<StudentGuardianLink> findByGuardianId(UUID guardianId);
 

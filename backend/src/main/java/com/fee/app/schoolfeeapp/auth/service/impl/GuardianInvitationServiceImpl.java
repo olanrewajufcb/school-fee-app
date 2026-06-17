@@ -11,10 +11,12 @@ import com.fee.app.schoolfeeapp.notification.service.SmsService;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.Base64;
 import java.util.UUID;
 
 @Service
@@ -24,6 +26,9 @@ public class GuardianInvitationServiceImpl implements GuardianInvitationService 
 
     private final StudentGuardianRepository guardianRepository;
     private final SmsService smsService;
+
+    @Value("${app.frontend-url:https://schoolfee.app}")
+    private String frontendUrl;
 
     /**
      * Send invitation SMS to a single guardian.
@@ -93,11 +98,9 @@ public class GuardianInvitationServiceImpl implements GuardianInvitationService 
     }
 
     private String generateInvitationToken(StudentGuardian guardian) {
-        // Simple token: guardian_id + timestamp, hashed
-        // Phase 2: Use proper JWT-based invitation tokens with expiry
-        return UUID.nameUUIDFromBytes(
-                (guardian.getId().toString() + System.currentTimeMillis()).getBytes()
-        ).toString().substring(0, 12);
+        // Encode guardian ID + phone in the token
+        String raw = guardian.getId() + ":" + guardian.getPhone();
+        return Base64.getUrlEncoder().encodeToString(raw.getBytes()).substring(0, 12);
     }
 
     private String buildInvitationMessage(StudentGuardian guardian, String token) {
@@ -106,9 +109,10 @@ public class GuardianInvitationServiceImpl implements GuardianInvitationService 
         return String.format(
                 "Welcome %s! %s invites you to SchoolFee. " +
                 "Create your account to view fees and results: " +
-                "https://schoolfee.app/join/%s",
+                "%s/join/%s",
                 guardian.getFirstName(),
                 schoolName,
+                frontendUrl,
                 token
         );
     }

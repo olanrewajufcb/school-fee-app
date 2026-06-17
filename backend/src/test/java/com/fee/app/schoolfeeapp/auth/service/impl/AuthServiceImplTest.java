@@ -976,8 +976,8 @@ class AuthServiceImplTest {
             when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(superAdmin));
             when(userRepository.findByKeycloakIdAndDeletedAtIsNull(KEYCLOAK_ID))
                     .thenReturn(Mono.just(superAdminUser));
-            when(roleRepository.findByUserIdAndSchoolId(USER_ID, null)).thenReturn(Flux.empty());
-            when(roleRepository.findByUserIdAndSchoolIdAndRole(USER_ID, null, "SUPER_ADMIN"))
+            when(roleRepository.findByUserIdAndSchoolIdIsNull(USER_ID)).thenReturn(Flux.empty());
+            when(roleRepository.findByUserIdAndSchoolIdIsNullAndRole(USER_ID, "SUPER_ADMIN"))
                     .thenReturn(Mono.empty());
             when(roleRepository.save(any(UserSchoolRole.class)))
                     .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
@@ -993,6 +993,62 @@ class AuthServiceImplTest {
                         assertThat(profile.getSchoolName()).isNull();
                     })
                     .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should ignore stale school context when creating super admin profile")
+        void shouldIgnoreStaleSchoolContextWhenCreatingSuperAdminProfile() {
+            // Arrange
+            SchoolFeeUser superAdminWithStaleSchool = SchoolFeeUser.builder()
+                    .userId(KEYCLOAK_ID)
+                    .email("superadmin@example.com")
+                    .phoneNumber("+2348000000000")
+                    .firstName("Super")
+                    .lastName("Admin")
+                    .userType("SUPER_ADMIN")
+                    .schoolId(SCHOOL_ID)
+                    .schoolName(SCHOOL_NAME)
+                    .roles(Set.of("SUPER_ADMIN"))
+                    .build();
+
+            User createdSuperAdmin = User.builder()
+                    .id(USER_ID)
+                    .keycloakId(KEYCLOAK_ID)
+                    .schoolId(null)
+                    .email("superadmin@example.com")
+                    .phone("2348000000000")
+                    .firstName("Super")
+                    .lastName("Admin")
+                    .userType("SUPER_ADMIN")
+                    .isActive(true)
+                    .lastLogin(ZonedDateTime.now())
+                    .build();
+
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(superAdminWithStaleSchool));
+            when(userRepository.findByKeycloakIdAndDeletedAtIsNull(KEYCLOAK_ID))
+                    .thenReturn(Mono.empty());
+            when(userRepository.save(any(User.class))).thenReturn(Mono.just(createdSuperAdmin));
+            when(roleRepository.findByUserIdAndSchoolIdIsNull(USER_ID)).thenReturn(Flux.empty());
+            when(roleRepository.findByUserIdAndSchoolIdIsNullAndRole(USER_ID, "SUPER_ADMIN"))
+                    .thenReturn(Mono.empty());
+            when(roleRepository.save(any(UserSchoolRole.class)))
+                    .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+
+            // Act
+            Mono<UserProfileResponse> result = authService.getCurrentUserProfile();
+
+            // Assert
+            StepVerifier.create(result)
+                    .assertNext(profile -> {
+                        assertThat(profile.getUserType()).isEqualTo("SUPER_ADMIN");
+                        assertThat(profile.getSchoolId()).isNull();
+                        assertThat(profile.getSchoolName()).isNull();
+                    })
+                    .verifyComplete();
+
+            verify(userRepository).save(argThat(user -> user.getSchoolId() == null));
+            verify(roleRepository).save(argThat(role -> role.getSchoolId() == null));
+            verify(roleRepository, never()).findByUserIdAndSchoolId(eq(USER_ID), any());
         }
 
         @Test

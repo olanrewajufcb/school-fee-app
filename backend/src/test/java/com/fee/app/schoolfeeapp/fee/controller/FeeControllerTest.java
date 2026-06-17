@@ -187,6 +187,8 @@ class FeeControllerTest {
                 studentFeeId,
                 "Primary 1 Tuition",
                 "First Term",
+                true,
+                false,
                 List.of(new StudentFeeResponse.FeeItemDetail(
                         "Tuition",
                         BigDecimal.valueOf(10000),

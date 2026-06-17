@@ -1,5 +1,7 @@
 package com.fee.app.schoolfeeapp.fee.service.impl;
 
+import com.fee.app.schoolfeeapp.auth.domain.User;
+import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
 import com.fee.app.schoolfeeapp.auth.util.JwtUtils;
 import com.fee.app.schoolfeeapp.auth.util.SchoolFeeUser;
 import com.fee.app.schoolfeeapp.auth.domain.StudentGuardianLink;
@@ -85,6 +87,8 @@ class FeeServiceImplTest {
     private JwtUtils jwtUtils;
     @Mock
     private TransactionalOperator transactionalOperator;
+    @Mock
+    private UserRepository userRepository;
 
     private FeeServiceImpl feeService;
 
@@ -113,7 +117,11 @@ class FeeServiceImplTest {
                 sessionRepository,
                 termRepository,
                 jwtUtils,
-                transactionalOperator);
+                transactionalOperator,
+                userRepository);
+
+        org.mockito.Mockito.lenient().when(userRepository.findByKeycloakIdAndDeletedAtIsNull(USER_ID))
+                .thenReturn(Mono.just(User.builder().id(USER_ID).keycloakId(USER_ID).build()));
     }
 
     @Test

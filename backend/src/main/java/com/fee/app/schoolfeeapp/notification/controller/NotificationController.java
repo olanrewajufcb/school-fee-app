@@ -29,7 +29,7 @@ public class NotificationController {
     private final NotificationService notificationService;
 
     @GetMapping("/templates")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'ACCOUNTANT')")
     public Mono<ResponseEntity<ApiResponse<List<NotificationTemplateResponse>>>> getTemplates(
             @RequestParam(required = false) String channel) {
         return notificationService.getTemplates(channel)
@@ -37,7 +37,7 @@ public class NotificationController {
     }
 
     @PutMapping("/templates/{templateId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'ACCOUNTANT')")
     public Mono<ResponseEntity<ApiResponse<UpdateTemplateResponse>>> updateTemplate(
             @PathVariable UUID templateId,
             @Valid @RequestBody UpdateTemplateRequest request) {
@@ -46,7 +46,7 @@ public class NotificationController {
     }
 
     @GetMapping("/reminder-schedules")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'ACCOUNTANT')")
     public Mono<ResponseEntity<ApiResponse<List<ReminderScheduleResponse>>>> getReminderSchedules() {
         return notificationService.getReminderSchedules()
                 .map(response -> ResponseEntity.ok(ApiResponse.success(response)));
@@ -62,7 +62,7 @@ public class NotificationController {
     }
 
     @GetMapping("/balance")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'ACCOUNTANT')")
     public Mono<ResponseEntity<ApiResponse<NotificationBalanceResponse>>> getBalance() {
         return notificationService.getBalance()
                 .map(response -> ResponseEntity.ok(ApiResponse.success(response)));

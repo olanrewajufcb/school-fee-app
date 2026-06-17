@@ -1,7 +1,10 @@
 package com.fee.app.schoolfeeapp.fee.service.impl;
 
 
+import com.fee.app.schoolfeeapp.auth.domain.User;
+import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
 import com.fee.app.schoolfeeapp.auth.util.JwtUtils;
+import com.fee.app.schoolfeeapp.auth.util.SchoolFeeUser;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.fee.domain.*;
 import com.fee.app.schoolfeeapp.fee.dto.request.CreateFeeStructureRequest;
@@ -52,10 +55,19 @@ class FeeServiceImpl implements FeeService {
     private final TermRepository termRepository;
     private final JwtUtils jwtUtils;
     private final TransactionalOperator transactionalOperator;
+    private final UserRepository userRepository;
 
     // ========================================================================
     // CREATE FEE STRUCTURE
     // ========================================================================
+
+    private Mono<UUID> resolveLocalUserId(UUID keycloakUserId) {
+        return userRepository.findByKeycloakIdAndDeletedAtIsNull(keycloakUserId)
+                .map(User::getId)
+                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                        "USER_NOT_FOUND",
+                        "Logged-in user not found in the database")));
+    }
 
     @Override
     public Mono<CreateFeeStructureResponse> createFeeStructure(CreateFeeStructureRequest request) {
@@ -63,64 +75,65 @@ class FeeServiceImpl implements FeeService {
                 .flatMap(normalizedRequest -> jwtUtils.getCurrentUser()
                         .flatMap(user -> {
                     UUID schoolId = user.getSchoolId();
-                    UUID userId = user.getUserId();
+                    UUID keycloakUserId = user.getUserId();
 
-                    return transactionalOperator.transactional(
-                            validateCreateDependencies(schoolId, normalizedRequest)
-                                    .then(Mono.defer(() ->
-                                            structureRepository
-                                                    .existsActiveBySchoolIdAndTermIdAndNameIgnoreCase(
-                                                            schoolId,
-                                                            normalizedRequest.termId(),
-                                                            normalizedRequest.name())))
-                                    .flatMap(exists -> {
-                                        if (Boolean.TRUE.equals(exists)) {
-                                            return Mono.error(new SchoolFeeException(
-                                                    "DUPLICATE_FEE_STRUCTURE",
-                                                    "An active fee structure with this name already exists for the term",
-                                                    "name"));
-                                        }
-                                        return Mono.empty();
-                                    })
-                                    .then(Mono.defer(() -> {
-                                BigDecimal mandatoryAmount = calculateMandatoryAmount(normalizedRequest.items());
-                                BigDecimal totalAmount = calculateTotalAmount(normalizedRequest.items());
+                    return resolveLocalUserId(keycloakUserId)
+                            .flatMap(localUserId -> transactionalOperator.transactional(
+                                    validateCreateDependencies(schoolId, normalizedRequest)
+                                            .then(Mono.defer(() ->
+                                                    structureRepository
+                                                            .existsActiveBySchoolIdAndTermIdAndNameIgnoreCase(
+                                                                    schoolId,
+                                                                    normalizedRequest.termId(),
+                                                                    normalizedRequest.name())))
+                                            .flatMap(exists -> {
+                                                if (Boolean.TRUE.equals(exists)) {
+                                                    return Mono.error(new SchoolFeeException(
+                                                            "DUPLICATE_FEE_STRUCTURE",
+                                                            "An active fee structure with this name already exists for the term",
+                                                            "name"));
+                                                }
+                                                return Mono.empty();
+                                            })
+                                            .then(Mono.defer(() -> {
+                                        BigDecimal mandatoryAmount = calculateMandatoryAmount(normalizedRequest.items());
+                                        BigDecimal totalAmount = calculateTotalAmount(normalizedRequest.items());
 
-                                FeeStructure structure = FeeStructure.builder()
-                                        .id(UUID.randomUUID())
-                                        .schoolId(schoolId)
-                                        .name(normalizedRequest.name())
-                                        .academicSessionId(normalizedRequest.sessionId())
-                                        .termId(normalizedRequest.termId())
-                                        .totalAmount(totalAmount)
-                                        .dueDate(normalizedRequest.dueDate())
-                                        .lateFeePercentage(normalizedRequest.lateFeeConfig() != null
-                                                ? BigDecimal.valueOf(normalizedRequest.lateFeeConfig().percentageAmount())
-                                                : BigDecimal.ZERO)
-                                        .lateFeeFlatAmount(normalizedRequest.lateFeeConfig() != null
-                                                ? normalizedRequest.lateFeeConfig().flatAmount() : BigDecimal.ZERO)
-                                        .lateFeeAppliesAfterDays(normalizedRequest.lateFeeConfig() != null
-                                                ? normalizedRequest.lateFeeConfig().applyAfterDays() : 14)
-                                        .status("ACTIVE")
-                                        .createdBy(userId)
-                                        .build();
+                                        FeeStructure structure = FeeStructure.builder()
+                                                .id(UUID.randomUUID())
+                                                .schoolId(schoolId)
+                                                .name(normalizedRequest.name())
+                                                .academicSessionId(normalizedRequest.sessionId())
+                                                .termId(normalizedRequest.termId())
+                                                .totalAmount(totalAmount)
+                                                .dueDate(normalizedRequest.dueDate())
+                                                .lateFeePercentage(normalizedRequest.lateFeeConfig() != null
+                                                        ? BigDecimal.valueOf(normalizedRequest.lateFeeConfig().percentageAmount())
+                                                        : BigDecimal.ZERO)
+                                                .lateFeeFlatAmount(normalizedRequest.lateFeeConfig() != null
+                                                        ? normalizedRequest.lateFeeConfig().flatAmount() : BigDecimal.ZERO)
+                                                .lateFeeAppliesAfterDays(normalizedRequest.lateFeeConfig() != null
+                                                        ? normalizedRequest.lateFeeConfig().applyAfterDays() : 14)
+                                                .status("ACTIVE")
+                                                .createdBy(localUserId)
+                                                .build();
 
-                                return structureRepository.save(structure)
-                                                .flatMap(saved -> saveFeeItems(saved.getId(), normalizedRequest.items())
-                                                        .then(saveStructureClasses(saved.getId(), normalizedRequest.applicableToClassIds()))
-                                                        .then(countStudents(schoolId, normalizedRequest.applicableToClassIds()))
-                                                        .map(studentCount -> new CreateFeeStructureResponse(
-                                                                saved.getId(),
-                                                                saved.getName(),
-                                                                totalAmount,
-                                                                mandatoryAmount,
-                                                                normalizedRequest.applicableToClassIds().size(),
-                                                                studentCount,
-                                                                saved.getDueDate(),
-                                                                saved.getStatus(),
-                                                                saved.getCreatedAt())));
-                            }))
-                    );
+                                        return structureRepository.save(structure)
+                                                        .flatMap(saved -> saveFeeItems(saved.getId(), normalizedRequest.items())
+                                                                .then(saveStructureClasses(saved.getId(), normalizedRequest.applicableToClassIds()))
+                                                                .then(countStudents(schoolId, normalizedRequest.applicableToClassIds()))
+                                                                .map(studentCount -> new CreateFeeStructureResponse(
+                                                                        saved.getId(),
+                                                                        saved.getName(),
+                                                                        totalAmount,
+                                                                        mandatoryAmount,
+                                                                        normalizedRequest.applicableToClassIds().size(),
+                                                                        studentCount,
+                                                                        saved.getDueDate(),
+                                                                        saved.getStatus(),
+                                                                        saved.getCreatedAt())));
+                                    }))
+                            ));
                 }));
     }
 
@@ -150,32 +163,33 @@ class FeeServiceImpl implements FeeService {
                 .flatMap(id -> jwtUtils.getCurrentUser()
                         .flatMap(user -> {
                             UUID schoolId = user.getSchoolId();
-                            UUID userId = user.getUserId();
+                            UUID keycloakUserId = user.getUserId();
 
-                            return transactionalOperator.transactional(
-                                    structureRepository.findByIdAndSchoolIdForUpdate(id, schoolId)
-                                            .switchIfEmpty(Mono.error(new SchoolFeeException(
-                                                    "STRUCTURE_NOT_FOUND",
-                                                    "Fee structure not found or does not belong to your school")))
-                                            .flatMap(structure -> validateStructureCanAssign(structure)
-                                                    .then(Mono.defer(() -> structureClassRepository
-                                                            .findByFeeStructureId(id)
-                                                            .map(FeeStructureClass::getClassId)
-                                                            .collectList()))
-                                                    .flatMap(classIds -> {
-                                                        if (classIds.isEmpty()) {
-                                                            return Mono.error(new SchoolFeeException(
-                                                                    "NO_CLASSES_FOR_STRUCTURE",
-                                                                    "Fee structure has no applicable classes"));
-                                                        }
-                                                        return studentRepository
-                                                                .findActiveBySchoolIdAndCurrentClassIdIn(
-                                                                        schoolId, classIds)
-                                                                .collectList()
-                                                                .flatMap(students -> assignFeesToStudentBatch(
-                                                                        structure, students, userId));
-                                                    }))
-                            );
+                            return resolveLocalUserId(keycloakUserId)
+                                    .flatMap(localUserId -> transactionalOperator.transactional(
+                                            structureRepository.findByIdAndSchoolIdForUpdate(id, schoolId)
+                                                    .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                                            "STRUCTURE_NOT_FOUND",
+                                                            "Fee structure not found or does not belong to your school")))
+                                                    .flatMap(structure -> validateStructureCanAssign(structure)
+                                                            .then(Mono.defer(() -> structureClassRepository
+                                                                    .findByFeeStructureId(id)
+                                                                    .map(FeeStructureClass::getClassId)
+                                                                    .collectList()))
+                                                            .flatMap(classIds -> {
+                                                                if (classIds.isEmpty()) {
+                                                                    return Mono.error(new SchoolFeeException(
+                                                                            "NO_CLASSES_FOR_STRUCTURE",
+                                                                            "Fee structure has no applicable classes"));
+                                                                }
+                                                                return studentRepository
+                                                                        .findActiveBySchoolIdAndCurrentClassIdIn(
+                                                                                schoolId, classIds)
+                                                                        .collectList()
+                                                                        .flatMap(students -> assignFeesToStudentBatch(
+                                                                                structure, students, localUserId));
+                                                            }))
+                                    ));
                         }));
     }
 
@@ -249,15 +263,21 @@ class FeeServiceImpl implements FeeService {
     @Override
     public Mono<List<StudentFeeResponse>> getStudentFees(UUID studentId) {
         return Mono.fromCallable(() -> requireStudentId(studentId))
-                .flatMapMany(id -> jwtUtils.getCurrentUser()
-                        .flatMapMany(user -> verifyStudentFeeAccess(user, id)
-                                .thenMany(Flux.defer(() -> studentFeeRepository.findByStudentIdAndSchoolId(
-                                        id, user.getSchoolId())))))
-                .flatMap(this::toStudentFeeResponse)
-                .collectList();
+                .flatMap(id -> jwtUtils.getCurrentUser()
+                        .flatMap(user -> verifyStudentFeeAccess(user, id)
+                                .then(Mono.defer(() -> {
+                                    var flux = termRepository.findCurrentTermsBySchoolId(user.getSchoolId());
+                                    return (flux != null ? flux.next() : Mono.<Term>empty())
+                                            .map(Optional::of)
+                                            .defaultIfEmpty(Optional.empty());
+                                }))
+                                .flatMap(currentTermOpt -> studentFeeRepository.findByStudentIdAndSchoolId(
+                                                id, user.getSchoolId())
+                                        .flatMap(fee -> toStudentFeeResponse(fee, currentTermOpt.orElse(null)))
+                                        .collectList())));
     }
 
-    private Mono<Void> verifyStudentFeeAccess(com.fee.app.schoolfeeapp.auth.util.SchoolFeeUser user, UUID studentId) {
+    private Mono<Void> verifyStudentFeeAccess(SchoolFeeUser user, UUID studentId) {
         if (user.isParent()) {
             return verifyParentAccess(user.getUserId(), studentId, user.getSchoolId());
         }
@@ -290,6 +310,19 @@ class FeeServiceImpl implements FeeService {
                     UUID schoolId = user.getSchoolId();
                     return resolveDashboardTerm(schoolId, termId)
                             .flatMap(term -> buildDashboard(schoolId, term));
+                });
+    }
+
+    @Override
+    public Mono<List<UUID>> getOutstandingFeeIds(String termId, String filter) {
+        return jwtUtils.getCurrentUser()
+                .flatMap(user -> {
+                    UUID schoolId = user.getSchoolId();
+                    LocalDate today = LocalDate.now();
+                    return resolveDashboardTerm(schoolId, termId)
+                            .flatMapMany(term -> feeReportingRepository
+                                    .getOutstandingFeeIds(schoolId, term.getId(), filter, today))
+                            .collectList();
                 });
     }
 
@@ -823,6 +856,14 @@ class FeeServiceImpl implements FeeService {
     }
 
     private Mono<StudentFeeResponse> toStudentFeeResponse(StudentFee fee) {
+        var flux = termRepository.findCurrentTermsBySchoolId(fee.getSchoolId());
+        return (flux != null ? flux.next() : Mono.<Term>empty())
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty())
+                .flatMap(currentTermOpt -> toStudentFeeResponse(fee, currentTermOpt.orElse(null)));
+    }
+
+    private Mono<StudentFeeResponse> toStudentFeeResponse(StudentFee fee, Term currentTerm) {
         return structureRepository.findById(fee.getFeeStructureId())
                 .flatMap(structure -> Mono.zip(
                         itemRepository.findByFeeStructureIdOrderBySortOrderAsc(structure.getId())
@@ -832,18 +873,37 @@ class FeeServiceImpl implements FeeService {
                                         Boolean.TRUE.equals(item.getIsMandatory())))
                                 .collectList(),
                         termRepository.findById(structure.getTermId())
-                                .map(Term::getName)
-                                .defaultIfEmpty("Unknown"),
+                                .defaultIfEmpty(Term.builder().name("Unknown").build()),
                         ledgerEntryRepository.findByStudentFeeIdOrderByCreatedAtAsc(fee.getId())
                                 .collectList()
                 ).map(tuple -> {
                     StudentFeeFinancialSummary summary = calculateStudentFeeFinancialSummary(fee, tuple.getT3());
                     long daysUntilDue = ChronoUnit.DAYS.between(LocalDate.now(), fee.getDueDate());
 
+                    Term term = tuple.getT2();
+                    boolean isCurrent = false;
+                    boolean isUpcoming = false;
+                    if (term.getId() != null) {
+                        if (Boolean.TRUE.equals(term.getIsCurrent())) {
+                            isCurrent = true;
+                        } else if (currentTerm != null) {
+                            if (term.getStartDate() != null && currentTerm.getStartDate() != null
+                                    && term.getStartDate().isAfter(currentTerm.getStartDate())) {
+                                isUpcoming = true;
+                            }
+                        } else {
+                            if (term.getStartDate() != null && term.getStartDate().isAfter(LocalDate.now())) {
+                                isUpcoming = true;
+                            }
+                        }
+                    }
+
                     return new StudentFeeResponse(
                             fee.getId(),
                             structure.getName(),
-                            tuple.getT2(),
+                            term.getName(),
+                            isCurrent,
+                            isUpcoming,
                             tuple.getT1(),
                             fee.getTotalAmount(),
                             Optional.ofNullable(fee.getDiscountAmount()).orElse(BigDecimal.ZERO),

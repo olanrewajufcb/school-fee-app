@@ -42,8 +42,8 @@ export const RouteGuard: React.FC<RouteGuardProps> = ({
     }
 
     // Check user types
-    if (requiredUserTypes && requiredUserTypes.length > 0 && user) {
-        if (!requiredUserTypes.includes(user.userType)) {
+    if (requiredUserTypes && requiredUserTypes.length > 0) {
+        if (!user || !requiredUserTypes.includes(user.userType)) {
             return <Navigate to="/unauthorized" replace />;
         }
     }

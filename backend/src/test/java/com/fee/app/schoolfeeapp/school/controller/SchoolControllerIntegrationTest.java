@@ -4,6 +4,8 @@ import com.fee.app.schoolfeeapp.auth.dto.request.CreateStaffRequest;
 import com.fee.app.schoolfeeapp.auth.service.impl.KeycloakAdminServiceImpl;
 import com.fee.app.schoolfeeapp.school.domain.AcademicSession;
 import com.fee.app.schoolfeeapp.school.domain.School;
+import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
+import com.fee.app.schoolfeeapp.common.domain.OutboxEvent;
 import com.fee.app.schoolfeeapp.school.domain.Term;
 import com.fee.app.schoolfeeapp.school.dto.request.CloseSessionRequest;
 import com.fee.app.schoolfeeapp.school.dto.request.CreateAcademicSessionRequest;
@@ -125,7 +127,7 @@ class SchoolControllerIntegrationTest {
         void shouldCreateSchoolSessionTermsAndOutboxEvent() {
             CreateSchoolRequest request = validCreateSchoolRequest("GIS");
             when(keycloakAdminService.createStaffUser(any(CreateStaffRequest.class), any(UUID.class), eq(request.name())))
-                    .thenReturn(Mono.just(ADMIN_KEYCLOAK_ID));
+                    .thenReturn(Mono.just(new KeycloakUserResult(ADMIN_KEYCLOAK_ID, "tempPassword")));
 
             superAdminClient()
                     .post()
@@ -321,7 +323,7 @@ class SchoolControllerIntegrationTest {
                     .get()
                     .uri("/api/v1/schools/current")
                     .exchange()
-                    .expectStatus().isBadRequest()
+                    .expectStatus().isNotFound()
                     .expectBody()
                     .jsonPath("$.success").isEqualTo(false)
                     .jsonPath("$.errors[0].code").isEqualTo("SCHOOL_NOT_FOUND");
@@ -1427,6 +1429,28 @@ class SchoolControllerIntegrationTest {
         }
 
         @Test
+        @DisplayName("Should deactivate school for super admin using PUT")
+        void shouldDeactivateSchoolForSuperAdminUsingPut() {
+            seedSchoolWithCurrentTerm();
+
+            superAdminClient()
+                    .put()
+                    .uri("/api/v1/schools/{schoolId}/deactivate", SCHOOL_ID)
+                    .exchange()
+                    .expectStatus().isOk()
+                    .expectBody()
+                    .jsonPath("$.success").isEqualTo(true)
+                    .jsonPath("$.data").doesNotExist();
+
+            assertThat(fetchOne("""
+                    SELECT is_active
+                    FROM school.schools
+                    WHERE id = :schoolId
+                    """, Map.of("schoolId", SCHOOL_ID)))
+                    .containsEntry("is_active", false);
+        }
+
+        @Test
         @DisplayName("Should reject deactivation for non-super-admin user")
         void shouldRejectDeactivationForNonSuperAdminUser() {
             seedSchoolWithCurrentTerm();
@@ -1445,7 +1469,7 @@ class SchoolControllerIntegrationTest {
                     .patch()
                     .uri("/api/v1/schools/{schoolId}/deactivate", SCHOOL_ID)
                     .exchange()
-                    .expectStatus().isBadRequest()
+                    .expectStatus().isNotFound()
                     .expectBody()
                     .jsonPath("$.success").isEqualTo(false)
                     .jsonPath("$.errors[0].code").isEqualTo("SCHOOL_NOT_FOUND");

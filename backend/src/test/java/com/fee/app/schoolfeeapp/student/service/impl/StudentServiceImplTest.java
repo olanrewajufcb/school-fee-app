@@ -22,6 +22,7 @@ import com.fee.app.schoolfeeapp.student.dto.response.StudentListResponse;
 import com.fee.app.schoolfeeapp.student.dto.response.UpdateStudentResponse;
 import com.fee.app.schoolfeeapp.student.repository.SchoolStudentGuardianLinkRepository;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
+import com.fee.app.schoolfeeapp.fee.service.FeeService;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -75,6 +76,9 @@ class StudentServiceImplTest {
     @Mock
     private TransactionalOperator transactionalOperator;
 
+    @Mock
+    private FeeService feeService;
+
     private StudentServiceImpl studentService;
 
     private static final UUID SCHOOL_ID = UUID.fromString("b2c3d4e5-f6a7-8901-bcde-f12345678901");
@@ -96,7 +100,8 @@ class StudentServiceImplTest {
                 guardianRepository,
                 guardianLinkRepository,
                 jwtUtils,
-                transactionalOperator);
+                transactionalOperator,
+                feeService);
     }
 
     @Test
@@ -450,6 +455,7 @@ class StudentServiceImplTest {
         when(guardianLinkRepository.findActiveByStudentId(STUDENT_ID)).thenReturn(Flux.just(link));
         when(guardianRepository.findByIdAndDeletedAtIsNull(GUARDIAN_ID)).thenReturn(Mono.just(guardian));
         when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(activeClass(30)));
+        when(feeService.getStudentFees(STUDENT_ID)).thenReturn(Mono.just(List.of()));
 
         StepVerifier.create(studentService.getStudentDetails(STUDENT_ID))
                 .assertNext(response -> {
@@ -504,7 +510,7 @@ class StudentServiceImplTest {
     @DisplayName("Should get my children for parent and keep child when class is missing")
     void shouldGetMyChildrenForParentAndKeepChildWhenClassIsMissing() {
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
-        when(guardianRepository.findByUserIdAndDeletedAtIsNull(PARENT_USER_ID)).thenReturn(Mono.just(guardian()));
+        when(guardianRepository.findByKeycloakId(PARENT_USER_ID)).thenReturn(Mono.just(guardian()));
         when(guardianLinkRepository.findByGuardianIdAndDeletedAtIsNull(GUARDIAN_ID))
                 .thenReturn(Flux.just(guardianLink(true)));
         when(studentRepository.findByIdAndDeletedAtIsNull(STUDENT_ID)).thenReturn(Mono.just(student("ACTIVE")));
@@ -533,7 +539,7 @@ class StudentServiceImplTest {
                 })
                 .verify();
 
-        verify(guardianRepository, never()).findByUserIdAndDeletedAtIsNull(any(UUID.class));
+        verify(guardianRepository, never()).findByKeycloakId(any(UUID.class));
     }
 
     @Test

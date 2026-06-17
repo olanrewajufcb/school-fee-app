@@ -52,6 +52,8 @@ class GuardianInvitationServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                guardianInvitationService, "frontendUrl", "https://schoolfee.app");
         // Guardian without linked account (userId is null)
         guardianWithoutAccount = StudentGuardian.builder()
                 .id(GUARDIAN_ID)

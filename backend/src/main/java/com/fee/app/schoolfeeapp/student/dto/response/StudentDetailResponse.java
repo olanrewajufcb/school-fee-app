@@ -17,7 +17,8 @@ public record StudentDetailResponse(
         LocalDate enrollmentDate,
         String status,
         List<ParentInfo> parents,
-        FeeSummary feeSummary,
+        FeeSummary currentTermFeeSummary,
+        FeeSummary upcomingTermFeeSummary,
         String medicalNotes,
         String profilePhotoUrl
 ) {
@@ -30,6 +31,7 @@ public record StudentDetailResponse(
 
     public record ParentInfo(
             UUID userId,
+            UUID guardianId,
             String name,
             String phoneNumber,
             String relationship,
@@ -37,7 +39,8 @@ public record StudentDetailResponse(
     ) {}
 
     public record FeeSummary(
-            BigDecimal currentTermFee,
+            String termName,
+            BigDecimal totalFee,
             BigDecimal amountPaid,
             BigDecimal balance,
             String status,

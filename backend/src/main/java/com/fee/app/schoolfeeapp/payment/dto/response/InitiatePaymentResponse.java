@@ -9,6 +9,7 @@ public record InitiatePaymentResponse(
         String paymentMethod,
         BigDecimal amount,
         String gatewayMessage,
+        String authorizationUrl,
         String checkoutRequestId,
         int expiresInSeconds
 ) {}

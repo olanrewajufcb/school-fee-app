@@ -1,5 +1,7 @@
 package com.fee.app.schoolfeeapp.payment.service.impl;
 
+import com.fee.app.schoolfeeapp.auth.domain.User;
+import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
 import com.fee.app.schoolfeeapp.auth.domain.StudentGuardianLink;
 import com.fee.app.schoolfeeapp.auth.util.JwtUtils;
 import com.fee.app.schoolfeeapp.auth.util.SchoolFeeUser;
@@ -8,6 +10,7 @@ import com.fee.app.schoolfeeapp.fee.domain.LedgerEntry;
 import com.fee.app.schoolfeeapp.fee.domain.StudentFee;
 import com.fee.app.schoolfeeapp.fee.repository.LedgerEntryRepository;
 import com.fee.app.schoolfeeapp.fee.repository.StudentFeeRepository;
+import com.fee.app.schoolfeeapp.fee.repository.FeeStructureRepository;
 import com.fee.app.schoolfeeapp.payment.domain.Payment;
 import com.fee.app.schoolfeeapp.payment.domain.PaymentAllocation;
 import com.fee.app.schoolfeeapp.payment.domain.Receipt;
@@ -78,6 +81,10 @@ class PaymentServiceImplTest {
     private PaymentGatewaySelector gatewaySelector;
     @Mock
     private PaymentGateway paymentGateway;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private FeeStructureRepository feeStructureRepository;
 
     private PaymentServiceImpl paymentService;
 
@@ -98,7 +105,12 @@ class PaymentServiceImplTest {
                 guardianLinkRepository,
                 jwtUtils,
                 transactionalOperator,
-                gatewaySelector);
+                gatewaySelector,
+                userRepository,
+                feeStructureRepository);
+
+        org.mockito.Mockito.lenient().when(userRepository.findByKeycloakIdAndDeletedAtIsNull(PARENT_USER_ID))
+                .thenReturn(Mono.just(User.builder().id(PARENT_USER_ID).keycloakId(PARENT_USER_ID).build()));
     }
 
     @Test

@@ -1,9 +1,12 @@
 package com.fee.app.schoolfeeapp.result.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fee.app.schoolfeeapp.common.dto.ApiResponse;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.result.dto.request.CaConfigRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.ExamScoreRequest;
+import com.fee.app.schoolfeeapp.result.dto.request.GradingRuleRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.RecomputeRankingsRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.ReportCardRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.CommentRequest;
@@ -13,11 +16,15 @@ import com.fee.app.schoolfeeapp.result.dto.response.ReportCommentResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.CaScoreRequest;
 import com.fee.app.schoolfeeapp.result.dto.response.CaScoreResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.ExamScoreResponse;
+import com.fee.app.schoolfeeapp.result.dto.response.GradingRuleResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.MyChildResultResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.PublishResultResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.StudentResultResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.UpdateScoreRequest;
 import com.fee.app.schoolfeeapp.result.dto.response.UpdateScoreResponse;
+import com.fee.app.schoolfeeapp.result.dto.response.SubjectLookupResponse;
+import com.fee.app.schoolfeeapp.result.dto.response.CaComponentLookupResponse;
+import com.fee.app.schoolfeeapp.result.dto.response.ExamLookupResponse;
 import com.fee.app.schoolfeeapp.result.service.ResultService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -248,7 +255,7 @@ class ResultControllerTest {
     @DisplayName("Should get my children results successfully")
     void shouldGetMyChildrenResultsSuccessfully() {
         List<MyChildResultResponse> serviceResponse = List.of(
-                new MyChildResultResponse(UUID.randomUUID(), null, null, null, null, null, List.of()));
+                new MyChildResultResponse(UUID.randomUUID(), null, null, null, null, null, null, List.of()));
         when(resultService.getMyChildrenResults()).thenReturn(Mono.just(serviceResponse));
 
         StepVerifier.create(resultController.getMyChildrenResults())
@@ -508,5 +515,142 @@ class ResultControllerTest {
                 .verify();
 
         verify(resultService).unpublishResults(termId);
+    }
+
+    @Test
+    @DisplayName("Should get grading rules successfully")
+    void shouldGetGradingRulesSuccessfully() {
+        GradingRuleResponse serviceResponse = new GradingRuleResponse(
+                UUID.randomUUID(), 3, "Current grading rules");
+        when(resultService.getGradingRules()).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(resultController.getGradingRules())
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    ApiResponse<GradingRuleResponse> body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(resultService).getGradingRules();
+    }
+
+    @Test
+    @DisplayName("Should propagate grading rules errors")
+    void shouldPropagateGradingRulesErrors() {
+        SchoolFeeException expectedError = new SchoolFeeException(
+                "SCHOOL_CONTEXT_REQUIRED", "A school context is required");
+        when(resultService.getGradingRules()).thenReturn(Mono.error(expectedError));
+
+        StepVerifier.create(resultController.getGradingRules())
+                .expectErrorSatisfies(error -> assertThat(error).isSameAs(expectedError))
+                .verify();
+
+        verify(resultService).getGradingRules();
+    }
+
+    @Test
+    @DisplayName("Should configure grading rules successfully")
+    void shouldConfigureGradingRulesSuccessfully() throws JsonProcessingException {
+        GradingRuleRequest request = new GradingRuleRequest(
+                new ObjectMapper().readTree("[{\"grade\":\"A\"}]"));
+        GradingRuleResponse serviceResponse = new GradingRuleResponse(
+                UUID.randomUUID(), 1, "Grading rules updated");
+        when(resultService.configureGradingRules(request)).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(resultController.configureGradingRules(request))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    ApiResponse<GradingRuleResponse> body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(resultService).configureGradingRules(request);
+    }
+
+    @Test
+    @DisplayName("Should propagate configure grading rules errors")
+    void shouldPropagateConfigureGradingRulesErrors() throws JsonProcessingException {
+        GradingRuleRequest request = new GradingRuleRequest(
+                new ObjectMapper().readTree("[{\"grade\":\"A\"}]"));
+        SchoolFeeException expectedError = new SchoolFeeException(
+                "SCHOOL_CONTEXT_REQUIRED", "A school context is required");
+        when(resultService.configureGradingRules(request)).thenReturn(Mono.error(expectedError));
+
+        StepVerifier.create(resultController.configureGradingRules(request))
+                .expectErrorSatisfies(error -> assertThat(error).isSameAs(expectedError))
+                .verify();
+
+        verify(resultService).configureGradingRules(request);
+    }
+
+    @Test
+    @DisplayName("Should get subjects for class successfully")
+    void shouldGetSubjectsForClassSuccessfully() {
+        UUID classId = UUID.randomUUID();
+        List<SubjectLookupResponse> serviceResponse = List.of(
+                new SubjectLookupResponse(UUID.randomUUID(), "Mathematics", "MTH101")
+        );
+        when(resultService.getSubjectsForClass(classId)).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(resultController.getSubjectsForClass(classId))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    ApiResponse<List<SubjectLookupResponse>> body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(resultService).getSubjectsForClass(classId);
+    }
+
+    @Test
+    @DisplayName("Should get CA components successfully")
+    void shouldGetCaComponentsSuccessfully() {
+        List<CaComponentLookupResponse> serviceResponse = List.of(
+                new CaComponentLookupResponse(UUID.randomUUID(), "Test component", 20)
+        );
+        when(resultService.getCaComponents()).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(resultController.getCaComponents())
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    ApiResponse<List<CaComponentLookupResponse>> body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(resultService).getCaComponents();
+    }
+
+    @Test
+    @DisplayName("Should get exams for term successfully")
+    void shouldGetExamsForTermSuccessfully() {
+        UUID termId = UUID.randomUUID();
+        List<ExamLookupResponse> serviceResponse = List.of(
+                new ExamLookupResponse(UUID.randomUUID(), "Mid Term Exam", 40)
+        );
+        when(resultService.getExamsForTerm(termId)).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(resultController.getExamsForTerm(termId))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    ApiResponse<List<ExamLookupResponse>> body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(resultService).getExamsForTerm(termId);
     }
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { paymentsApi, feesApi } from '@/services/api';
+import { paymentsApi } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -98,15 +98,6 @@ export function Payments() {
     }
   };
 
-  const handleRecordFeePayment = async (studentFeeId: string, amount: string) => {
-    try {
-      await feesApi.recordPayment(parseInt(studentFeeId), amount);
-      toast.success('Fee payment recorded');
-    } catch (error) {
-      toast.error('Failed to record fee payment');
-      console.error(error);
-    }
-  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {

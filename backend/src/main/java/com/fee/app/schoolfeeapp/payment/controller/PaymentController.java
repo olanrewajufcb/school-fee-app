@@ -47,7 +47,7 @@ public class PaymentController {
     }
 
     @GetMapping("/history")
-    @PreAuthorize("hasRole('PARENT')")
+    @PreAuthorize("hasAnyRole('PARENT', 'SCHOOL_ADMIN', 'ACCOUNTANT', 'SUPER_ADMIN')")
     public Mono<ResponseEntity<ApiResponse<PageResponse<PaymentHistoryResponse>>>> getPaymentHistory(
             @RequestParam(required = false) UUID studentId,
             @RequestParam(defaultValue = "0") int page,

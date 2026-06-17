@@ -45,12 +45,17 @@ public class AuthServiceImpl implements AuthService {
      */
     public Mono<UserProfileResponse> getCurrentUserProfile() {
         return jwtUtils.getCurrentUser()
-                .flatMap(jwtUser -> transactionalOperator.transactional(
-                        getOrCreateUser(jwtUser)
-                                .flatMap(this::touchLastLogin)
-                                .flatMap(dbUser -> syncRolesFromJwt(dbUser, jwtUser))
-                                .flatMap(dbUser -> enrichWithGuardianData(dbUser, jwtUser))
-                ));
+                .flatMap(jwtUser -> {
+                    log.info("Getting current user profile for userId: {}", jwtUser.getUserId());
+                    log.debug("JWT user: {}", jwtUser);
+                    // getOrCreateUser runs OUTSIDE the transaction so that DuplicateKeyException
+                    // recovery (re-fetch) doesn't hit an aborted PostgreSQL transaction.
+                    return getOrCreateUser(jwtUser)
+                            .flatMap(dbUser -> transactionalOperator.transactional(
+                                    touchLastLogin(dbUser)
+                                            .flatMap(u -> syncRolesFromJwt(u, jwtUser))
+                                            .flatMap(u -> enrichWithGuardianData(u, jwtUser))));
+                });
     }
 
     /**
@@ -87,7 +92,12 @@ public class AuthServiceImpl implements AuthService {
             return Mono.just(dbUser);
         }
 
-        return roleRepository.findByUserIdAndSchoolId(dbUser.getId(), jwtUser.getSchoolId())
+        UUID effectiveSchoolId = jwtUser.isSuperAdmin() ? null : jwtUser.getSchoolId();
+        Flux<UserSchoolRole> existingRolesFlux = effectiveSchoolId == null
+                ? roleRepository.findByUserIdAndSchoolIdIsNull(dbUser.getId())
+                : roleRepository.findByUserIdAndSchoolId(dbUser.getId(), effectiveSchoolId);
+
+        return existingRolesFlux
                 .map(UserSchoolRole::getRole)
                 .collect(Collectors.toSet())
                 .flatMap(existingRoles -> {
@@ -113,9 +123,13 @@ public class AuthServiceImpl implements AuthService {
             return Mono.empty();
         }
 
+        UUID effectiveSchoolId = jwtUser.isSuperAdmin() ? null : jwtUser.getSchoolId();
         return Flux.fromIterable(rolesToAdd)
-                .flatMap(role -> roleRepository
-                        .findByUserIdAndSchoolIdAndRole(dbUser.getId(), jwtUser.getSchoolId(), role)
+                .flatMap(role -> {
+                    Mono<UserSchoolRole> existingRoleMono = effectiveSchoolId == null
+                            ? roleRepository.findByUserIdAndSchoolIdIsNullAndRole(dbUser.getId(), role)
+                            : roleRepository.findByUserIdAndSchoolIdAndRole(dbUser.getId(), effectiveSchoolId, role);
+                    return existingRoleMono
                         .flatMap(existing -> {
                             if (Boolean.FALSE.equals(existing.getIsActive())) {
                                 existing.setIsActive(true);
@@ -125,16 +139,15 @@ public class AuthServiceImpl implements AuthService {
                         })
                         .switchIfEmpty(Mono.defer(() -> {
                             UserSchoolRole newRole = UserSchoolRole.builder()
-                                    .id(UUID.randomUUID())
                                     .userId(dbUser.getId())
-                                    .schoolId(jwtUser.getSchoolId())
+                                    .schoolId(effectiveSchoolId)
                                     .role(role)
                                     .assignedBy(dbUser.getId())
                                     .isActive(true)
                                     .build();
                             return roleRepository.save(newRole);
-                        }))
-                )
+                        }));
+                })
                 .then()
                 .doOnSuccess(v -> log.debug("Added {} roles for user {}", rolesToAdd.size(), dbUser.getId()));
     }
@@ -147,14 +160,18 @@ public class AuthServiceImpl implements AuthService {
             return Mono.empty();
         }
 
+        UUID effectiveSchoolId = jwtUser.isSuperAdmin() ? null : jwtUser.getSchoolId();
         return Flux.fromIterable(rolesToRemove)
-                .flatMap(role -> roleRepository
-                        .findByUserIdAndSchoolIdAndRoleAndIsActiveTrue(dbUser.getId(), jwtUser.getSchoolId(), role)
+                .flatMap(role -> {
+                    Mono<UserSchoolRole> existingRoleMono = effectiveSchoolId == null
+                            ? roleRepository.findByUserIdAndSchoolIdIsNullAndRoleAndIsActiveTrue(dbUser.getId(), role)
+                            : roleRepository.findByUserIdAndSchoolIdAndRoleAndIsActiveTrue(dbUser.getId(), effectiveSchoolId, role);
+                    return existingRoleMono
                         .flatMap(existing -> {
                             existing.setIsActive(false);
                             return roleRepository.save(existing);
-                        })
-                )
+                        });
+                })
                 .then()
                 .doOnSuccess(v -> log.debug("Deactivated {} roles for user {}", rolesToRemove.size(), dbUser.getId()));
     }
@@ -166,9 +183,8 @@ public class AuthServiceImpl implements AuthService {
         log.info("Creating user record for Keycloak ID: {}", jwtUser.getUserId());
 
         User newUser = User.builder()
-                .id(UUID.randomUUID())
                 .keycloakId(jwtUser.getUserId())
-                .schoolId(jwtUser.getSchoolId())
+                .schoolId(jwtUser.isSuperAdmin() ? null : jwtUser.getSchoolId())
                 .email(jwtUser.getEmail())
                 .phone(normalizePhoneSafely(jwtUser.getPhoneNumber()))
                 .firstName(jwtUser.getFirstName())
@@ -181,7 +197,7 @@ public class AuthServiceImpl implements AuthService {
         return userRepository.save(newUser)
                 .doOnSuccess(u -> log.info("Created user: id={}, type={}", u.getId(), u.getUserType()))
                 .onErrorResume(DuplicateKeyException.class, e -> {
-                    log.info("Race condition — user already created by concurrent request");
+                    log.debug("Race condition — user already created by concurrent request");
                     return Mono.delay(Duration.ofMillis(200))
                             .then(userRepository.findByKeycloakIdAndDeletedAtIsNull(jwtUser.getUserId()))
                             .switchIfEmpty(Mono.error(new SchoolFeeException(
@@ -216,6 +232,8 @@ public class AuthServiceImpl implements AuthService {
     private UserProfileResponse buildProfileResponse(
             SchoolFeeUser jwtUser, User dbUser,
             List<UserProfileResponse.ChildInfo> children) {
+        UUID profileSchoolId = jwtUser.isSuperAdmin() ? null : jwtUser.getSchoolId();
+        String profileSchoolName = jwtUser.isSuperAdmin() ? null : jwtUser.getSchoolName();
 
         return UserProfileResponse.builder()
                 .userId(dbUser.getId())
@@ -225,8 +243,8 @@ public class AuthServiceImpl implements AuthService {
                 .firstName(jwtUser.getFirstName())
                 .lastName(jwtUser.getLastName())
                 .userType(jwtUser.getUserType())
-                .schoolId(jwtUser.getSchoolId())
-                .schoolName(jwtUser.getSchoolName())
+                .schoolId(profileSchoolId)
+                .schoolName(profileSchoolName)
                 .roles(jwtUser.getRoles())
                 .children(children)
                 .lastLogin(dbUser.getLastLogin())

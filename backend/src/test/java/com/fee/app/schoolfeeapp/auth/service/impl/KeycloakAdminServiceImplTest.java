@@ -1,6 +1,7 @@
 package com.fee.app.schoolfeeapp.auth.service.impl;
 
 import com.fee.app.schoolfeeapp.auth.dto.request.CreateStaffRequest;
+import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
@@ -127,12 +128,12 @@ class KeycloakAdminServiceImplTest {
             doNothing().when(roleScopeResource).add(anyList());
 
             // Act
-            Mono<UUID> result = keycloakAdminService.createUser(userRep, "PARENT", roles);
+            Mono<KeycloakUserResult> result = keycloakAdminService.createUser(userRep, "PARENT", roles);
 
             // Assert
             StepVerifier.create(result)
-                    .assertNext(uuid -> {
-                        assertThat(uuid).isEqualTo(UUID.fromString(USER_ID));
+                    .assertNext(res -> {
+                        assertThat(res.userId()).isEqualTo(UUID.fromString(USER_ID));
                         assertThat(userRep.isEnabled()).isTrue();
                         assertThat(userRep.getAttributes()).containsKey("user_type");
                         assertThat(userRep.getAttributes().get("user_type")).contains("PARENT");
@@ -155,7 +156,7 @@ class KeycloakAdminServiceImplTest {
             when(response.readEntity(String.class)).thenReturn("User already exists");
 
             // Act
-            Mono<UUID> result = keycloakAdminService.createUser(userRep, "PARENT", Set.of());
+            Mono<KeycloakUserResult> result = keycloakAdminService.createUser(userRep, "PARENT", Set.of());
 
             // Assert
             StepVerifier.create(result)
@@ -177,7 +178,7 @@ class KeycloakAdminServiceImplTest {
             when(response.getHeaderString("Location")).thenReturn(null);
 
             // Act
-            Mono<UUID> result = keycloakAdminService.createUser(userRep, "PARENT", Set.of());
+            Mono<KeycloakUserResult> result = keycloakAdminService.createUser(userRep, "PARENT", Set.of());
 
             // Assert
             StepVerifier.create(result)
@@ -218,11 +219,11 @@ class KeycloakAdminServiceImplTest {
             doNothing().when(roleScopeResource).add(anyList());
 
             // Act
-            Mono<UUID> result = keycloakAdminService.createUser(userRep, "PARENT", roles);
+            Mono<KeycloakUserResult> result = keycloakAdminService.createUser(userRep, "PARENT", roles);
 
             // Assert
             StepVerifier.create(result)
-                    .assertNext(uuid -> assertThat(uuid).isEqualTo(UUID.fromString(USER_ID)))
+                    .assertNext(res -> assertThat(res.userId()).isEqualTo(UUID.fromString(USER_ID)))
                     .verifyComplete();
         }
     }
@@ -268,12 +269,12 @@ class KeycloakAdminServiceImplTest {
             doNothing().when(roleScopeResource).add(anyList());
 
             // Act
-            Mono<UUID> result = keycloakAdminService.createStaffUser(request, SCHOOL_ID, SCHOOL_NAME);
+            Mono<KeycloakUserResult> result = keycloakAdminService.createStaffUser(request, SCHOOL_ID, SCHOOL_NAME);
 
             // Assert
             StepVerifier.create(result)
-                    .assertNext(uuid -> {
-                        assertThat(uuid).isEqualTo(UUID.fromString(USER_ID));
+                    .assertNext(res -> {
+                        assertThat(res.userId()).isEqualTo(UUID.fromString(USER_ID));
                     })
                     .verifyComplete();
 
@@ -312,11 +313,11 @@ class KeycloakAdminServiceImplTest {
             doNothing().when(userResource).resetPassword(any(CredentialRepresentation.class));
 
             // Act
-            Mono<UUID> result = keycloakAdminService.createStaffUser(request, SCHOOL_ID, null);
+            Mono<KeycloakUserResult> result = keycloakAdminService.createStaffUser(request, SCHOOL_ID, null);
 
             // Assert
             StepVerifier.create(result)
-                    .expectNextCount(1)
+                    .assertNext(res -> assertThat(res.userId()).isEqualTo(UUID.fromString(USER_ID)))
                     .verifyComplete();
         }
     }

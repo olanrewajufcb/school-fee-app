@@ -28,6 +28,29 @@ public class PaystackWebhookController {
     @Value("${payment.paystack.secret-key:}")
     private String paystackSecretKey;
 
+    @Value("${app.frontend-url:http://localhost:3000}")
+    private String frontendUrl;
+
+    /**
+     * GET /api/v1/webhooks/paystack/callback
+     * Handle browser redirect from Paystack after payment.
+     */
+    @GetMapping("/callback")
+    public Mono<ResponseEntity<Void>> handleRedirect(
+            @RequestParam(value = "reference", required = false) String reference,
+            @RequestParam(value = "trxref", required = false) String trxref) {
+        log.info("Paystack redirect received: reference={}, trxref={}", reference, trxref);
+
+        String redirectUrl = frontendUrl + "/dashboard";
+        if (reference != null && !reference.isBlank()) {
+            redirectUrl += "?reference=" + reference + "&status=success";
+        }
+
+        return Mono.just(ResponseEntity.status(HttpStatus.FOUND)
+                .location(java.net.URI.create(redirectUrl))
+                .build());
+    }
+
     /**
      * POST /api/v1/webhooks/paystack/callback
      * Handle Paystack webhook events.

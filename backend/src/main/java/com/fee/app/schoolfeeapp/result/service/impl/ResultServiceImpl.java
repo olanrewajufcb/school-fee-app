@@ -271,10 +271,10 @@ class ResultServiceImpl implements ResultService {
                         return Flux.error(new SchoolFeeException("ACCESS_DENIED", "Only parents"));
                     }
                     UUID schoolId = requireSchoolId(parentUser);
-                    return guardianRepository.findByUserIdAndDeletedAtIsNull(parentUser.getUserId())
+                    return guardianRepository.findByKeycloakId(parentUser.getUserId())
                             .flatMapMany(guardian ->
                                     guardianLinkRepository.findByGuardianIdAndDeletedAtIsNull(guardian.getId()))
-                            .filter(link -> Boolean.TRUE.equals(link.getCanViewResults()))
+                            .filter(link -> link != null && link.getStudentId() != null && Boolean.TRUE.equals(link.getCanViewResults()))
                             .map(link -> link.getStudentId())
                             .distinct()
                             .concatMap(studentId -> buildMyChildResult(studentId, schoolId));
@@ -441,7 +441,7 @@ class ResultServiceImpl implements ResultService {
         return jwtUtils.getCurrentUser()
                 .flatMap(user -> {
                     UUID schoolId = requireSchoolId(user);
-                    return termRepository.findByIdAndSchoolId(termId, schoolId)
+                    Mono<PublishResultResponse> transaction = termRepository.findByIdAndSchoolId(termId, schoolId)
                             .switchIfEmpty(Mono.error(new SchoolFeeException(
                                     "TERM_NOT_FOUND",
                                     "Term not found",
@@ -452,6 +452,7 @@ class ResultServiceImpl implements ResultService {
                                             "Results have not been published yet.")))
                                     .flatMap(published -> publishedResultRepository.delete(published))
                                     .thenReturn(toUnpublishResponse(termId, user.getUserId()))));
+                    return transactionalOperator.transactional(transaction);
                 });
     }
 
@@ -462,31 +463,80 @@ class ResultServiceImpl implements ResultService {
     @Override
     public Mono<GradingRuleResponse> configureGradingRules(GradingRuleRequest request) {
         return jwtUtils.getCurrentUser()
-                .flatMap(user -> gradeConfigRepository.findBySchoolId(user.getSchoolId())
-                        .flatMap(existing -> {
-                            existing.setConfig(request.config());
-                            existing.setUpdatedAt(Instant.now());
-                            return gradeConfigRepository.save(existing);
-                        })
-                        .switchIfEmpty(Mono.defer(() -> {
-                            GradeConfig config = GradeConfig.builder()
-                                    .id(UUID.randomUUID())
-                                    .schoolId(user.getSchoolId())
-                                    .config(request.config())
-                                    .isActive(true)
-                                    .build();
-                            return gradeConfigRepository.save(config);
-                        }))
-                        .map(saved -> new GradingRuleResponse(user.getSchoolId(), request.config().size(),
-                                "Grading rules updated")));
+                .flatMap(user -> {
+                    UUID schoolId = requireSchoolId(user);
+                    return gradeConfigRepository.findBySchoolId(schoolId)
+                            .flatMap(existing -> {
+                                existing.setConfig(request.config());
+                                existing.setUpdatedAt(Instant.now());
+                                return gradeConfigRepository.save(existing);
+                            })
+                            .switchIfEmpty(Mono.defer(() -> {
+                                GradeConfig config = GradeConfig.builder()
+                                        .schoolId(schoolId)
+                                        .config(request.config())
+                                        .isActive(true)
+                                        .createdAt(Instant.now())
+                                        .build();
+                                return gradeConfigRepository.save(config);
+                            }))
+                            .map(saved -> new GradingRuleResponse(schoolId,
+                                    saved.getConfig() != null ? saved.getConfig().size() : 0,
+                                    "Grading rules updated"));
+                });
     }
 
     @Override
     public Mono<GradingRuleResponse> getGradingRules() {
         return jwtUtils.getCurrentUser()
-                .flatMap(user -> gradeConfigRepository.findBySchoolId(user.getSchoolId())
-                        .map(config -> new GradingRuleResponse(user.getSchoolId(),
-                                config.getConfig().size(), "Current grading rules")));
+                .flatMap(user -> {
+                    UUID schoolId = requireSchoolId(user);
+                    return gradeConfigRepository.findBySchoolId(schoolId)
+                            .map(config -> new GradingRuleResponse(schoolId,
+                                    config.getConfig() != null ? config.getConfig().size() : 0,
+                                    "Current grading rules"))
+                            .defaultIfEmpty(new GradingRuleResponse(schoolId, 0,
+                                    "No grading rules configured"));
+                });
+    }
+
+    @Override
+    public Mono<List<SubjectLookupResponse>> getSubjectsForClass(UUID classId) {
+        return jwtUtils.getCurrentUser()
+                .flatMap(user -> {
+                    UUID schoolId = requireSchoolId(user);
+                    return classRepository.findByIdAndSchoolId(classId, schoolId)
+                            .switchIfEmpty(Mono.error(new SchoolFeeException("CLASS_NOT_FOUND", "Class not found", "classId")))
+                            .thenMany(classSubjectRepository.findByClassIdAndIsActiveTrue(classId))
+                            .flatMap(cs -> subjectRepository.findByIdAndSchoolIdAndIsActiveTrue(cs.getSubjectId(), schoolId))
+                            .map(subject -> new SubjectLookupResponse(subject.getId(), subject.getName(), subject.getCode()))
+                            .collectList();
+                });
+    }
+
+    @Override
+    public Mono<List<CaComponentLookupResponse>> getCaComponents() {
+        return jwtUtils.getCurrentUser()
+                .flatMap(user -> {
+                    UUID schoolId = requireSchoolId(user);
+                    return caComponentRepository.findBySchoolIdAndIsActiveTrue(schoolId)
+                            .map(comp -> new CaComponentLookupResponse(comp.getId(), comp.getName(), comp.getMaxScore()))
+                            .collectList();
+                });
+    }
+
+    @Override
+    public Mono<List<ExamLookupResponse>> getExamsForTerm(UUID termId) {
+        return jwtUtils.getCurrentUser()
+                .flatMap(user -> {
+                    UUID schoolId = requireSchoolId(user);
+                    return termRepository.findByIdAndSchoolId(termId, schoolId)
+                            .switchIfEmpty(Mono.error(new SchoolFeeException("TERM_NOT_FOUND", "Term not found", "termId")))
+                            .thenMany(examRepository.findByTermId(termId))
+                            .filter(exam -> exam.getSchoolId().equals(schoolId))
+                            .map(exam -> new ExamLookupResponse(exam.getId(), exam.getName(), exam.getMaxScore()))
+                            .collectList();
+                });
     }
 
     // ========================================================================
@@ -544,7 +594,7 @@ class ResultServiceImpl implements ResultService {
     }
 
     private Mono<Void> verifyParentAccess(UUID userId, UUID studentId) {
-        return guardianRepository.findByUserIdAndDeletedAtIsNull(userId)
+        return guardianRepository.findByKeycloakId(userId)
                 .flatMap(guardian -> guardianLinkRepository
                         .findByGuardianIdAndStudentIdAndDeletedAtIsNull(guardian.getId(), studentId))
                 .flatMap(link -> Boolean.TRUE.equals(link.getCanViewResults())
@@ -754,11 +804,258 @@ class ResultServiceImpl implements ResultService {
     }
 
     private Mono<ClassResultSheetResponse> buildClassResultSheet(UUID classId, UUID termId, UUID schoolId) {
-        return Mono.just(new ClassResultSheetResponse(null, null, 0, List.of(), List.of()));
+        Mono<ClassEntity> classMono = classRepository.findByIdAndSchoolId(classId, schoolId)
+                .switchIfEmpty(Mono.error(new SchoolFeeException("CLASS_NOT_FOUND", "Class not found", "classId")));
+        Mono<Term> termMono = termRepository.findByIdAndSchoolId(termId, schoolId)
+                .switchIfEmpty(Mono.error(new SchoolFeeException("TERM_NOT_FOUND", "Term not found", "termId")));
+        Mono<Long> classSizeMono = studentRepository.countActiveByCurrentClassId(classId);
+
+        // Fetch subjects
+        Mono<List<Subject>> subjectsListMono = classSubjectRepository.findByClassIdAndIsActiveTrue(classId)
+                .flatMap(cs -> subjectRepository.findById(cs.getSubjectId()))
+                .collectList()
+                .map(list -> list.stream()
+                        .sorted(Comparator.comparing(Subject::getName))
+                        .toList());
+
+        // Fetch students
+        Mono<List<Student>> studentsListMono = studentRepository.findActiveBySchoolIdAndCurrentClassId(schoolId, classId)
+                .collectList();
+
+        // Fetch rankings
+        Mono<List<ClassRanking>> rankingsListMono = rankingRepository.findByClassIdAndTermIdOrderByClassPosition(classId, termId)
+                .collectList();
+
+        return Mono.zip(classMono, termMono, classSizeMono, subjectsListMono, studentsListMono, rankingsListMono)
+                .flatMap(tuple -> {
+                    ClassEntity classEntity = tuple.getT1();
+                    Term term = tuple.getT2();
+                    int classSize = tuple.getT3().intValue();
+                    List<Subject> subjects = tuple.getT4();
+                    List<Student> students = tuple.getT5();
+                    List<ClassRanking> rankings = tuple.getT6();
+
+                    List<String> subjectNames = subjects.stream().map(Subject::getName).toList();
+
+                    // For each student, map their row
+                    List<Mono<ClassResultSheetResponse.StudentRow>> studentRowMonos = students.stream()
+                            .map(student -> {
+                                ClassRanking ranking = rankings.stream()
+                                        .filter(r -> r.getStudentId().equals(student.getId()))
+                                        .findFirst()
+                                        .orElse(null);
+
+                                 int position = ranking == null ? 0 : ranking.getClassPosition();
+                                 double average = ranking == null ? 0.0 : (ranking.getAveragePercentage() == null ? 0.0 : ranking.getAveragePercentage().doubleValue());
+                                 String overallGrade = ranking == null ? null : ranking.getOverallGrade();
+
+                                // Fetch final scores for this student and term
+                                return finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(student.getId(), termId, schoolId)
+                                        .collectList()
+                                        .map(finalScores -> {
+                                            List<ClassResultSheetResponse.SubjectScore> subjectScores = subjects.stream()
+                                                    .map(subject -> {
+                                                        FinalScore finalScore = finalScores.stream()
+                                                                .filter(fs -> fs.getSubjectId().equals(subject.getId()))
+                                                                .findFirst()
+                                                                .orElse(null);
+
+                                                        if (finalScore == null) {
+                                                            return new ClassResultSheetResponse.SubjectScore(
+                                                                    subject.getName(),
+                                                                    0.0,
+                                                                    null,
+                                                                    0
+                                                            );
+                                                        }
+
+                                                        return new ClassResultSheetResponse.SubjectScore(
+                                                                subject.getName(),
+                                                                finalScore.getFinalScore() == null ? 0.0 : finalScore.getFinalScore().doubleValue(),
+                                                                finalScore.getGrade(),
+                                                                finalScore.getSubjectPosition() == null ? 0 : finalScore.getSubjectPosition()
+                                                        );
+                                                    })
+                                                    .toList();
+
+                                            return new ClassResultSheetResponse.StudentRow(
+                                                    student.getId().toString(),
+                                                    student.getAdmissionNumber(),
+                                                    fullName(student),
+                                                    position,
+                                                    average,
+                                                    overallGrade,
+                                                    subjectScores
+                                            );
+                                        });
+                            })
+                            .toList();
+
+                    if (studentRowMonos.isEmpty()) {
+                        return Mono.just(new ClassResultSheetResponse(
+                                classEntity.getName(),
+                                term.getName(),
+                                classSize,
+                                subjectNames,
+                                List.of()
+                        ));
+                    }
+
+                    return Flux.merge(studentRowMonos)
+                            .collectList()
+                            .map(studentRows -> {
+                                // Sort by position (ascending, but non-zero first)
+                                List<ClassResultSheetResponse.StudentRow> sortedRows = studentRows.stream()
+                                        .sorted((a, b) -> {
+                                            if (a.position() == 0 && b.position() == 0) {
+                                                return a.name().compareTo(b.name());
+                                            }
+                                            if (a.position() == 0) return 1;
+                                            if (b.position() == 0) return -1;
+                                            return Integer.compare(a.position(), b.position());
+                                        })
+                                        .toList();
+
+                                return new ClassResultSheetResponse(
+                                        classEntity.getName(),
+                                        term.getName(),
+                                        classSize,
+                                        subjectNames,
+                                        sortedRows
+                                );
+                            });
+                });
     }
 
     private Mono<MyChildResultResponse> buildMyChildResult(UUID studentId, UUID schoolId) {
-        return Mono.just(new MyChildResultResponse(studentId, null, null, null, null, null, List.of()));
+        return studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, schoolId)
+                .flatMap(student -> {
+                    Mono<String> classNameMono = student.getCurrentClassId() == null
+                            ? Mono.just("")
+                            : classRepository.findByIdAndSchoolId(student.getCurrentClassId(), schoolId)
+                                    .map(ClassEntity::getName)
+                                    .defaultIfEmpty("");
+
+                    Mono<Term> termMono = termRepository.findCurrentTermsBySchoolId(schoolId).next();
+
+                    return Mono.zip(classNameMono, termMono.map(Optional::of).defaultIfEmpty(Optional.empty()))
+                            .flatMap(tuple -> {
+                                String className = tuple.getT1();
+                                Optional<Term> optTerm = tuple.getT2();
+
+                                if (optTerm.isEmpty()) {
+                                    return Mono.just(new MyChildResultResponse(
+                                            studentId,
+                                            null,
+                                            student.getFirstName(),
+                                            student.getLastName(),
+                                            className,
+                                            null,
+                                            null,
+                                            List.of()
+                                    ));
+                                }
+
+                                Term term = optTerm.get();
+                                UUID termId = term.getId();
+                                String termName = term.getName();
+
+                                Mono<List<FinalScore>> finalScoresMono = finalScoreRepository
+                                        .findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(studentId, termId, schoolId)
+                                        .collectList();
+
+                                Mono<Optional<ClassRanking>> rankingMono = rankingRepository
+                                        .findByStudentIdAndTermIdAndSchoolId(studentId, termId, schoolId)
+                                        .map(Optional::of)
+                                        .defaultIfEmpty(Optional.empty());
+
+                                Mono<Optional<ReportComment>> commentMono = commentRepository
+                                        .findByStudentIdAndTermIdAndSchoolId(studentId, termId, schoolId)
+                                        .map(Optional::of)
+                                        .defaultIfEmpty(Optional.empty());
+
+                                return Mono.zip(finalScoresMono, rankingMono, commentMono)
+                                        .flatMap(scoresRankingComment -> {
+                                            List<FinalScore> finalScores = scoresRankingComment.getT1();
+                                            Optional<ClassRanking> optRanking = scoresRankingComment.getT2();
+                                            Optional<ReportComment> optComment = scoresRankingComment.getT3();
+
+                                            final MyChildResultResponse.ResultSummary summary;
+                                            if (!finalScores.isEmpty()) {
+                                                BigDecimal totalScore = finalScores.stream()
+                                                        .map(FinalScore::getFinalScore)
+                                                        .filter(Objects::nonNull)
+                                                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                                                int subjectsTaken = finalScores.size();
+                                                double average = totalScore.divide(BigDecimal.valueOf(subjectsTaken), 2, RoundingMode.HALF_UP).doubleValue();
+                                                String overallGrade = optRanking.map(ClassRanking::getOverallGrade).orElse(null);
+
+                                                summary = new MyChildResultResponse.ResultSummary(average, subjectsTaken, overallGrade);
+                                            } else {
+                                                summary = null;
+                                            }
+
+                                            MyChildResultResponse.AttendanceSummary attendanceSummary = optComment.map(c -> {
+                                                int open = c.getAttendanceDaysOpen() == null ? 0 : c.getAttendanceDaysOpen();
+                                                int present = c.getAttendanceDaysPresent() == null ? 0 : c.getAttendanceDaysPresent();
+                                                int absent = c.getAttendanceDaysAbsent() == null ? Math.max(open - present, 0) : c.getAttendanceDaysAbsent();
+                                                double rate = open == 0 ? 0 : ((double) present / open) * 100;
+                                                return new MyChildResultResponse.AttendanceSummary(open, present, absent, rate);
+                                            }).orElse(null);
+
+                                            List<Mono<MyChildResultResponse.TopSubject>> topSubjectMonos = finalScores.stream()
+                                                    .filter(fs -> fs.getFinalScore() != null)
+                                                    .map(fs -> subjectRepository.findById(fs.getSubjectId())
+                                                            .map(subject -> new MyChildResultResponse.TopSubject(
+                                                                    subject.getName(),
+                                                                    fs.getFinalScore().doubleValue(),
+                                                                    fs.getGrade()
+                                                            ))
+                                                            .defaultIfEmpty(new MyChildResultResponse.TopSubject(
+                                                                    "Unknown Subject",
+                                                                    fs.getFinalScore().doubleValue(),
+                                                                    fs.getGrade()
+                                                            )))
+                                                    .toList();
+
+                                            if (topSubjectMonos.isEmpty()) {
+                                                return Mono.just(new MyChildResultResponse(
+                                                        studentId,
+                                                        termId,
+                                                        student.getFirstName(),
+                                                        student.getLastName(),
+                                                        className,
+                                                        termName,
+                                                        summary,
+                                                        List.of(),
+                                                        attendanceSummary
+                                                ));
+                                            }
+
+                                            return Flux.merge(topSubjectMonos)
+                                                    .collectList()
+                                                    .map(topSubjects -> {
+                                                        List<MyChildResultResponse.TopSubject> sortedTopSubjects = topSubjects.stream()
+                                                                .sorted(Comparator.comparingDouble(MyChildResultResponse.TopSubject::score).reversed())
+                                                                .limit(3)
+                                                                .toList();
+
+                                                        return new MyChildResultResponse(
+                                                                studentId,
+                                                                termId,
+                                                                student.getFirstName(),
+                                                                student.getLastName(),
+                                                                className,
+                                                                termName,
+                                                                summary,
+                                                                sortedTopSubjects,
+                                                                attendanceSummary
+                                                        );
+                                                    });
+                                        });
+                            });
+                })
+                .defaultIfEmpty(new MyChildResultResponse(studentId, null, null, null, null, null, null, List.of(), null));
     }
 
     private CaScoreRequest validateCaScoreRequest(CaScoreRequest request) {

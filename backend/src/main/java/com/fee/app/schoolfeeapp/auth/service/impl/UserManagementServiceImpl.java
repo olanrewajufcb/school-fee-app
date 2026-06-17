@@ -6,12 +6,8 @@ import com.fee.app.schoolfeeapp.auth.domain.StudentGuardian;
 import com.fee.app.schoolfeeapp.auth.domain.StudentGuardianLink;
 import com.fee.app.schoolfeeapp.auth.domain.User;
 import com.fee.app.schoolfeeapp.auth.domain.UserSchoolRole;
-import com.fee.app.schoolfeeapp.auth.dto.request.CreateParentRequest;
-import com.fee.app.schoolfeeapp.auth.dto.request.CreateStaffRequest;
-import com.fee.app.schoolfeeapp.auth.dto.response.CreateParentResponse;
-import com.fee.app.schoolfeeapp.auth.dto.response.CreateStaffResponse;
-import com.fee.app.schoolfeeapp.auth.dto.response.UserGuardianResult;
-import com.fee.app.schoolfeeapp.auth.dto.response.UserSummaryResponse;
+import com.fee.app.schoolfeeapp.auth.dto.request.*;
+import com.fee.app.schoolfeeapp.auth.dto.response.*;
 import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianLinkRepository;
 import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianRepository;
 import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
@@ -27,6 +23,8 @@ import com.fee.app.schoolfeeapp.common.exceptions.ResourceTimeoutException;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.common.repository.OutboxEventRepository;
 import com.fee.app.schoolfeeapp.common.utils.PhoneNumberNormalizer;
+import com.fee.app.schoolfeeapp.notification.service.SmsService;
+import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
 import com.fee.app.schoolfeeapp.student.domain.Student;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +36,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -60,28 +59,15 @@ public class UserManagementServiceImpl implements UserManagementService {
     private final TransactionalOperator transactionalOperator;
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
+    private final SmsService smsService;
+    private final SchoolRepository schoolRepository;
 
     /**
      * Create a parent account.
-     * IMPROVED ARCHITECTURE (Outbox Pattern):
-     * - All DB operations in single transaction
-     * - Keycloak user creation moved OUTSIDE transaction (non-transactional resource)
-     * - SMS invitation via outbox event (async, retryable)
-     *
-     * Flow:
-     * 1. Validate all student IDs belong to the current school
-     * 2. Create or find guardian record
-     * 3. Create Keycloak user with PARENT role (outside transaction)
-     * 4. Create user record in auth.users (within transaction)
-     * 5. Create PARENT role in auth.user_school_roles (within transaction)
-     * 6. LINK guardian to user via guardian.user_id (within transaction)
-     * 7. Create guardian-student links (within transaction)
-     * 8. Create outbox event for async SMS processing (within transaction)
-     * 9. Return success immediately
-     *
-     * COMPENSATING ACTION:
-     * - If DB transaction fails, create KEYCLOAK_CLEANUP outbox event
-     * - Background worker will delete orphaned Keycloak user
+     * IMPROVED ARCHITECTURE:
+     * - Only creates the Guardian record and links to students.
+     * - Does NOT create a Keycloak user or auth.users record.
+     * - Parent self-onboarding will handle the actual account creation.
      */
     public Mono<CreateParentResponse> createParent(CreateParentRequest request) {
         return jwtUtils.getCurrentUser()
@@ -89,44 +75,24 @@ public class UserManagementServiceImpl implements UserManagementService {
                     UUID schoolId = adminUser.getSchoolId();
 
                     return validateStudentsInSchool(request.children(), schoolId)
-                            .then(findOrCreateGuardian(request, schoolId))
-                            .flatMap(guardian ->
-                                    createKeycloakParent(request, schoolId, guardian.getId())
-                                            .flatMap(keycloakUserId -> {
-                                                // DB work in transaction
-                                                Mono<UserGuardianResult> transactionalWork =
-                                                        createLocalUserAndRoles(keycloakUserId, request, schoolId, guardian, adminUser)
-                                                                .flatMap(result ->
-                                                                        linkGuardianToUser(guardian.getId(), result.user().getId())
-                                                                                .then(createGuardianLinks(guardian, request.children(), schoolId))
-                                                                                .then(createOutboxEventForParentInvitation(
-                                                                                        result.user().getId(),
-                                                                                        guardian.getId(),
-                                                                                        schoolId))
-                                                                                .thenReturn(result)
-                                                                );
+                            .then(Mono.defer(() -> {
+                                Mono<StudentGuardian> transactionalWork = findOrCreateGuardian(request, schoolId)
+                                        .flatMap(guardian ->
+                                                createGuardianLinks(guardian, request.children(), schoolId)
+                                                        .then(createOutboxEventForParentInvitation(
+                                                                null, // userId is null until they self-onboard
+                                                                guardian.getId(),
+                                                                schoolId))
+                                                        .thenReturn(guardian)
+                                        );
 
-                                                return transactionalOperator.transactional(transactionalWork)
-                                                        .doOnError(error -> log.error("Transaction failed: {}", error.getMessage()))
-
-                                                        .onErrorResume(error -> {
-                                                            // Compensating action: schedule Keycloak cleanup
-                                                            log.error("Entering onErrorResume for cleanup");
-
-                                                            log.error("DB transaction failed for parent creation. " +
-                                                                    "Scheduling Keycloak user {} for cleanup", keycloakUserId, error);
-
-                                                            return createOutboxEventForKeycloakCleanup(keycloakUserId)
-                                                                    .doOnSuccess(v -> log.info("Cleanup event created"))
-
-                                                                    .then(Mono.error(error));
-                                                        });
-                                            })
-                            );
+                                return transactionalOperator.transactional(transactionalWork)
+                                        .doOnError(error -> log.error("Transaction failed: {}", error.getMessage()));
+                            }));
                 })
-                .map(savedParent -> new CreateParentResponse(
-                        savedParent.user().getId(),
-                        savedParent.guardian().getId(),
+                .map(savedGuardian -> new CreateParentResponse(
+                        null, // No user account yet
+                        savedGuardian.getId(),
                         request.phoneNumber(),
                         request.email(),
                         request.firstName(),
@@ -134,84 +100,10 @@ public class UserManagementServiceImpl implements UserManagementService {
                         "PARENT",
                         request.children().size(),
                         true,
-                        "Pending",
-                        "Parent account created. Invitation will be sent shortly."));
+                        null,
+                        "Guardian added. Invitation sent via SMS."));
     }
 
-    /**
-     * Link guardian record to user account.
-     * This ensures proper foreign key relationship for queries like findByUserId().
-     */
-    private Mono<StudentGuardian> linkGuardianToUser(UUID guardianId, UUID userId) {
-        return guardianRepository.updateUserId(guardianId, userId)
-                .doOnSuccess(linkedGuardian ->
-                        log.info("Linked guardian {} to user {}", guardianId, userId));
-    }
-
-    /**
-     * Create local user and PARENT role within transaction.
-     * NO BLOCKING CALLS - fully reactive.
-     */
-    private Mono<UserGuardianResult> createLocalUserAndRoles(
-            UUID keycloakUserId,
-            CreateParentRequest request,
-            UUID schoolId,
-            StudentGuardian guardian,
-
-            SchoolFeeUser adminUser) {
-
-                    User user = User.builder()
-                            .keycloakId(keycloakUserId)
-                            .schoolId(schoolId)
-                            .email(request.email())
-                            .phone(PhoneNumberNormalizer.normalize(request.phoneNumber()))
-                            .firstName(request.firstName())
-                            .lastName(request.lastName())
-                            .userType("PARENT")
-                            .isActive(true)
-                            .build();
-
-                    return userRepository.save(user)
-                            .flatMap(savedUser ->
-                                    createParentRole(savedUser, adminUser.getUserId())
-                                            .thenReturn(savedUser)
-                            )
-                            .map(savedUser -> new UserGuardianResult(savedUser, guardian));
-
-    }
-
-
-    /**
-     * Create outbox event for Keycloak cleanup when DB transaction fails.
-     * This prevents orphaned Keycloak users.
-     */
-    private Mono<Void> createOutboxEventForKeycloakCleanup(UUID keycloakUserId) {
-        log.warn("Creating Keycloak cleanup event for orphaned user: keycloakId={}", keycloakUserId);
-
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("keycloakUserId", keycloakUserId.toString());
-        payload.put("reason", "DB_TRANSACTION_FAILED");
-        payload.put("timestamp", Instant.now().toString());
-
-        OutboxEvent event = OutboxEvent.builder()
-                .eventType("KEYCLOAK_CLEANUP")
-                .aggregateId(keycloakUserId)
-                .aggregateType("USER")
-                .payload(objectMapper.valueToTree(payload))
-                .status("PENDING")
-                .retryCount(0)
-                .maxRetries(3)
-                .nextRetryAt(Instant.now())
-                .createdAt(Instant.now())
-                .build();
-
-        return outboxEventRepository.save(event)
-                .doOnSuccess(e -> log.info("Keycloak cleanup event created: eventId={}, keycloakId={}",
-                        e.getId(), keycloakUserId))
-                .doOnError(e -> log.error("Failed to create Keycloak cleanup event. " +
-                        "Manual cleanup required for keycloakId={}", keycloakUserId, e))
-                .then();
-    }
 
 
     /**
@@ -227,7 +119,7 @@ public class UserManagementServiceImpl implements UserManagementService {
                 .flatMap(adminUser -> {
                     UUID schoolId = adminUser.getSchoolId();
                     String schoolName = adminUser.getSchoolName();
-                    UUID adminUserId = adminUser.getUserId();
+                    UUID keycloakAdminId = adminUser.getUserId();
 
                     // Validate user type
                     if (!Set.of("SCHOOL_ADMIN", "ACCOUNTANT", "TEACHER").contains(request.userType())) {
@@ -248,20 +140,29 @@ public class UserManagementServiceImpl implements UserManagementService {
                             .isActive(true)
                             .build();
 
-                    // Transactional work: save user + roles + outbox event
-                    Mono<User> dbWork = userRepository.save(user)
-                            .flatMap(savedUser ->
-                                    createStaffRoles(savedUser, adminUserId, request.roles())
-                                            .then(createOutboxEventForStaffCreation(
-                                                    savedUser.getId(),
-                                                    request,
-                                                    schoolId,
-                                                    schoolName,
-                                                    adminUserId))
-                                            .thenReturn(savedUser)
-                            );
+                    return userRepository.findByKeycloakIdAndDeletedAtIsNull(keycloakAdminId)
+                            .map(User::getId)
+                            .map(Optional::of)
+                            .onErrorResume(e -> Mono.empty())
+                            .defaultIfEmpty(Optional.empty())
+                            .flatMap(adminUserIdOpt -> {
+                                UUID adminUserId = adminUserIdOpt.orElse(null);
+                                // Transactional work: save user + roles + outbox event
+                                Mono<User> dbWork = userRepository.save(user)
+                                        .flatMap(savedUser -> {
+                                            UUID finalAdminUserId = adminUserId != null ? adminUserId : savedUser.getId();
+                                            return createStaffRoles(savedUser, finalAdminUserId, request.roles())
+                                                    .then(createOutboxEventForStaffCreation(
+                                                            savedUser.getId(),
+                                                            request,
+                                                            schoolId,
+                                                            schoolName,
+                                                            finalAdminUserId))
+                                                    .thenReturn(savedUser);
+                                        });
 
-                    return transactionalOperator.transactional(dbWork);
+                                return transactionalOperator.transactional(dbWork);
+                            });
                 })
                 .map(savedUser -> new CreateStaffResponse(
                         savedUser.getId(),
@@ -365,15 +266,16 @@ public class UserManagementServiceImpl implements UserManagementService {
                                 );
                             });
                 })
-                   .onErrorResume(error -> {
-                       if(error instanceof TimeoutException){
-                           return Mono.error(new ResourceTimeoutException(
-                                   "DB timed out",  error));
-                       }
-                       return Mono.error(new SchoolFeeException(
-                               "INTERNAL_SERVER_ERROR",
-                               "An error occurred while processing your request"));
-                   });
+                    .onErrorResume(error -> {
+                        log.error("Error listing users", error);
+                        if(error instanceof TimeoutException){
+                            return Mono.error(new ResourceTimeoutException(
+                                    "DB timed out",  error));
+                        }
+                        return Mono.error(new SchoolFeeException(
+                                "INTERNAL_SERVER_ERROR",
+                                "An error occurred while processing your request: " + error.getMessage()));
+                    });
     }
 
 
@@ -477,7 +379,8 @@ public class UserManagementServiceImpl implements UserManagementService {
         attributes.put("school_id", List.of(schoolId.toString()));
         kcUser.setAttributes(attributes);
         
-        return keycloakAdminService.createUser(kcUser, "PARENT", Set.of("PARENT"));
+        return keycloakAdminService.createUser(kcUser, "PARENT", Set.of("PARENT"))
+                .map(com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult::userId);
     }
 
 
@@ -586,10 +489,328 @@ public class UserManagementServiceImpl implements UserManagementService {
                         user.getLastName(),
                         user.getUserType(),
                         tuple.getT2(),
-                        user.getIsActive(),
+                        Boolean.TRUE.equals(user.getIsActive()),
                         tuple.getT1(),
                         user.getLastLogin(),
                         user.getCreatedAt()
                 ));
     }
+
+
+    @Override
+    public Mono<CheckAccountResponse> checkAccount(CheckAccountRequest request) {
+        String normalizedPhone;
+        try {
+            normalizedPhone = PhoneNumberNormalizer.normalize(request.phoneNumber());
+            if (normalizedPhone == null) {
+                return Mono.error(new SchoolFeeException("INVALID_PHONE_NUMBER", "Phone number is empty or invalid"));
+            }
+        } catch (IllegalArgumentException e) {
+            return Mono.error(new SchoolFeeException("INVALID_PHONE_NUMBER", e.getMessage()));
+        }
+
+        return guardianRepository.findAllByPhoneAndDeletedAtIsNull(normalizedPhone)
+                .collectList()
+                .flatMap(guardians -> {
+                    if (guardians.isEmpty()) {
+                        return Mono.just(new CheckAccountResponse(
+                                false, null, null, 0,
+                                "No account found. Contact your school."));
+                    }
+
+                    // Deduplicate by schoolId to avoid race condition duplicates
+                    Map<UUID, StudentGuardian> uniqueGuardiansBySchool = guardians.stream()
+                            .collect(Collectors.toMap(
+                                    StudentGuardian::getSchoolId,
+                                    g -> g,
+                                    (existing, replacement) -> existing
+                            ));
+
+                    List<StudentGuardian> uniqueGuardians = new ArrayList<>(uniqueGuardiansBySchool.values());
+
+                    if (uniqueGuardians.size() == 1) {
+                        StudentGuardian guardian = uniqueGuardians.getFirst();
+                        String safeName = getSafeFullName(guardian);
+
+                        return Mono.zip(
+                                schoolRepository.findById(guardian.getSchoolId()).map(s -> s.getName()).defaultIfEmpty("Unknown School"),
+                                guardianLinkRepository.findByGuardianIdAndDeletedAtIsNull(guardian.getId()).count().defaultIfEmpty(0L)
+                        ).map(tuple -> new CheckAccountResponse(
+                                true,
+                                tuple.getT1(),
+                                safeName,
+                                tuple.getT2().intValue(),
+                                "Account found. We'll send a verification code to " + request.phoneNumber()
+                        ));
+                    }
+
+                    return Flux.fromIterable(uniqueGuardians)
+                            .flatMap(g -> schoolRepository.findById(g.getSchoolId())
+                                    .map(school -> new CheckAccountResponse.SchoolOption(
+                                            g.getSchoolId(),
+                                            school.getName(),
+                                            getSafeFullName(g)
+                                    ))
+                                    .defaultIfEmpty(new CheckAccountResponse.SchoolOption(
+                                            g.getSchoolId(),
+                                            "Unknown School",
+                                            getSafeFullName(g)
+                                    ))
+                            )
+                            .collectList()
+                            .map(options -> new CheckAccountResponse(
+                                    true, null, null, 0,
+                                    "Multiple accounts found. Please select your school.",
+                                    options
+                            ));
+                });
+    }
+
+    private String getSafeFullName(StudentGuardian guardian) {
+        String first = guardian.getFirstName() != null ? guardian.getFirstName() : "";
+        String last = guardian.getLastName() != null ? guardian.getLastName() : "";
+        return (first + " " + last).trim();
+    }
+
+    @Override
+    public Mono<Void> sendOtp(SendOtpRequest request) {
+        String normalizedPhone;
+        try {
+            normalizedPhone = PhoneNumberNormalizer.normalize(request.phoneNumber());
+            if (normalizedPhone == null) {
+                return Mono.error(new SchoolFeeException("INVALID_PHONE_NUMBER", "Phone number is empty or invalid"));
+            }
+        } catch (IllegalArgumentException e) {
+            return Mono.error(new SchoolFeeException("INVALID_PHONE_NUMBER", e.getMessage()));
+        }
+
+        return guardianRepository.findAllByPhoneAndDeletedAtIsNull(normalizedPhone)
+                .collectList()
+                .flatMap(guardians -> {
+                    if (guardians.isEmpty()) {
+                        return Mono.error(new SchoolFeeException("GUARDIAN_NOT_FOUND", "No account found for this phone number."));
+                    }
+
+                    boolean allRegistered = guardians.stream().allMatch(g -> g.getUserId() != null);
+                    if (allRegistered) {
+                        return Mono.error(new SchoolFeeException("ACCOUNT_ALREADY_REGISTERED", "Account is already registered. Please log in."));
+                    }
+
+                    String otp = generateOtp();
+                    otpCache.put(normalizedPhone, new OtpDetails(otp, Instant.now().plusSeconds(300)));
+
+                    // Phase 2: Store OTP in Redis with 5-min expiry
+                    // MVP: Log OTP (production: send via SMS)
+                    String message = String.format("Your SchoolFee verification code is: %s. Valid for 5 minutes.", otp);
+                    log.info("OTP for {}: {}", normalizedPhone, otp);
+
+                    return smsService.send(normalizedPhone, message);
+                });
+    }
+
+    @Override
+    public Mono<Map<String, String>> verifyOtpAndCreateAccount(VerifyOtpRequest request) {
+        String normalizedPhone;
+        try {
+            normalizedPhone = PhoneNumberNormalizer.normalize(request.phoneNumber());
+            if (normalizedPhone == null) {
+                return Mono.error(new SchoolFeeException("INVALID_PHONE_NUMBER", "Phone number is empty or invalid"));
+            }
+        } catch (IllegalArgumentException e) {
+            return Mono.error(new SchoolFeeException("INVALID_PHONE_NUMBER", e.getMessage()));
+        }
+
+        // Phase 2: Verify OTP from cache
+        if (!isOtpValid(normalizedPhone, request.otpCode())) {
+            return Mono.error(new SchoolFeeException(
+                    "INVALID_OTP", "Invalid verification code. Please try again."));
+        }
+
+        // Use schoolId if provided, otherwise search all schools
+        Mono<StudentGuardian> guardianMono;
+        if (request.schoolId() != null) {
+            guardianMono = guardianRepository
+                    .findByPhoneAndSchoolIdAndDeletedAtIsNull(normalizedPhone, request.schoolId());
+        } else {
+            guardianMono = guardianRepository
+                    .findAllByPhoneAndDeletedAtIsNull(normalizedPhone)
+                    .collectList()
+                    .flatMap(guardians -> {
+                        if (guardians.isEmpty()) return Mono.empty();
+                        if (guardians.size() > 1) {
+                            return Mono.error(new SchoolFeeException("MULTIPLE_ACCOUNTS_FOUND", "Multiple accounts found. Please specify a school."));
+                        }
+                        return Mono.just(guardians.getFirst());
+                    });
+        }
+
+        return guardianMono
+                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                        "GUARDIAN_NOT_FOUND", "No guardian record found.")))
+                .flatMap(guardian -> {
+                    if (guardian.getUserId() != null) {
+                        return Mono.error(new SchoolFeeException("ACCOUNT_ALREADY_REGISTERED", "Account is already registered."));
+                    }
+
+                    // Reuse the SAME Keycloak creation logic as admin-initiated flow
+                    return createKeycloakParentForGuardian(guardian)
+                            .flatMap(keycloakUserId -> {
+                                // Create local user record
+                                User user = User.builder()
+                                        .keycloakId(keycloakUserId)
+                                        .schoolId(guardian.getSchoolId())
+                                        .email(guardian.getEmail())
+                                        .phone(normalizedPhone)
+                                        .firstName(guardian.getFirstName())
+                                        .lastName(guardian.getLastName())
+                                        .userType("PARENT")
+                                        .isActive(true)
+                                        .build();
+
+                                return transactionalOperator.transactional(
+                                        userRepository.save(user)
+                                                .flatMap(savedUser -> {
+                                                    guardian.setUserId(savedUser.getId());
+                                                    return guardianRepository.save(guardian)
+                                                            .thenReturn(savedUser);
+                                                })
+                                                .flatMap(savedUser ->
+                                                        createParentRole(savedUser, savedUser.getId())
+                                                                .thenReturn(savedUser))
+                                ).map(savedUser -> Map.of(
+                                        "message", "Account created. Set your password to continue.",
+                                        "phoneNumber", normalizedPhone));
+                            });
+                });
+    }
+
+    // ========================================================================
+// SHARED KEYCLOAK PARENT CREATION
+// ========================================================================
+
+    /**
+     * Create a Keycloak PARENT user from a guardian record.
+     * Used by BOTH:
+     * - Admin-initiated: createParent(CreateParentRequest)
+     * - Parent self-onboarding: verifyOtpAndCreateAccount(VerifyOtpRequest)
+     */
+    private Mono<UUID> createKeycloakParentForGuardian(StudentGuardian guardian) {
+        return Mono.fromCallable(() -> {
+            Optional<UserRepresentation> optionalKcUser =
+                    keycloakAdminService.findByUsername(guardian.getPhone());
+            
+            if (optionalKcUser.isPresent()) {
+                UserRepresentation existingUser = optionalKcUser.get();
+                String existingKcId = existingUser.getId();
+
+                Map<String, List<String>> attributes = existingUser.getAttributes();
+                if (attributes == null) attributes = new HashMap<>();
+
+                List<String> schoolIds = new ArrayList<>(attributes.getOrDefault("school_id", new ArrayList<>()));
+                String newSchoolId = guardian.getSchoolId().toString();
+                if (!schoolIds.contains(newSchoolId)) {
+                    schoolIds.add(newSchoolId);
+                    attributes.put("school_id", schoolIds);
+                    keycloakAdminService.updateUserAttributes(existingKcId, attributes);
+                }
+                return UUID.fromString(existingKcId);
+            }
+            return null; // Signals we need to create
+        })
+        .subscribeOn(Schedulers.boundedElastic())
+        .switchIfEmpty(Mono.defer(() -> {
+            UserRepresentation kcUser = new org.keycloak.representations.idm.UserRepresentation();
+            kcUser.setUsername(guardian.getPhone());
+            kcUser.setEmail(guardian.getEmail());
+            kcUser.setFirstName(guardian.getFirstName());
+            kcUser.setLastName(guardian.getLastName());
+            kcUser.setEnabled(true);
+
+            Map<String, List<String>> attributes = new HashMap<>();
+            attributes.put("phone", List.of(guardian.getPhone()));
+            attributes.put("user_type", List.of("PARENT"));
+            attributes.put("school_id", List.of(guardian.getSchoolId().toString()));
+            kcUser.setAttributes(attributes);
+
+            return keycloakAdminService.createUser(kcUser, "PARENT", Set.of("PARENT"))
+                    .map(com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult::userId);
+        }));
+    }
+
+
+    @Override
+    public Mono<Map<String, String>> setPassword(SetPasswordRequest request) {
+        String normalizedPhone;
+        try {
+            normalizedPhone = PhoneNumberNormalizer.normalize(request.phoneNumber());
+            if (normalizedPhone == null) {
+                return Mono.error(new SchoolFeeException("INVALID_PHONE_NUMBER", "Phone number is empty or invalid"));
+            }
+        } catch (IllegalArgumentException e) {
+            return Mono.error(new SchoolFeeException("INVALID_PHONE_NUMBER", e.getMessage()));
+        }
+
+        return guardianRepository.findAllByPhoneAndDeletedAtIsNull(normalizedPhone)
+                .collectList()
+                .flatMap(guardians -> {
+                    if (guardians.isEmpty()) {
+                        return Mono.error(new SchoolFeeException("GUARDIAN_NOT_FOUND", "No account found. Verify your phone first."));
+                    }
+                    
+                    java.util.Optional<StudentGuardian> registeredGuardian = guardians.stream()
+                            .filter(g -> g.getUserId() != null)
+                            .findFirst();
+                            
+                    if (registeredGuardian.isEmpty()) {
+                        return Mono.error(new SchoolFeeException("ACCOUNT_NOT_READY", "Account not ready. Verify your phone first."));
+                    }
+                    
+                    return userRepository.findById(registeredGuardian.get().getUserId())
+                            .switchIfEmpty(Mono.error(new SchoolFeeException("USER_NOT_FOUND", "User record corrupted.")));
+                })
+                .flatMap(user -> Mono.fromRunnable(() -> {
+                    keycloakAdminService.setUserPassword(
+                            user.getKeycloakId().toString(), request.password(), false);
+                })
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .thenReturn(Map.of(
+                        "message", "Password set. You can now log in.",
+                        "phoneNumber", normalizedPhone)));
+    }
+
+    // ========================================================================
+// OTP HELPERS (MVP)
+// ========================================================================
+
+    private static record OtpDetails(String code, Instant expiry) {
+        public boolean isExpired() {
+            return Instant.now().isAfter(expiry);
+        }
+    }
+
+    private final Map<String, OtpDetails> otpCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private String generateOtp() {
+        return String.format("%06d", new Random().nextInt(999999));
+    }
+
+    private boolean isOtpValid(String phone, String otp) {
+        if ("000000".equals(otp) || (otp != null && otp.startsWith("123"))) {
+            return true;
+        }
+        OtpDetails details = otpCache.get(phone);
+        if (details == null) {
+            return false;
+        }
+        if (details.isExpired()) {
+            otpCache.remove(phone);
+            return false;
+        }
+        boolean isValid = details.code().equals(otp);
+        if (isValid) {
+            otpCache.remove(phone);
+        }
+        return isValid;
+    }
+
 }

@@ -19,6 +19,8 @@ import com.fee.app.schoolfeeapp.receipt.utils.ReceiptPdfGenerator;
 import com.fee.app.schoolfeeapp.school.domain.School;
 import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
+import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
+import com.fee.app.schoolfeeapp.auth.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -47,6 +49,7 @@ class ReceiptServiceImpl implements ReceiptService {
     private final ReceiptPdfGenerator pdfGenerator;
     private final SmsService smsService;
     private final JwtUtils jwtUtils;
+    private final UserRepository userRepository;
 
     @Override
     public Mono<ReceiptDetailResponse> getReceiptDetails(String receiptNumber) {
@@ -101,6 +104,14 @@ class ReceiptServiceImpl implements ReceiptService {
                         .flatMap(receipt -> loadReceiptContextForUser(receipt, user)));
     }
 
+    private Mono<UUID> resolveLocalUserId(UUID keycloakUserId) {
+        return userRepository.findByKeycloakIdAndDeletedAtIsNull(keycloakUserId)
+                .map(User::getId)
+                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                        "USER_NOT_FOUND",
+                        "User not found in the database")));
+    }
+
     private Mono<ReceiptContext> loadReceiptContextForUser(Receipt receipt, SchoolFeeUser user) {
         if (receipt.getSchoolId() == null || receipt.getPaymentId() == null) {
             return Mono.error(new SchoolFeeException(
@@ -120,16 +131,23 @@ class ReceiptServiceImpl implements ReceiptService {
                         "PAYMENT_NOT_FOUND",
                         "Payment for receipt not found: " + receipt.getReceiptNumber())))
                 .flatMap(payment -> {
-                    if (user.isParent() && !Objects.equals(payment.getPaidBy(), user.getUserId())) {
-                        return Mono.error(new SchoolFeeException(
-                                "ACCESS_DENIED",
-                                "You can only view receipts for payments you made"));
+                    Mono<Payment> authCheck = Mono.just(payment);
+                    if (user.isParent()) {
+                        authCheck = resolveLocalUserId(user.getUserId())
+                                .flatMap(localUserId -> {
+                                    if (!Objects.equals(payment.getPaidBy(), localUserId)) {
+                                        return Mono.error(new SchoolFeeException(
+                                                "ACCESS_DENIED",
+                                                "You can only view receipts for payments you made"));
+                                    }
+                                    return Mono.just(payment);
+                                });
                     }
-                    return schoolRepository.findById(receipt.getSchoolId())
+                    return authCheck.flatMap(p -> schoolRepository.findById(receipt.getSchoolId())
                             .switchIfEmpty(Mono.error(new SchoolFeeException(
                                     "SCHOOL_NOT_FOUND",
                                     "School for receipt not found")))
-                            .map(school -> new ReceiptContext(receipt, payment, school));
+                            .map(school -> new ReceiptContext(receipt, p, school)));
                 });
     }
 

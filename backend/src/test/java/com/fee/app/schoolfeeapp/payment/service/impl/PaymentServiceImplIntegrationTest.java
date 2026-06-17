@@ -577,7 +577,7 @@ class PaymentServiceImplIntegrationTest {
                 )
                 """)
                 .bind("userId", userId)
-                .bind("keycloakId", UUID.randomUUID())
+                .bind("keycloakId", userId)
                 .bind("schoolId", SCHOOL_ID)
                 .bind("email", "parent-" + userId + "@gis.edu")
                 .bind("phone", "2348" + Math.abs(userId.hashCode()))

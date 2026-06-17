@@ -74,10 +74,10 @@ public class SchoolController {
     }
 
     /**
-     * Patch /api/v1/schools/{schoolId}/deactivate
+     * Patch / PUT /api/v1/schools/{schoolId}/deactivate
      * Deactivate a school (Super Admin only).
      */
-    @PatchMapping("/{schoolId}/deactivate")
+    @RequestMapping(value = "/{schoolId}/deactivate", method = {RequestMethod.PATCH, RequestMethod.PUT})
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Mono<ResponseEntity<ApiResponse<Void>>> deactivateSchool(
             @PathVariable UUID schoolId) {

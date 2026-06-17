@@ -10,6 +10,8 @@ public record StudentFeeResponse(
         UUID studentFeeId,
         String structureName,
         String termName,
+        boolean isCurrentTerm,
+        boolean isUpcomingTerm,
         List<FeeItemDetail> items,
         BigDecimal totalAmount,
         BigDecimal discountAmount,

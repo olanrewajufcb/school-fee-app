@@ -29,7 +29,7 @@ public class GlobalExceptionHandler {
                 .build();
         
         HttpStatus status = switch (ex.getErrorCode()) {
-            case "RESOURCE_NOT_FOUND" -> HttpStatus.NOT_FOUND;
+            case "RESOURCE_NOT_FOUND", "SCHOOL_NOT_FOUND" -> HttpStatus.NOT_FOUND;
             case "DUPLICATE_RESOURCE", "STALE_RESOURCE" -> HttpStatus.CONFLICT;
             case "INVALID_STATE" -> HttpStatus.UNPROCESSABLE_ENTITY;
             default -> HttpStatus.BAD_REQUEST;
