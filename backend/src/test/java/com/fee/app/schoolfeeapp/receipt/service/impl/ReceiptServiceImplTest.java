@@ -19,6 +19,7 @@ import com.fee.app.schoolfeeapp.school.domain.School;
 import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
 import com.fee.app.schoolfeeapp.student.domain.Student;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
+import com.fee.app.schoolfeeapp.student.repository.SchoolStudentGuardianLinkRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -65,6 +66,8 @@ class ReceiptServiceImplTest {
     private JwtUtils jwtUtils;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private SchoolStudentGuardianLinkRepository guardianLinkRepository;
 
     private ReceiptServiceImpl receiptService;
 
@@ -89,13 +92,20 @@ class ReceiptServiceImplTest {
                 new ReceiptPdfGenerator(),
                 smsService,
                 jwtUtils,
-                userRepository);
+                userRepository,
+                guardianLinkRepository);
 
         org.mockito.Mockito.lenient().when(userRepository.findByKeycloakIdAndDeletedAtIsNull(org.mockito.ArgumentMatchers.any(UUID.class)))
                 .thenAnswer(invocation -> Mono.just(User.builder()
                         .id(invocation.getArgument(0))
                         .keycloakId(invocation.getArgument(0))
                         .build()));
+
+        org.mockito.Mockito.lenient().when(guardianLinkRepository.findFeeAccessByGuardianUserIdAndStudentIdAndSchoolId(
+                org.mockito.ArgumentMatchers.any(UUID.class),
+                org.mockito.ArgumentMatchers.any(UUID.class),
+                org.mockito.ArgumentMatchers.any(UUID.class)))
+                .thenReturn(Mono.empty());
     }
 
     @Test
@@ -209,6 +219,12 @@ class ReceiptServiceImplTest {
                 .thenReturn(Flux.just(allocation(BigDecimal.valueOf(5000))));
         when(studentFeeRepository.findById(STUDENT_FEE_ID)).thenReturn(Mono.just(studentFee()));
         when(studentRepository.findById(STUDENT_ID)).thenReturn(Mono.just(student()));
+        
+        if (user.isParent()) {
+            when(guardianLinkRepository.findFeeAccessByGuardianUserIdAndStudentIdAndSchoolId(
+                    user.getUserId(), receipt.getStudentId(), receipt.getSchoolId()))
+                    .thenReturn(Mono.just(com.fee.app.schoolfeeapp.auth.domain.StudentGuardianLink.builder().build()));
+        }
     }
 
     private byte[] readBytes(DataBuffer buffer) {

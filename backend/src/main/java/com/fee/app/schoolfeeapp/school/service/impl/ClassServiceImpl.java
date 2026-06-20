@@ -13,6 +13,8 @@ import com.fee.app.schoolfeeapp.school.repository.AcademicSessionRepository;
 import com.fee.app.schoolfeeapp.school.repository.ClassRepository;
 import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
+import com.fee.app.schoolfeeapp.student.repository.SchoolStudentGuardianLinkRepository;
+import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianRepository;
 import com.fee.app.schoolfeeapp.school.service.ClassService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +46,8 @@ class ClassServiceImpl implements ClassService {
     private final SchoolRepository schoolRepository;
     private final JwtUtils jwtUtils;
     private final TransactionalOperator transactionalOperator;
+    private final SchoolStudentGuardianLinkRepository guardianLinkRepository;
+    private final StudentGuardianRepository guardianRepository;
 
     // ========================================================================
     // CREATE CLASS
@@ -900,6 +904,14 @@ class ClassServiceImpl implements ClassService {
                 });
     }
 
+    private Mono<Optional<String>> findPrimaryGuardianPhone(UUID studentId) {
+        return guardianLinkRepository.findActivePrimaryByStudentId(studentId)
+                .next()
+                .flatMap(link -> guardianRepository.findByIdAndDeletedAtIsNull(link.getGuardianId()))
+                .map(guardian -> Optional.ofNullable(guardian.getPhone()))
+                .defaultIfEmpty(Optional.empty());
+    }
+
     /**
      * Build full class detail response with students and statistics.
      */
@@ -908,30 +920,29 @@ class ClassServiceImpl implements ClassService {
         int capacity = cls.getCapacity() == null ? DEFAULT_CLASS_CAPACITY : cls.getCapacity();
 
         return studentRepository.findActiveBySchoolIdAndCurrentClassId(schoolId, cls.getId())
+                .flatMap(s -> findPrimaryGuardianPhone(s.getId())
+                        .map(optPhone -> new ClassDetailResponse.StudentSummary(
+                                s.getId(),
+                                s.getAdmissionNumber(),
+                                s.getFirstName(),
+                                s.getLastName(),
+                                s.getGender(),
+                                optPhone.orElse(null),
+                                null // feeStatus
+                        ))
+                )
                 .collectList()
-                .map(students -> {
-                    int maleCount = (int) students.stream()
-                            .filter(s -> "MALE".equalsIgnoreCase(s.getGender())).count();
-                    int femaleCount = students.size() - maleCount;
-
-                    List<ClassDetailResponse.StudentSummary> studentSummaries = students.stream()
-                            .map(s -> new ClassDetailResponse.StudentSummary(
-                                    s.getId(),
-                                    s.getAdmissionNumber(),
-                                    s.getFirstName(),
-                                    s.getLastName(),
-                                    s.getGender(),
-                                    null, // to be fetched from guardian
-                                    null // to be fetched from fee module
-                            ))
-                            .toList();
+                .map(studentSummaries -> {
+                    int maleCount = (int) studentSummaries.stream()
+                            .filter(s -> "MALE".equalsIgnoreCase(s.gender())).count();
+                    int femaleCount = studentSummaries.size() - maleCount;
 
                     ClassDetailResponse.ClassStatistics stats = new
                             ClassDetailResponse.ClassStatistics(
                                     maleCount,
                                     femaleCount,
                                     0, // TODO: Phase 2
-                                    students.size() // TODO: Phase 2
+                                    studentSummaries.size() // TODO: Phase 2
                     );
 
                     return new ClassDetailResponse(
@@ -945,7 +956,7 @@ class ClassServiceImpl implements ClassService {
                                             cls.getClassTeacherId(), null, null, null)
                                     : null,
                             capacity,
-                            students.size(),
+                            studentSummaries.size(),
                             studentSummaries,
                             stats,
                             cls.getCreatedAt()

@@ -1,6 +1,7 @@
 package com.fee.app.schoolfeeapp.result.repository;
 
 import com.fee.app.schoolfeeapp.result.domain.CaComponent;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
@@ -33,7 +34,7 @@ public interface CaComponentRepository extends ReactiveCrudRepository<CaComponen
             )
             RETURNING *
             """)
-    Mono<CaComponent> insert(CaComponent component);
+    Mono<CaComponent> insert(@Param("component") CaComponent component);
 
     @Query("""
             SELECT *

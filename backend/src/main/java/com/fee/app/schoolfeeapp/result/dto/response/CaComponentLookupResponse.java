@@ -5,5 +5,7 @@ import java.util.UUID;
 public record CaComponentLookupResponse(
         UUID id,
         String name,
-        int maxScore
+        int maxScore,
+        Double weightPercentage,
+        Integer sortOrder
 ) {}

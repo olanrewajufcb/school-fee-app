@@ -1,6 +1,7 @@
 package com.fee.app.schoolfeeapp.notification.repository;
 
 import com.fee.app.schoolfeeapp.notification.domain.Notification;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
@@ -55,7 +56,7 @@ public interface NotificationRepository extends ReactiveCrudRepository<Notificat
             )
             RETURNING *
             """)
-    Mono<Notification> insertNotification(Notification notification);
+    Mono<Notification> insertNotification(@Param("notification") Notification notification);
 
     @Query("""
             UPDATE notification.notifications

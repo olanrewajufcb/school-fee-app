@@ -878,7 +878,7 @@ class FeeServiceImpl implements FeeService {
                                 .collectList()
                 ).map(tuple -> {
                     StudentFeeFinancialSummary summary = calculateStudentFeeFinancialSummary(fee, tuple.getT3());
-                    long daysUntilDue = ChronoUnit.DAYS.between(LocalDate.now(), fee.getDueDate());
+                    long daysUntilDue = fee.getDueDate() != null ? ChronoUnit.DAYS.between(LocalDate.now(), fee.getDueDate()) : 0;
 
                     Term term = tuple.getT2();
                     boolean isCurrent = false;

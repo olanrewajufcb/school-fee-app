@@ -817,4 +817,838 @@ class NotificationServiceImplTest {
                 .roles(Set.of("SCHOOL_ADMIN"))
                 .build();
     }
+
+    // ========================================================================
+    // BULK NOTIFICATIONS REQUEST VALIDATIONS
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should reject sendBulkNotifications when request is null")
+    void shouldRejectSendBulkNotificationsWhenRequestIsNull() {
+        StepVerifier.create(notificationService.sendBulkNotifications(null))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BULK_NOTIFICATION_REQUEST");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject sendBulkNotifications when studentFeeIds list is null or empty")
+    void shouldRejectSendBulkNotificationsWhenStudentFeeIdsNullOrEmpty() {
+        SendBulkNotificationRequest reqNull = new SendBulkNotificationRequest(null, "FEE_REMINDER", "SMS");
+        SendBulkNotificationRequest reqEmpty = new SendBulkNotificationRequest(List.of(), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(reqNull))
+                .expectErrorSatisfies(error -> assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds"))
+                .verify();
+
+        StepVerifier.create(notificationService.sendBulkNotifications(reqEmpty))
+                .expectErrorSatisfies(error -> assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds"))
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject sendBulkNotifications when studentFeeIds list contains null")
+    void shouldRejectSendBulkNotificationsWhenStudentFeeIdsContainsNull() {
+        java.util.ArrayList<UUID> ids = new java.util.ArrayList<>();
+        ids.add(null);
+        SendBulkNotificationRequest req = new SendBulkNotificationRequest(ids, "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(req))
+                .expectErrorSatisfies(error -> assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds"))
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject sendBulkNotifications when templateCode is blank")
+    void shouldRejectSendBulkNotificationsWhenTemplateCodeBlank() {
+        SendBulkNotificationRequest req = new SendBulkNotificationRequest(List.of(UUID.randomUUID()), " ", "SMS");
+        StepVerifier.create(notificationService.sendBulkNotifications(req))
+                .expectErrorSatisfies(error -> assertThat(((SchoolFeeException) error).getField()).isEqualTo("templateCode"))
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject sendBulkNotifications when channel is blank")
+    void shouldRejectSendBulkNotificationsWhenChannelBlank() {
+        SendBulkNotificationRequest req = new SendBulkNotificationRequest(List.of(UUID.randomUUID()), "FEE_REMINDER", " ");
+        StepVerifier.create(notificationService.sendBulkNotifications(req))
+                .expectErrorSatisfies(error -> assertThat(((SchoolFeeException) error).getField()).isEqualTo("channel"))
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject sendBulkNotifications when channel is unsupported")
+    void shouldRejectSendBulkNotificationsWhenChannelUnsupported() {
+        SendBulkNotificationRequest req = new SendBulkNotificationRequest(List.of(UUID.randomUUID()), "FEE_REMINDER", "PUSH");
+        StepVerifier.create(notificationService.sendBulkNotifications(req))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("UNSUPPORTED_CHANNEL");
+                })
+                .verify();
+    }
+
+    // ========================================================================
+    // UPDATE TEMPLATE REQUEST VALIDATIONS
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should reject updateTemplate when template ID is null")
+    void shouldRejectUpdateTemplateWhenTemplateIdIsNull() {
+        UpdateTemplateRequest request = new UpdateTemplateRequest("Body", "Name", true);
+        StepVerifier.create(notificationService.updateTemplate(null, request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_TEMPLATE_REQUEST");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject updateTemplate when request is null")
+    void shouldRejectUpdateTemplateWhenRequestIsNull() {
+        StepVerifier.create(notificationService.updateTemplate(TEMPLATE_ID, null))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_TEMPLATE_REQUEST");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject updateTemplate when name is blank")
+    void shouldRejectUpdateTemplateWhenNameIsBlank() {
+        UpdateTemplateRequest request = new UpdateTemplateRequest("Body", "   ", true);
+        StepVerifier.create(notificationService.updateTemplate(TEMPLATE_ID, request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("name");
+                })
+                .verify();
+    }
+
+    // ========================================================================
+    // PRIMARY GUARDIAN LOOKUP BRANCHES
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should handle sendBulkNotifications when guardian link is not found")
+    void shouldHandleSendBulkWhenGuardianLinkNotFound() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.just(template("SMS")));
+        NotificationChannel smsChannel = mock(NotificationChannel.class);
+        when(channelSelector.select("SMS")).thenReturn(smsChannel);
+
+        UUID feeId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId, studentId)));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, SCHOOL_ID))
+                .thenReturn(Mono.just(student(studentId)));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId))
+                .thenReturn(Flux.empty());
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("FAILED");
+                    assertThat(response.recipientsCount()).isEqualTo(1);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should handle sendBulkNotifications when guardian link belongs to another school")
+    void shouldHandleSendBulkWhenGuardianLinkWrongSchool() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.just(template("SMS")));
+        NotificationChannel smsChannel = mock(NotificationChannel.class);
+        when(channelSelector.select("SMS")).thenReturn(smsChannel);
+
+        UUID feeId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        UUID guardianId = UUID.randomUUID();
+        StudentGuardianLink link = guardianLink(studentId, guardianId);
+        link.setSchoolId(UUID.randomUUID());
+
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId, studentId)));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, SCHOOL_ID))
+                .thenReturn(Mono.just(student(studentId)));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId))
+                .thenReturn(Flux.just(link));
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> assertThat(response.status()).isEqualTo("FAILED"))
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should handle sendBulkNotifications when guardian link has canReceiveSms false")
+    void shouldHandleSendBulkWhenCanReceiveSmsFalse() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.just(template("SMS")));
+        NotificationChannel smsChannel = mock(NotificationChannel.class);
+        when(channelSelector.select("SMS")).thenReturn(smsChannel);
+
+        UUID feeId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        UUID guardianId = UUID.randomUUID();
+        StudentGuardianLink link = guardianLink(studentId, guardianId);
+        link.setCanReceiveSms(false);
+
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId, studentId)));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, SCHOOL_ID))
+                .thenReturn(Mono.just(student(studentId)));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId))
+                .thenReturn(Flux.just(link));
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> assertThat(response.status()).isEqualTo("FAILED"))
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should handle sendBulkNotifications when guardian belongs to another school")
+    void shouldHandleSendBulkWhenGuardianWrongSchool() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.just(template("SMS")));
+        NotificationChannel smsChannel = mock(NotificationChannel.class);
+        when(channelSelector.select("SMS")).thenReturn(smsChannel);
+
+        UUID feeId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        UUID guardianId = UUID.randomUUID();
+        StudentGuardian g = guardian(guardianId, "+2348012345678");
+        g.setSchoolId(UUID.randomUUID());
+
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId, studentId)));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, SCHOOL_ID))
+                .thenReturn(Mono.just(student(studentId)));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId))
+                .thenReturn(Flux.just(guardianLink(studentId, guardianId)));
+        when(guardianRepository.findByIdAndDeletedAtIsNull(guardianId))
+                .thenReturn(Mono.just(g));
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> assertThat(response.status()).isEqualTo("FAILED"))
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should handle sendBulkNotifications when guardian is inactive")
+    void shouldHandleSendBulkWhenGuardianInactive() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.just(template("SMS")));
+        NotificationChannel smsChannel = mock(NotificationChannel.class);
+        when(channelSelector.select("SMS")).thenReturn(smsChannel);
+
+        UUID feeId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        UUID guardianId = UUID.randomUUID();
+        StudentGuardian g = guardian(guardianId, "+2348012345678");
+        g.setIsActive(false);
+
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId, studentId)));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, SCHOOL_ID))
+                .thenReturn(Mono.just(student(studentId)));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId))
+                .thenReturn(Flux.just(guardianLink(studentId, guardianId)));
+        when(guardianRepository.findByIdAndDeletedAtIsNull(guardianId))
+                .thenReturn(Mono.just(g));
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> assertThat(response.status()).isEqualTo("FAILED"))
+                .verifyComplete();
+    }
+
+    // ========================================================================
+    // BULK CHANNELS SELECTOR VALIDATIONS
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should reject sendBulkNotifications with channel BOTH when SMS or WHATSAPP is missing")
+    void shouldRejectBothChannelWhenUnderlyingMissing() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "BOTH"))
+                .thenReturn(Mono.just(template("BOTH")));
+        when(channelSelector.getAvailableChannels()).thenReturn(List.of("SMS"));
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(UUID.randomUUID()), "FEE_REMINDER", "BOTH");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("UNSUPPORTED_CHANNEL");
+                    assertThat(((SchoolFeeException) error).getMessage()).contains("SMS and WHATSAPP channels must both be configured");
+                })
+                .verify();
+    }
+
+    // ========================================================================
+    // TEMPLATE VARIABLES PARSER SCENARIOS
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should parse template variables when JsonNode is a string (textual)")
+    void shouldParseVariablesWhenJsonIsString() {
+        NotificationTemplate t = template("SMS");
+        t.setVariables(com.fasterxml.jackson.databind.node.TextNode.valueOf("[\"parent_name\", \"amount\"]"));
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Flux.just(t));
+
+        StepVerifier.create(notificationService.getTemplates(null))
+                .assertNext(response -> {
+                    assertThat(response).hasSize(1);
+                    assertThat(response.getFirst().variables()).containsExactly("parent_name", "amount");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should return empty variables when JsonNode is non-textual non-array")
+    void shouldReturnEmptyVariablesWhenJsonNodeInvalidType() {
+        NotificationTemplate t = template("SMS");
+        t.setVariables(com.fasterxml.jackson.databind.node.IntNode.valueOf(42));
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Flux.just(t));
+
+        StepVerifier.create(notificationService.getTemplates(null))
+                .assertNext(response -> {
+                    assertThat(response).hasSize(1);
+                    assertThat(response.getFirst().variables()).isEmpty();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should reject sendBulkNotifications when studentFeeIds has duplicates")
+    void shouldRejectSendBulkNotificationsWhenStudentFeeIdsContainsDuplicates() {
+        UUID feeId = UUID.randomUUID();
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId, feeId), "FEE_REMINDER", "SMS");
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("DUPLICATE_NOTIFICATION_TARGET");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should successfully update template name only")
+    void shouldUpdateTemplateNameOnly() {
+        UpdateTemplateRequest request = new UpdateTemplateRequest(null, "Updated Name", null);
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findByIdAndSchoolId(TEMPLATE_ID, SCHOOL_ID)).thenReturn(Mono.just(template("SMS")));
+        when(templateRepository.save(any(NotificationTemplate.class)))
+                .thenAnswer(invocation -> {
+                    NotificationTemplate saved = invocation.getArgument(0);
+                    saved.setUpdatedAt(Instant.parse("2026-06-05T10:15:30Z"));
+                    return Mono.just(saved);
+                });
+
+        StepVerifier.create(notificationService.updateTemplate(TEMPLATE_ID, request))
+                .assertNext(response -> {
+                    assertThat(response.templateId()).isEqualTo(TEMPLATE_ID);
+                    assertThat(response.updatedAt()).isEqualTo(Instant.parse("2026-06-05T10:15:30Z"));
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<NotificationTemplate> templateCaptor = ArgumentCaptor.forClass(NotificationTemplate.class);
+        verify(templateRepository).save(templateCaptor.capture());
+        assertThat(templateCaptor.getValue().getBodyTemplate()).isEqualTo("Hello {parent_name}, pay {amount}.");
+        assertThat(templateCaptor.getValue().getName()).isEqualTo("Updated Name");
+        assertThat(templateCaptor.getValue().getIsActive()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Should successfully update template isActive only")
+    void shouldUpdateTemplateIsActiveOnly() {
+        UpdateTemplateRequest request = new UpdateTemplateRequest(null, null, false);
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findByIdAndSchoolId(TEMPLATE_ID, SCHOOL_ID)).thenReturn(Mono.just(template("SMS")));
+        when(templateRepository.save(any(NotificationTemplate.class)))
+                .thenAnswer(invocation -> {
+                    NotificationTemplate saved = invocation.getArgument(0);
+                    saved.setUpdatedAt(Instant.parse("2026-06-05T10:15:30Z"));
+                    return Mono.just(saved);
+                });
+
+        StepVerifier.create(notificationService.updateTemplate(TEMPLATE_ID, request))
+                .assertNext(response -> {
+                    assertThat(response.templateId()).isEqualTo(TEMPLATE_ID);
+                    assertThat(response.updatedAt()).isEqualTo(Instant.parse("2026-06-05T10:15:30Z"));
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<NotificationTemplate> templateCaptor = ArgumentCaptor.forClass(NotificationTemplate.class);
+        verify(templateRepository).save(templateCaptor.capture());
+        assertThat(templateCaptor.getValue().getBodyTemplate()).isEqualTo("Hello {parent_name}, pay {amount}.");
+        assertThat(templateCaptor.getValue().getName()).isEqualTo("SMS Fee Reminder");
+        assertThat(templateCaptor.getValue().getIsActive()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Should list all templates when channel filter is blank")
+    void shouldListAllTemplatesWhenChannelFilterIsBlank() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findBySchoolId(SCHOOL_ID))
+                .thenReturn(Flux.just(template("SMS")));
+
+        StepVerifier.create(notificationService.getTemplates("   "))
+                .assertNext(response -> assertThat(response).hasSize(1))
+                .verifyComplete();
+
+        verify(templateRepository).findBySchoolId(SCHOOL_ID);
+    }
+
+    @Test
+    @DisplayName("Should filter null or blank variables from ArrayNode")
+    void shouldFilterNullOrBlankVariablesFromArrayNode() {
+        com.fasterxml.jackson.databind.node.ArrayNode arrayNode = 
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
+        arrayNode.add("parent_name");
+        arrayNode.add("");
+        arrayNode.add("amount");
+
+        NotificationTemplate t = template("SMS");
+        t.setVariables(arrayNode);
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Flux.just(t));
+
+        StepVerifier.create(notificationService.getTemplates(null))
+                .assertNext(response -> {
+                    assertThat(response).hasSize(1);
+                    assertThat(response.getFirst().variables()).containsExactly("parent_name", "amount");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should return empty variables when textual node is blank or empty")
+    void shouldReturnEmptyVariablesWhenTextualNodeIsBlank() {
+        NotificationTemplate t = template("SMS");
+        t.setVariables(com.fasterxml.jackson.databind.node.TextNode.valueOf("   "));
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Flux.just(t));
+
+        StepVerifier.create(notificationService.getTemplates(null))
+                .assertNext(response -> {
+                    assertThat(response).hasSize(1);
+                    assertThat(response.getFirst().variables()).isEmpty();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should process sendBulkNotifications successfully when guardian link canReceiveSms is null")
+    void shouldHandleSendBulkWhenCanReceiveSmsIsNull() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.just(template("SMS")));
+
+        UUID feeId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        UUID guardianId = UUID.randomUUID();
+
+        StudentGuardianLink link = guardianLink(studentId, guardianId);
+        link.setCanReceiveSms(null); 
+
+        StudentGuardian guardian = guardian(guardianId, "+2348012345678");
+
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId, studentId)));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, SCHOOL_ID))
+                .thenReturn(Mono.just(student(studentId)));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId))
+                .thenReturn(Flux.just(link));
+        when(guardianRepository.findByIdAndDeletedAtIsNull(guardianId))
+                .thenReturn(Mono.just(guardian));
+
+        NotificationChannel smsChannel = mockChannelMetadata("SMS", BigDecimal.TEN);
+        when(channelSelector.select("SMS")).thenReturn(smsChannel);
+
+        when(notificationRepository.insertNotification(any(Notification.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        when(smsChannel.send(anyString(), anyString(), anyString()))
+                .thenReturn(Mono.just(ChannelResult.builder()
+                        .channel("SMS")
+                        .messageId("msg-1")
+                        .success(true)
+                        .build()));
+
+        when(notificationRepository.updateDeliveryResult(
+                any(), anyString(), nullable(String.class), any(), nullable(String.class), nullable(Instant.class)))
+                .thenAnswer(invocation -> Mono.just(Notification.builder().id(invocation.getArgument(0)).build()));
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("QUEUED");
+                    assertThat(response.recipientsCount()).isEqualTo(1);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should process sendBulkNotifications successfully when guardian isActive is null")
+    void shouldHandleSendBulkWhenGuardianIsActiveIsNull() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.just(template("SMS")));
+
+        UUID feeId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        UUID guardianId = UUID.randomUUID();
+
+        StudentGuardianLink link = guardianLink(studentId, guardianId);
+        StudentGuardian guardian = guardian(guardianId, "+2348012345678");
+        guardian.setIsActive(null); 
+
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId, studentId)));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, SCHOOL_ID))
+                .thenReturn(Mono.just(student(studentId)));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId))
+                .thenReturn(Flux.just(link));
+        when(guardianRepository.findByIdAndDeletedAtIsNull(guardianId))
+                .thenReturn(Mono.just(guardian));
+
+        NotificationChannel smsChannel = mockChannelMetadata("SMS", BigDecimal.TEN);
+        when(channelSelector.select("SMS")).thenReturn(smsChannel);
+
+        when(notificationRepository.insertNotification(any(Notification.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        when(smsChannel.send(anyString(), anyString(), anyString()))
+                .thenReturn(Mono.just(ChannelResult.builder()
+                        .channel("SMS")
+                        .messageId("msg-1")
+                        .success(true)
+                        .build()));
+
+        when(notificationRepository.updateDeliveryResult(
+                any(), anyString(), nullable(String.class), any(), nullable(String.class), nullable(Instant.class)))
+                .thenAnswer(invocation -> Mono.just(Notification.builder().id(invocation.getArgument(0)).build()));
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("QUEUED");
+                    assertThat(response.recipientsCount()).isEqualTo(1);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should propagate non-duplicate key exception from insertNotification")
+    void shouldPropagateNonDuplicateKeyException() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.just(template("SMS")));
+
+        UUID feeId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        UUID guardianId = UUID.randomUUID();
+
+        StudentGuardianLink link = guardianLink(studentId, guardianId);
+        StudentGuardian guardian = guardian(guardianId, "+2348012345678");
+
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId, studentId)));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, SCHOOL_ID))
+                .thenReturn(Mono.just(student(studentId)));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId))
+                .thenReturn(Flux.just(link));
+        when(guardianRepository.findByIdAndDeletedAtIsNull(guardianId))
+                .thenReturn(Mono.just(guardian));
+
+        NotificationChannel smsChannel = mockChannelMetadata("SMS", BigDecimal.TEN);
+        when(channelSelector.select("SMS")).thenReturn(smsChannel);
+
+        when(notificationRepository.insertNotification(any(Notification.class)))
+                .thenReturn(Mono.error(new RuntimeException("Database error")));
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("FAILED");
+                    assertThat(response.recipientsCount()).isEqualTo(1);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should return PARTIAL status when some sendBulkNotifications fail")
+    void shouldReturnPartialStatusWhenSomeNotificationsFail() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.just(template("SMS")));
+
+        UUID feeId1 = UUID.randomUUID();
+        UUID studentId1 = UUID.randomUUID();
+        UUID guardianId1 = UUID.randomUUID();
+
+        UUID feeId2 = UUID.randomUUID(); 
+
+        StudentGuardianLink link1 = guardianLink(studentId1, guardianId1);
+        StudentGuardian guardian1 = guardian(guardianId1, "+2348012345678");
+
+        when(studentFeeRepository.findByIdAndSchoolId(feeId1, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId1, studentId1)));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId1))
+                .thenReturn(Flux.just(link1));
+        when(guardianRepository.findByIdAndDeletedAtIsNull(guardianId1))
+                .thenReturn(Mono.just(guardian1));
+
+        when(studentFeeRepository.findByIdAndSchoolId(feeId2, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId2, UUID.randomUUID())));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(any(UUID.class), org.mockito.ArgumentMatchers.eq(SCHOOL_ID)))
+                .thenAnswer(invocation -> {
+                    UUID sid = invocation.getArgument(0);
+                    if (sid.equals(studentId1)) {
+                        return Mono.just(student(studentId1));
+                    }
+                    return Mono.empty(); 
+                });
+
+        NotificationChannel smsChannel = mockChannelMetadata("SMS", BigDecimal.TEN);
+        when(channelSelector.select("SMS")).thenReturn(smsChannel);
+
+        when(notificationRepository.insertNotification(any(Notification.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        when(smsChannel.send(anyString(), anyString(), anyString()))
+                .thenReturn(Mono.just(ChannelResult.builder()
+                        .channel("SMS")
+                        .messageId("msg-1")
+                        .success(true)
+                        .build()));
+
+        when(notificationRepository.updateDeliveryResult(
+                any(), anyString(), nullable(String.class), any(), nullable(String.class), nullable(Instant.class)))
+                .thenAnswer(invocation -> Mono.just(Notification.builder().id(invocation.getArgument(0)).build()));
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId1, feeId2), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("PARTIAL");
+                    assertThat(response.recipientsCount()).isEqualTo(2);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should fall back to UNKNOWN channel in onErrorResume when channel is null")
+    void shouldFallbackToUnknownChannelInOnErrorResumeWhenChannelIsNull() throws Exception {
+        UUID feeId = UUID.randomUUID();
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", null))
+                .thenReturn(Mono.just(template("SMS")));
+        
+        NotificationChannel smsChannel = mockChannelMetadata("SMS", BigDecimal.TEN);
+        when(channelSelector.select(null)).thenReturn(smsChannel);
+                
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID))
+                .thenReturn(Mono.empty());
+
+        Class<?> bulkNotificationClass = Class.forName("com.fee.app.schoolfeeapp.notification.service.impl.NotificationServiceImpl$BulkNotification");
+        java.lang.reflect.Constructor<?> constructor = bulkNotificationClass.getDeclaredConstructors()[0];
+        constructor.setAccessible(true);
+        Object bulkRequest = constructor.newInstance(List.of(feeId), "FEE_REMINDER", null);
+
+        java.lang.reflect.Method method = NotificationServiceImpl.class.getDeclaredMethod("sendBulkNotificationsForUser", bulkNotificationClass, SchoolFeeUser.class);
+        method.setAccessible(true);
+        Mono<com.fee.app.schoolfeeapp.notification.dto.response.SendBulkNotificationResponse> mono = (Mono<com.fee.app.schoolfeeapp.notification.dto.response.SendBulkNotificationResponse>) method.invoke(notificationService, bulkRequest, currentUser());
+
+        StepVerifier.create(mono)
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("FAILED");
+                    assertThat(response.recipientsCount()).isEqualTo(1);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should handle missing due date and null variables rendering templates")
+    void shouldHandleMissingDueDateAndNullVariablesInTemplateRendering() {
+        UUID feeId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        UUID guardianId = UUID.randomUUID();
+
+        StudentFee fee = studentFee(feeId, studentId);
+        fee.setDueDate(null); 
+        fee.setTotalAmount(null); 
+
+        StudentGuardian guardian = guardian(guardianId, "+2348012345678");
+        guardian.setFirstName(null);
+
+        Student student = student(studentId);
+        StudentGuardianLink link = guardianLink(studentId, guardianId);
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.just(template("SMS")));
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID)).thenReturn(Mono.just(fee));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, SCHOOL_ID)).thenReturn(Mono.just(student));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId)).thenReturn(Flux.just(link));
+        when(guardianRepository.findByIdAndDeletedAtIsNull(guardianId)).thenReturn(Mono.just(guardian));
+        
+        NotificationChannel smsChannel = mockChannelMetadata("SMS", BigDecimal.TEN);
+        when(channelSelector.select("SMS")).thenReturn(smsChannel);
+        when(notificationRepository.insertNotification(any(Notification.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(smsChannel.send(anyString(), anyString(), anyString())).thenReturn(Mono.just(ChannelResult.builder().channel("SMS").success(true).build()));
+        when(notificationRepository.updateDeliveryResult(any(), any(), any(), any(), any(), any())).thenAnswer(i -> Mono.just(Notification.builder().build()));
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(List.of(feeId), "FEE_REMINDER", "SMS");
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("QUEUED");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should cover template response isActive mapping and json node variables parsing")
+    void shouldCoverTemplateResponseIsActiveMappingAndJsonNodeVariablesParsing() {
+        NotificationTemplate inactiveTemplate = template("SMS");
+        inactiveTemplate.setIsActive(false);
+        inactiveTemplate.setVariables(com.fasterxml.jackson.databind.node.NullNode.getInstance());
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Flux.just(inactiveTemplate));
+
+        StepVerifier.create(notificationService.getTemplates(null))
+                .assertNext(response -> {
+                    assertThat(response).hasSize(1);
+                    assertThat(response.getFirst().isActive()).isFalse();
+                    assertThat(response.getFirst().variables()).isEmpty();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should cover json node variables array parsing with null and empty elements")
+    void shouldCoverJsonNodeVariablesArrayParsingWithNullAndEmptyElements() {
+        NotificationTemplate t = template("SMS");
+        com.fasterxml.jackson.databind.node.ArrayNode arrayNode = com.fasterxml.jackson.databind.json.JsonMapper.builder().build().createArrayNode();
+        arrayNode.add("var1");
+        arrayNode.add("   "); 
+        arrayNode.add((String) null); 
+
+        t.setVariables(arrayNode);
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Flux.just(t));
+
+        StepVerifier.create(notificationService.getTemplates(null))
+                .assertNext(response -> {
+                    assertThat(response).hasSize(1);
+                    assertThat(response.getFirst().variables()).containsExactly("var1", "null");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should cover non-array non-textual json node variables parsing returning empty")
+    void shouldCoverNonArrayNonTextualJsonNodeVariablesParsingReturningEmpty() {
+        NotificationTemplate t = template("SMS");
+        t.setVariables(com.fasterxml.jackson.databind.node.IntNode.valueOf(123));
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Flux.just(t));
+
+        StepVerifier.create(notificationService.getTemplates(null))
+                .assertNext(response -> {
+                    assertThat(response).hasSize(1);
+                    assertThat(response.getFirst().variables()).isEmpty();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should cover textual variables parsing with empty and blank comma-separated elements")
+    void shouldCoverTextualVariablesParsingWithBlankElements() {
+        NotificationTemplate t = template("SMS");
+        t.setVariables(com.fasterxml.jackson.databind.node.TextNode.valueOf("[var1,  , var2]"));
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Flux.just(t));
+
+        StepVerifier.create(notificationService.getTemplates(null))
+                .assertNext(response -> {
+                    assertThat(response).hasSize(1);
+                    assertThat(response.getFirst().variables()).containsExactly("var1", "var2");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should cover bulkStatus status mapping branches")
+    void shouldCoverBulkStatusMappingBranches() throws Exception {
+        java.lang.reflect.Method method = NotificationServiceImpl.class.getDeclaredMethod("bulkStatus", int.class, long.class);
+        method.setAccessible(true);
+
+        String status1 = (String) method.invoke(notificationService, 0, 5L);
+        assertThat(status1).isEqualTo("FAILED");
+
+        String status2 = (String) method.invoke(notificationService, 5, 0L);
+        assertThat(status2).isEqualTo("FAILED");
+
+        String status3 = (String) method.invoke(notificationService, 5, 5L);
+        assertThat(status3).isEqualTo("QUEUED");
+
+        String status4 = (String) method.invoke(notificationService, 5, 3L);
+        assertThat(status4).isEqualTo("PARTIAL");
+    }
+
+    @Test
+    @DisplayName("Should cover requireSchoolId user validation branch using reflection")
+    void shouldCoverRequireSchoolIdUserValidationBranch() throws Exception {
+        java.lang.reflect.Method method = NotificationServiceImpl.class.getDeclaredMethod("requireSchoolId", SchoolFeeUser.class);
+        method.setAccessible(true);
+
+        try {
+            method.invoke(notificationService, (SchoolFeeUser) null);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            assertThat(e.getCause()).isInstanceOf(SchoolFeeException.class);
+            assertThat(((SchoolFeeException) e.getCause()).getErrorCode()).isEqualTo("SCHOOL_CONTEXT_REQUIRED");
+        }
+
+        try {
+            method.invoke(notificationService, SchoolFeeUser.builder().userId(USER_ID).schoolId(null).build());
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            assertThat(e.getCause()).isInstanceOf(SchoolFeeException.class);
+            assertThat(((SchoolFeeException) e.getCause()).getErrorCode()).isEqualTo("SCHOOL_CONTEXT_REQUIRED");
+        }
+    }
 }
+

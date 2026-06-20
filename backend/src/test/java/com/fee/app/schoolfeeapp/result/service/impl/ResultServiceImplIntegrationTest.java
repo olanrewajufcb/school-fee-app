@@ -256,6 +256,19 @@ class ResultServiceImplIntegrationTest {
                 FROM result.class_rankings
                 WHERE student_id = :studentId AND term_id = :termId
                 """, Map.of("studentId", STUDENT_ID, "termId", TERM_ID))).isEqualTo(1);
+        assertThat(fetchOne("""
+                SELECT grade, remark
+                FROM result.final_scores
+                WHERE student_id = :studentId AND term_id = :termId
+                """, Map.of("studentId", STUDENT_ID, "termId", TERM_ID)))
+                .containsEntry("grade", "F9")
+                .containsEntry("remark", "Fail");
+        assertThat(fetchOne("""
+                SELECT overall_grade
+                FROM result.class_rankings
+                WHERE student_id = :studentId AND term_id = :termId
+                """, Map.of("studentId", STUDENT_ID, "termId", TERM_ID)))
+                .containsEntry("overall_grade", "F9");
     }
 
     @Test

@@ -18,7 +18,13 @@ public record MyChildResultResponse(
         this(studentId, termId, firstName, lastName, className, termName, summary, topSubjects, null);
     }
 
-    public record ResultSummary(double average, int totalSubjects, String grade) {}
+    public record ResultSummary(
+            double average,
+            int totalSubjects,
+            String grade,
+            int classPosition,
+            int outOf
+    ) {}
     public record TopSubject(String name, double score, String grade) {}
     public record AttendanceSummary(int daysOpen, int daysPresent, int daysAbsent, double attendanceRate) {}
 }

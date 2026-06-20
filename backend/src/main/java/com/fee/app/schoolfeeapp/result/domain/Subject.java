@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Version;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 import java.time.Instant;
@@ -20,4 +21,6 @@ public class Subject {
     private String category;
     @Column("is_active") private boolean isActive;
     @Column("created_at") private Instant createdAt;
+    @Column("updated_at") private Instant updatedAt;
+    @Version private Integer version;
 }

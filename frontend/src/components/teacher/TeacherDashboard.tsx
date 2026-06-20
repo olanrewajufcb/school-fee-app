@@ -16,6 +16,10 @@ import {
   ShieldCheck,
   Users,
   XCircle,
+  Clock,
+  ArrowRight,
+  UserCheck,
+  Calendar,
 } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Badge } from '@/components/ui/badge';
@@ -35,8 +39,12 @@ import {
   type GradingRules,
   teacherService,
 } from '@/services/teacherService';
+import {
+  attendanceService,
+  type AttendanceSessionResponse,
+} from '@/services/attendanceService';
 
-type Section = 'overview' | 'classes' | 'scores' | 'results' | 'comments' | 'reference';
+type Section = 'overview' | 'classes' | 'attendance' | 'scores' | 'results' | 'comments' | 'reference';
 type ScoreMode = 'ca' | 'exam';
 
 interface ScoreForm {
@@ -45,11 +53,13 @@ interface ScoreForm {
   assessmentId: string;
   maxScore: string;
   scores: Record<string, string>;
+  studentIdFilter?: string;
 }
 
 const sections: Array<{ id: Section; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'classes', label: 'My Classes', icon: GraduationCap },
+  { id: 'attendance', label: 'Attendance', icon: UserCheck },
   { id: 'scores', label: 'Scores', icon: ClipboardList },
   { id: 'results', label: 'Results', icon: Award },
   { id: 'comments', label: 'Comments', icon: MessageSquareText },
@@ -74,6 +84,7 @@ export const TeacherDashboard: React.FC = () => {
     assessmentId: '',
     maxScore: '20',
     scores: {},
+    studentIdFilter: 'ALL',
   });
   const [lookupSubjects, setLookupSubjects] = useState<Array<{ id: string; name: string; code: string }>>([]);
   const [lookupComponents, setLookupComponents] = useState<Array<{ id: string; name: string; maxScore: number }>>([]);
@@ -86,6 +97,23 @@ export const TeacherDashboard: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Attendance states
+  const [todaySessions, setTodaySessions] = useState<Record<string, AttendanceSessionResponse[]>>({});
+  const [selectedSession, setSelectedSession] = useState<AttendanceSessionResponse | null>(null);
+  const [attendanceMarks, setAttendanceMarks] = useState<Record<string, {
+    status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
+    arrivalTime?: string;
+    broughtBy?: string;
+    departureTime?: string;
+    pickedUpBy?: string;
+    pickUpPersonName?: string;
+    pickUpPersonPhone?: string;
+    notes?: string;
+    markId?: string;
+  }>>({});
+  const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
 
   const currentSession = useMemo(
     () => sessions.find((session) => session.isCurrent) ?? sessions[0],
@@ -129,7 +157,147 @@ export const TeacherDashboard: React.FC = () => {
   useEffect(() => {
     if (!selectedClassId) return;
     void loadClass(selectedClassId);
+    void loadTodaySessions(selectedClassId);
   }, [selectedClassId]);
+
+  const loadTodaySessions = async (classId: string) => {
+    if (!classId) return;
+    const todayStr = new Date().toISOString().split('T')[0];
+    try {
+      const result = await attendanceService.getSessions(classId, todayStr);
+      setTodaySessions((prev) => ({ ...prev, [classId]: result }));
+    } catch (err) {
+      console.error('Failed to load today sessions', err);
+    }
+  };
+
+  const startOrOpenSession = async (sessionType: 'MORNING_ARRIVAL' | 'AFTERNOON_DEPARTURE', existingSession?: AttendanceSessionResponse) => {
+    if (!selectedClassId || !currentTerm?.termId) {
+      setError('Please select a class and ensure there is a current academic term.');
+      return;
+    }
+    setIsAttendanceLoading(true);
+    setError(null);
+    try {
+      let session = existingSession;
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (!session) {
+        session = await attendanceService.createSession({
+          classId: selectedClassId,
+          termId: currentTerm.termId,
+          date: todayStr,
+          sessionType,
+        });
+        await loadTodaySessions(selectedClassId);
+      }
+
+      setSelectedSession(session);
+
+      const marksMap: Record<string, any> = {};
+      const now = new Date();
+      const currentHHmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+      if (session.isComplete) {
+        const existingMarks = await attendanceService.getSessionMarks(session.sessionId);
+        existingMarks.forEach((m) => {
+          marksMap[m.studentId] = {
+            status: m.status,
+            arrivalTime: m.arrivalTime ? String(m.arrivalTime).substring(0, 5) : undefined,
+            broughtBy: m.broughtBy,
+            departureTime: m.departureTime ? String(m.departureTime).substring(0, 5) : undefined,
+            pickedUpBy: m.pickedUpBy,
+            pickUpPersonName: m.pickUpPersonName,
+            pickUpPersonPhone: m.pickUpPersonPhone,
+            notes: m.notes,
+            markId: m.attendanceId,
+          };
+        });
+      } else {
+        students.forEach((s) => {
+          marksMap[s.studentId] = {
+            status: 'PRESENT',
+            arrivalTime: sessionType === 'MORNING_ARRIVAL' ? currentHHmm : undefined,
+            broughtBy: sessionType === 'MORNING_ARRIVAL' ? 'Mother' : undefined,
+            departureTime: sessionType === 'AFTERNOON_DEPARTURE' ? currentHHmm : undefined,
+            pickedUpBy: sessionType === 'AFTERNOON_DEPARTURE' ? 'Mother' : undefined,
+            pickUpPersonName: '',
+            pickUpPersonPhone: '',
+            notes: '',
+          };
+        });
+      }
+
+      setAttendanceMarks(marksMap);
+      setEditingStudentId(null);
+      setActiveSection('attendance');
+    } catch (err) {
+      setError(readError(err, 'Failed to start or load attendance session.'));
+    } finally {
+      setIsAttendanceLoading(false);
+    }
+  };
+
+  const submitAttendance = async () => {
+    if (!selectedSession) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const payloadMarks = students.map((s) => {
+        const formMark = attendanceMarks[s.studentId] || { status: 'PRESENT' };
+        return {
+          studentId: s.studentId,
+          status: formMark.status,
+          arrivalTime: formMark.status === 'PRESENT' || formMark.status === 'LATE' ? formMark.arrivalTime : undefined,
+          broughtBy: formMark.status === 'PRESENT' || formMark.status === 'LATE' ? formMark.broughtBy : undefined,
+          departureTime: formMark.status === 'PRESENT' ? formMark.departureTime : undefined,
+          pickedUpBy: formMark.status === 'PRESENT' ? formMark.pickedUpBy : undefined,
+          pickUpPersonName: formMark.status === 'PRESENT' && formMark.pickedUpBy === 'Other' ? formMark.pickUpPersonName : (formMark.status === 'PRESENT' ? formMark.pickedUpBy : undefined),
+          pickUpPersonPhone: formMark.status === 'PRESENT' ? formMark.pickUpPersonPhone : undefined,
+          notes: formMark.notes,
+        };
+      });
+
+      await attendanceService.markAttendance(selectedSession.sessionId, { marks: payloadMarks });
+      setNotice('Attendance saved successfully.');
+      await loadTodaySessions(selectedClassId);
+      setSelectedSession(null);
+      setActiveSection('overview');
+    } catch (err) {
+      setError(readError(err, 'Failed to submit attendance marks.'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const updateSingleAttendanceMark = async (studentId: string) => {
+    const formMark = attendanceMarks[studentId];
+    if (!formMark || !formMark.markId) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const payload = {
+        status: formMark.status,
+        arrivalTime: formMark.status === 'PRESENT' || formMark.status === 'LATE' ? formMark.arrivalTime : undefined,
+        broughtBy: formMark.status === 'PRESENT' || formMark.status === 'LATE' ? formMark.broughtBy : undefined,
+        departureTime: formMark.status === 'PRESENT' ? formMark.departureTime : undefined,
+        pickedUpBy: formMark.status === 'PRESENT' ? formMark.pickedUpBy : undefined,
+        pickUpPersonName: formMark.status === 'PRESENT' && formMark.pickedUpBy === 'Other' ? formMark.pickUpPersonName : (formMark.status === 'PRESENT' ? formMark.pickedUpBy : undefined),
+        pickUpPersonPhone: formMark.status === 'PRESENT' ? formMark.pickUpPersonPhone : undefined,
+        notes: formMark.notes,
+      };
+      await attendanceService.updateMark(formMark.markId, payload);
+      setNotice('Attendance record updated successfully.');
+      setEditingStudentId(null);
+      await loadTodaySessions(selectedClassId);
+      if (selectedSession) {
+        await startOrOpenSession(selectedSession.sessionType, selectedSession);
+      }
+    } catch (err) {
+      setError(readError(err, 'Failed to update attendance record.'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const loadDashboard = async () => {
     setIsLoading(true);
@@ -145,7 +313,11 @@ export const TeacherDashboard: React.FC = () => {
     if (classesResult.status === 'fulfilled') {
       setClasses(classesResult.value);
       const directlyAssignedClass = classesResult.value.find((item) => item.classTeacher?.userId === user?.userId);
-      setSelectedClassId((current) => current || directlyAssignedClass?.classId || classesResult.value[0]?.classId || '');
+      const activeClassId = selectedClassId || directlyAssignedClass?.classId || classesResult.value[0]?.classId || '';
+      setSelectedClassId(activeClassId);
+      if (activeClassId) {
+        void loadTodaySessions(activeClassId);
+      }
     }
     if (caResult.status === 'fulfilled') setCaConfig(caResult.value);
     if (gradingResult.status === 'fulfilled') setGradingRules(gradingResult.value);
@@ -224,6 +396,7 @@ export const TeacherDashboard: React.FC = () => {
         assessmentId: defaultAssessmentId,
         maxScore: defaultMaxScore,
         scores: Object.fromEntries(students.map((student) => [student.studentId, ''])),
+        studentIdFilter: 'ALL',
       });
       setScoreDialog(mode);
     } catch (err) {
@@ -416,9 +589,12 @@ export const TeacherDashboard: React.FC = () => {
                   pendingFeesCount={pendingFeesCount}
                   caConfig={caConfig}
                   resultRows={resultRows.length}
-                  onSelectClass={setSelectedClassId}
+                  todaySessions={todaySessions}
+                  isAttendanceLoading={isAttendanceLoading}
+                  onSelectClass={(classId) => { setSelectedClassId(classId); }}
                   onGoTo={setActiveSection}
                   onOpenScores={openScoreDialog}
+                  onStartSession={(classId, type, existing) => { setSelectedClassId(classId); void startOrOpenSession(type, existing); }}
                 />
               )}
 
@@ -432,6 +608,22 @@ export const TeacherDashboard: React.FC = () => {
                   isClassLoading={isClassLoading}
                   onSearch={setStudentSearch}
                   onSelectClass={setSelectedClassId}
+                />
+              )}
+
+              {activeSection === 'attendance' && (
+                <AttendanceSection
+                  session={selectedSession}
+                  students={students}
+                  marks={attendanceMarks}
+                  isSaving={isSaving}
+                  isLoading={isAttendanceLoading}
+                  editingStudentId={editingStudentId}
+                  onMarksChange={setAttendanceMarks}
+                  onEditStudent={setEditingStudentId}
+                  onSubmit={() => void submitAttendance()}
+                  onUpdateMark={(studentId) => void updateSingleAttendanceMark(studentId)}
+                  onCancel={() => { setSelectedSession(null); setActiveSection('overview'); }}
                 />
               )}
 
@@ -505,9 +697,12 @@ function OverviewSection({
   pendingFeesCount,
   caConfig,
   resultRows,
+  todaySessions,
+  isAttendanceLoading,
   onSelectClass,
   onGoTo,
   onOpenScores,
+  onStartSession,
 }: {
   classes: ClassRoom[];
   selectedClass: ClassDetail | null;
@@ -516,11 +711,16 @@ function OverviewSection({
   pendingFeesCount: number;
   caConfig: CaConfig | null;
   resultRows: number;
+  todaySessions: Record<string, AttendanceSessionResponse[]>;
+  isAttendanceLoading: boolean;
   onSelectClass: (classId: string) => void;
   onGoTo: (section: Section) => void;
   onOpenScores: (mode: ScoreMode) => void;
+  onStartSession: (classId: string, type: 'MORNING_ARRIVAL' | 'AFTERNOON_DEPARTURE', existing?: AttendanceSessionResponse) => void;
 }) {
   const feeRate = studentsCount ? Math.round((feePaidCount / studentsCount) * 100) : 0;
+  const todayStr = new Date().toLocaleDateString('en-NG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
   return (
     <div className="space-y-6">
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -528,6 +728,120 @@ function OverviewSection({
         <Metric icon={Users} label="Students" value={formatNumber(studentsCount)} detail={selectedClass?.name ?? 'Selected class'} />
         <Metric icon={ClipboardList} label="CA Components" value={formatNumber(caConfig?.componentCount ?? 0)} detail={`${caConfig?.examWeightPercentage ?? 0}% exam weight`} />
         <Metric icon={Banknote} label="Fee Cleared" value={`${feeRate}%`} detail={`${formatNumber(pendingFeesCount)} pending in class`} />
+      </section>
+
+      {/* ── Attendance Cards ─────────────────────────────────────────── */}
+      <section className="rounded-md border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <UserCheck className="h-5 w-5 text-blue-600" />
+              <p className="text-sm font-medium text-slate-500">Today's Attendance</p>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{todayStr}</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => onGoTo('attendance')} className="gap-1.5 text-xs">
+            <Calendar className="h-3.5 w-3.5" />
+            View Attendance
+          </Button>
+        </div>
+
+        <div className="mt-5 grid gap-4">
+          {classes.map((item) => {
+            const classSessions = todaySessions[item.classId] ?? [];
+            const morning = classSessions.find((s) => s.sessionType === 'MORNING_ARRIVAL');
+            const afternoon = classSessions.find((s) => s.sessionType === 'AFTERNOON_DEPARTURE');
+
+            return (
+              <div
+                key={item.classId}
+                className={`rounded-lg border p-4 transition ${
+                  selectedClass?.classId === item.classId ? 'border-blue-300 bg-blue-50/40' : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <button type="button" onClick={() => onSelectClass(item.classId)} className="text-left">
+                    <p className="font-semibold text-slate-950">{item.name}</p>
+                    <p className="mt-0.5 text-sm text-slate-500">{formatGradeCode(item.gradeLevel)} · {item.currentEnrollment} students</p>
+                  </button>
+                </div>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {/* Morning Arrival */}
+                  <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className={`flex h-7 w-7 items-center justify-center rounded-full ${
+                        morning?.isComplete ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+                      }`}>
+                        {morning?.isComplete ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-slate-700">Morning Arrival</p>
+                        {morning?.isComplete ? (
+                          <p className="text-[11px] text-slate-500">
+                            {morning.presentCount}P · {morning.absentCount}A · {morning.lateCount}L
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-slate-400">7:30 – 8:30 AM</p>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={morning?.isComplete ? 'outline' : 'default'}
+                      disabled={isAttendanceLoading}
+                      onClick={(e) => { e.stopPropagation(); onStartSession(item.classId, 'MORNING_ARRIVAL', morning ?? undefined); }}
+                      className={`h-8 gap-1 text-xs ${
+                        morning?.isComplete
+                          ? 'border-slate-200 text-slate-700 hover:bg-slate-100'
+                          : 'bg-slate-950 text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      {morning?.isComplete ? 'Review' : 'Mark Attendance'}
+                      <ArrowRight className="h-3 w-3" />
+                    </Button>
+                  </div>
+
+                  {/* Afternoon Departure */}
+                  <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className={`flex h-7 w-7 items-center justify-center rounded-full ${
+                        afternoon?.isComplete ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        {afternoon?.isComplete ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-slate-700">Afternoon Departure</p>
+                        {afternoon?.isComplete ? (
+                          <p className="text-[11px] text-slate-500">
+                            {afternoon.presentCount} picked up · {afternoon.absentCount} absent
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-slate-400">1:30 – 2:30 PM</p>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={afternoon?.isComplete ? 'outline' : 'default'}
+                      disabled={isAttendanceLoading}
+                      onClick={(e) => { e.stopPropagation(); onStartSession(item.classId, 'AFTERNOON_DEPARTURE', afternoon ?? undefined); }}
+                      className={`h-8 gap-1 text-xs ${
+                        afternoon?.isComplete
+                          ? 'border-slate-200 text-slate-700 hover:bg-slate-100'
+                          : 'bg-slate-950 text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      {afternoon?.isComplete ? 'Review' : 'Mark Attendance'}
+                      <ArrowRight className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {!classes.length && <EmptyPanel message="No classes assigned yet." />}
+        </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
@@ -578,6 +892,386 @@ function OverviewSection({
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Attendance Section — full student marking grid
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+const BROUGHT_BY_OPTIONS = ['Mother', 'Father', 'Guardian', 'Driver', 'School Bus', 'Self', 'Other'];
+const PICKED_UP_OPTIONS  = ['Mother', 'Father', 'Guardian', 'Driver', 'School Bus', 'Self', 'Other'];
+const MORNING_STATUS_OPTIONS: Array<{ value: string; label: string; color: string }> = [
+  { value: 'PRESENT', label: 'Present', color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'ABSENT',  label: 'Absent',  color: 'bg-red-100 text-red-700' },
+  { value: 'LATE',    label: 'Late',    color: 'bg-amber-100 text-amber-700' },
+  { value: 'EXCUSED', label: 'Excused', color: 'bg-blue-100 text-blue-700' },
+];
+const AFTERNOON_STATUS_OPTIONS: Array<{ value: string; label: string; color: string }> = [
+  { value: 'PRESENT', label: 'Picked Up', color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'ABSENT',  label: 'Absent',    color: 'bg-red-100 text-red-700' },
+  { value: 'EXCUSED', label: 'Excused',   color: 'bg-blue-100 text-blue-700' },
+];
+
+function AttendanceSection({
+  session,
+  students,
+  marks,
+  isSaving,
+  isLoading,
+  editingStudentId,
+  onMarksChange,
+  onEditStudent,
+  onSubmit,
+  onUpdateMark,
+  onCancel,
+}: {
+  session: AttendanceSessionResponse | null;
+  students: ClassStudent[];
+  marks: Record<string, {
+    status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
+    arrivalTime?: string;
+    broughtBy?: string;
+    departureTime?: string;
+    pickedUpBy?: string;
+    pickUpPersonName?: string;
+    pickUpPersonPhone?: string;
+    notes?: string;
+    markId?: string;
+  }>;
+  isSaving: boolean;
+  isLoading: boolean;
+  editingStudentId: string | null;
+  onMarksChange: (marks: Record<string, any>) => void;
+  onEditStudent: (studentId: string | null) => void;
+  onSubmit: () => void;
+  onUpdateMark: (studentId: string) => void;
+  onCancel: () => void;
+}) {
+  if (!session) {
+    return (
+      <div className="flex min-h-[360px] items-center justify-center rounded-md border border-dashed border-slate-300 bg-white">
+        <div className="text-center">
+          <UserCheck className="mx-auto h-10 w-10 text-slate-300" />
+          <p className="mt-3 text-sm text-slate-500">Select a class and session from the Overview to start marking attendance.</p>
+          <Button variant="outline" className="mt-4" onClick={onCancel}>Go to Overview</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const isMorning = session.sessionType === 'MORNING_ARRIVAL';
+  const statusOptions = isMorning ? MORNING_STATUS_OPTIONS : AFTERNOON_STATUS_OPTIONS;
+  const sessionLabel = isMorning ? 'Morning Arrival' : 'Afternoon Departure';
+  const dateStr = new Date(session.date + 'T00:00:00').toLocaleDateString('en-NG', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' });
+
+  const presentCount = Object.values(marks).filter((m) => m.status === 'PRESENT').length;
+  const absentCount  = Object.values(marks).filter((m) => m.status === 'ABSENT').length;
+  const lateCount    = Object.values(marks).filter((m) => m.status === 'LATE').length;
+  const excusedCount = Object.values(marks).filter((m) => m.status === 'EXCUSED').length;
+
+  const updateMark = (studentId: string, field: string, value: string) => {
+    const updated = { ...marks };
+    updated[studentId] = { ...updated[studentId], [field]: value };
+    // If status changes to ABSENT, clear time/person fields
+    if (field === 'status' && value === 'ABSENT') {
+      updated[studentId].arrivalTime = undefined;
+      updated[studentId].broughtBy = undefined;
+      updated[studentId].departureTime = undefined;
+      updated[studentId].pickedUpBy = undefined;
+      updated[studentId].pickUpPersonName = undefined;
+      updated[studentId].pickUpPersonPhone = undefined;
+    }
+    onMarksChange(updated);
+  };
+
+  const markAll = (status: 'PRESENT' | 'ABSENT') => {
+    const now = new Date();
+    const currentHHmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const updated = { ...marks };
+    students.forEach((s) => {
+      updated[s.studentId] = {
+        ...updated[s.studentId],
+        status,
+        arrivalTime: status !== 'ABSENT' && isMorning ? (updated[s.studentId]?.arrivalTime || currentHHmm) : undefined,
+        broughtBy: status !== 'ABSENT' && isMorning ? (updated[s.studentId]?.broughtBy || 'Mother') : undefined,
+        departureTime: status !== 'ABSENT' && !isMorning ? (updated[s.studentId]?.departureTime || currentHHmm) : undefined,
+        pickedUpBy: status !== 'ABSENT' && !isMorning ? (updated[s.studentId]?.pickedUpBy || 'Mother') : undefined,
+      };
+    });
+    onMarksChange(updated);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[360px] items-center justify-center rounded-md border border-dashed border-slate-300 bg-white">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-slate-500" />
+          <p className="mt-3 text-sm text-slate-500">Loading attendance session…</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <section className="rounded-md border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className={`flex h-9 w-9 items-center justify-center rounded-full ${
+                isMorning ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'
+              }`}>
+                {isMorning ? <Clock className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-slate-950">{sessionLabel}</h2>
+                <p className="text-sm text-slate-500">{session.className} · {dateStr}</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {session.isComplete && (
+              <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">✓ Submitted</Badge>
+            )}
+            <Button variant="outline" size="sm" onClick={onCancel}>← Back</Button>
+          </div>
+        </div>
+
+        {/* Summary strip */}
+        <div className="mt-4 flex flex-wrap gap-3">
+          <div className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="text-xs font-medium text-emerald-700">Present: {presentCount}</span>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1">
+            <span className="h-2 w-2 rounded-full bg-red-500" />
+            <span className="text-xs font-medium text-red-700">Absent: {absentCount}</span>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1">
+            <span className="h-2 w-2 rounded-full bg-amber-500" />
+            <span className="text-xs font-medium text-amber-700">Late: {lateCount}</span>
+          </div>
+          {excusedCount > 0 && (
+            <div className="flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1">
+              <span className="h-2 w-2 rounded-full bg-blue-500" />
+              <span className="text-xs font-medium text-blue-700">Excused: {excusedCount}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+            <span className="text-xs font-medium text-slate-600">Total: {students.length}</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Bulk Actions */}
+      {!session.isComplete && (
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => markAll('PRESENT')} className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Mark All Present
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => markAll('ABSENT')} className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50">
+            <XCircle className="h-3.5 w-3.5" />
+            Mark All Absent
+          </Button>
+        </div>
+      )}
+
+      {/* Student Grid */}
+      <section className="rounded-md border border-slate-200 bg-white">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-4 py-3 w-12">#</th>
+                <th className="px-4 py-3">Student</th>
+                <th className="px-4 py-3 w-36">Status</th>
+                <th className="px-4 py-3 w-28">{isMorning ? 'Time' : 'Time'}</th>
+                <th className="px-4 py-3 w-40">{isMorning ? 'Brought By' : 'Picked Up By'}</th>
+                {!isMorning && <th className="px-4 py-3 w-36">Person Name</th>}
+                {!isMorning && <th className="px-4 py-3 w-36">Phone</th>}
+                <th className="px-4 py-3 w-44">Notes</th>
+                {session.isComplete && <th className="px-4 py-3 w-24">Action</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {students.map((student, index) => {
+                const mark = marks[student.studentId] ?? { status: 'PRESENT' as const };
+                const isEditing = session.isComplete && editingStudentId === student.studentId;
+                const isReadOnly = session.isComplete && !isEditing;
+                const showTimeFields = mark.status !== 'ABSENT';
+                const statusOpt = statusOptions.find((o) => o.value === mark.status);
+
+                return (
+                  <tr key={student.studentId} className={`transition ${
+                    mark.status === 'ABSENT' ? 'bg-red-50/40' : mark.status === 'LATE' ? 'bg-amber-50/40' : ''
+                  }`}>
+                    <td className="px-4 py-3 text-slate-500">{index + 1}</td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-900">{student.firstName} {student.lastName}</p>
+                      <p className="text-xs text-slate-500">{student.admissionNumber}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      {isReadOnly ? (
+                        <Badge className={`${statusOpt?.color ?? 'bg-slate-100 text-slate-700'} hover:opacity-90`}>
+                          {statusOpt?.label ?? mark.status}
+                        </Badge>
+                      ) : (
+                        <select
+                          value={mark.status}
+                          onChange={(e) => updateMark(student.studentId, 'status', e.target.value)}
+                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950"
+                        >
+                          {statusOptions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {showTimeFields ? (
+                        isReadOnly ? (
+                          <span className="text-slate-600">{isMorning ? mark.arrivalTime ?? '—' : mark.departureTime ?? '—'}</span>
+                        ) : (
+                          <Input
+                            type="time"
+                            className="h-9"
+                            value={isMorning ? (mark.arrivalTime ?? '') : (mark.departureTime ?? '')}
+                            onChange={(e) => updateMark(student.studentId, isMorning ? 'arrivalTime' : 'departureTime', e.target.value)}
+                          />
+                        )
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {showTimeFields ? (
+                        isReadOnly ? (
+                          <span className="text-slate-600">{isMorning ? mark.broughtBy ?? '—' : mark.pickedUpBy ?? '—'}</span>
+                        ) : (
+                          <select
+                            value={isMorning ? (mark.broughtBy ?? 'Mother') : (mark.pickedUpBy ?? 'Mother')}
+                            onChange={(e) => updateMark(student.studentId, isMorning ? 'broughtBy' : 'pickedUpBy', e.target.value)}
+                            className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950"
+                          >
+                            {(isMorning ? BROUGHT_BY_OPTIONS : PICKED_UP_OPTIONS).map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        )
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    {!isMorning && (
+                      <td className="px-4 py-3">
+                        {showTimeFields ? (
+                          isReadOnly ? (
+                            <span className="text-slate-600">{mark.pickUpPersonName || '—'}</span>
+                          ) : (
+                            <Input
+                              className="h-9"
+                              placeholder="Name"
+                              value={mark.pickUpPersonName ?? ''}
+                              onChange={(e) => updateMark(student.studentId, 'pickUpPersonName', e.target.value)}
+                            />
+                          )
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                    )}
+                    {!isMorning && (
+                      <td className="px-4 py-3">
+                        {showTimeFields ? (
+                          isReadOnly ? (
+                            <span className="text-slate-600">{mark.pickUpPersonPhone || '—'}</span>
+                          ) : (
+                            <Input
+                              className="h-9"
+                              placeholder="08XX XXX XXXX"
+                              value={mark.pickUpPersonPhone ?? ''}
+                              onChange={(e) => updateMark(student.studentId, 'pickUpPersonPhone', e.target.value)}
+                            />
+                          )
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                    )}
+                    <td className="px-4 py-3">
+                      {isReadOnly ? (
+                        <span className="text-xs text-slate-500">{mark.notes || '—'}</span>
+                      ) : (
+                        <Input
+                          className="h-9"
+                          placeholder="Note"
+                          value={mark.notes ?? ''}
+                          onChange={(e) => updateMark(student.studentId, 'notes', e.target.value)}
+                        />
+                      )}
+                    </td>
+                    {session.isComplete && (
+                      <td className="px-4 py-3">
+                        {isEditing ? (
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              className="h-7 bg-slate-950 px-2 text-xs text-white hover:bg-slate-800"
+                              disabled={isSaving}
+                              onClick={() => onUpdateMark(student.studentId)}
+                            >
+                              {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => onEditStudent(null)}
+                            >
+                              ✕
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs border-slate-200"
+                            onClick={() => onEditStudent(student.studentId)}
+                          >
+                            Edit
+                          </Button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+              {!students.length && (
+                <EmptyTableRow colSpan={isMorning ? (session.isComplete ? 7 : 6) : (session.isComplete ? 9 : 8)} message="No students in this class. Enroll students first." />
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Submit */}
+      {!session.isComplete && students.length > 0 && (
+        <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-5 py-4">
+          <p className="text-sm text-slate-500">
+            <span className="font-medium text-emerald-600">{presentCount}</span> present ·{' '}
+            <span className="font-medium text-red-600">{absentCount}</span> absent ·{' '}
+            <span className="font-medium text-amber-600">{lateCount}</span> late
+          </p>
+          <Button onClick={onSubmit} disabled={isSaving} className="bg-slate-950 text-white hover:bg-slate-800">
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+            Submit Attendance
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -680,9 +1374,6 @@ function ScoresSection({
           <StatusCard label="Exam weight" value={`${caConfig?.examWeightPercentage ?? 0}%`} complete={Boolean(caConfig?.examWeightPercentage)} />
           <StatusCard label="Grading rules" value={`${gradingRules?.gradesCount ?? 0} grades`} complete={Boolean(gradingRules?.gradesCount)} />
         </div>
-        <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          Subject, CA component, and exam lookup endpoints are not exposed yet, so score submission currently needs the relevant IDs from the admin setup data.
-        </div>
       </section>
 
       <section className="rounded-md border border-slate-200 bg-white p-5">
@@ -718,7 +1409,7 @@ function ResultsSection({ resultSheet, classDetail, currentTermName }: { resultS
                 <th key={sub} className="px-5 py-3">{sub}</th>
               ))}
               <th className="px-5 py-3">Average</th>
-              <th className="px-5 py-3">Grade</th>
+              {/*<th className="px-5 py-3">Grade</th>*/}
             </tr>
           </thead>
           <tbody>
@@ -731,12 +1422,12 @@ function ResultsSection({ resultSheet, classDetail, currentTermName }: { resultS
                   const score = row.subjects?.find((s) => s.subject === sub);
                   return (
                     <td key={sub} className="px-5 py-4 text-slate-600">
-                      {score ? `${score.finalScore.toFixed(0)} ${score.grade ?? ''}` : '—'}
+                      {score ? `${score.finalScore.toFixed(0)} (${score.grade ?? ''}` : '—'})
                     </td>
                   );
                 })}
                 <td className="px-5 py-4 text-slate-600">{Number(row.average ?? 0).toFixed(1)}%</td>
-                <td className="px-5 py-4"><Badge variant="outline">{row.overallGrade ?? '-'}</Badge></td>
+                {/*<td className="px-5 py-4"><Badge variant="outline">{row.overallGrade ?? '-'}</Badge></td>*/}
               </tr>
             ))}
             {!rows.length && <EmptyTableRow colSpan={5 + subjects.length} message="No result rows returned yet." />}
@@ -909,12 +1600,12 @@ function ScoreDialog({
           <DialogDescription>Scores are saved for the selected class and current term.</DialogDescription>
         </DialogHeader>
         <form className="space-y-5" onSubmit={onSubmit}>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             <SelectField
               label="Subject"
               value={form.subjectId}
               onChange={(value) => onChange({ ...form, subjectId: value })}
-              options={lookupSubjects.map((s) => ({ value: s.id, label: `${s.name} (${s.code})` }))}
+              options={lookupSubjects.map((s) => ({ value: s.id, label: `${s.name} (${s.code || 'N/A'})` }))}
               required
             />
             <SelectField
@@ -929,6 +1620,15 @@ function ScoreDialog({
               required
             />
             <Field label="Max score" type="number" min="1" value={form.maxScore} onChange={(value) => onChange({ ...form, maxScore: value })} required disabled />
+            <SelectField
+              label="Student (Optional)"
+              value={form.studentIdFilter || 'ALL'}
+              onChange={(value) => onChange({ ...form, studentIdFilter: value })}
+              options={[
+                { value: 'ALL', label: 'All Students' },
+                ...students.map((s) => ({ value: s.studentId, label: `${s.firstName} ${s.lastName}` }))
+              ]}
+            />
           </div>
 
           <div className="rounded-md border border-slate-200">
@@ -938,25 +1638,27 @@ function ScoreDialog({
               <span>Score</span>
             </div>
             <div className="divide-y divide-slate-100">
-              {students.map((student, index) => (
-                <div key={student.studentId} className="grid grid-cols-[56px_1fr_140px] items-center px-4 py-3">
-                  <span className="text-sm text-slate-500">{index + 1}</span>
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">{student.firstName} {student.lastName}</p>
-                    <p className="text-xs text-slate-500">{student.admissionNumber}</p>
+              {students
+                .filter((student) => !form.studentIdFilter || form.studentIdFilter === 'ALL' || student.studentId === form.studentIdFilter)
+                .map((student, index) => (
+                  <div key={student.studentId} className="grid grid-cols-[56px_1fr_140px] items-center px-4 py-3">
+                    <span className="text-sm text-slate-500">{index + 1}</span>
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{student.firstName} {student.lastName}</p>
+                      <p className="text-xs text-slate-500">{student.admissionNumber}</p>
+                    </div>
+                    <Input
+                      type="number"
+                      min="0"
+                      max={maxScore || undefined}
+                      value={form.scores[student.studentId] ?? ''}
+                      onChange={(event) => onChange({
+                        ...form,
+                        scores: { ...form.scores, [student.studentId]: event.target.value },
+                      })}
+                    />
                   </div>
-                  <Input
-                    type="number"
-                    min="0"
-                    max={maxScore || undefined}
-                    value={form.scores[student.studentId] ?? ''}
-                    onChange={(event) => onChange({
-                      ...form,
-                      scores: { ...form.scores, [student.studentId]: event.target.value },
-                    })}
-                  />
-                </div>
-              ))}
+                ))}
             </div>
           </div>
 

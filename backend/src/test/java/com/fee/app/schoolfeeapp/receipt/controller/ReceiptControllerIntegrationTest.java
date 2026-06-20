@@ -185,6 +185,7 @@ class ReceiptControllerIntegrationTest {
         UUID sessionId = seedSession();
         UUID classId = seedClass(sessionId);
         UUID studentId = seedStudent(classId);
+        seedGuardianLink(paidBy, studentId);
         UUID structureId = seedFeeStructure(sessionId);
         UUID studentFeeId = seedStudentFee(structureId, studentId);
         UUID paymentId = seedPayment(studentFeeId, studentId, paidBy);
@@ -192,6 +193,42 @@ class ReceiptControllerIntegrationTest {
         seedReceipt(paymentId, studentId, paidBy, receiptNumber);
         return new PaymentFixture(paymentId, studentId, studentFeeId);
     }
+
+    private void seedGuardianLink(UUID userId, UUID studentId) {
+        UUID guardianId = UUID.randomUUID();
+        databaseClient.sql("""
+                INSERT INTO school.student_guardians (
+                    id, school_id, first_name, last_name, phone, user_id, is_active
+                )
+                VALUES (
+                    :guardianId, :schoolId, 'Parent', 'User', '2348031234567', :userId, true
+                )
+                """)
+                .bind("guardianId", guardianId)
+                .bind("schoolId", SCHOOL_ID)
+                .bind("userId", userId)
+                .fetch()
+                .rowsUpdated()
+                .block();
+        databaseClient.sql("""
+                INSERT INTO school.student_guardian_links (
+                    id, guardian_id, student_id, school_id, relationship,
+                    is_primary_contact, can_view_fees, contact_priority
+                )
+                VALUES (
+                    :linkId, :guardianId, :studentId, :schoolId, 'MOTHER',
+                    true, true, 1
+                )
+                """)
+                .bind("linkId", UUID.randomUUID())
+                .bind("guardianId", guardianId)
+                .bind("studentId", studentId)
+                .bind("schoolId", SCHOOL_ID)
+                .fetch()
+                .rowsUpdated()
+                .block();
+    }
+
 
     private void seedSchool() {
         databaseClient.sql("""

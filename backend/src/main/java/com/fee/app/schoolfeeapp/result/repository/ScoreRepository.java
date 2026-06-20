@@ -1,6 +1,7 @@
 package com.fee.app.schoolfeeapp.result.repository;
 
 import com.fee.app.schoolfeeapp.result.domain.ResultScore;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
@@ -48,7 +49,7 @@ public interface ScoreRepository extends ReactiveCrudRepository<ResultScore, UUI
             )
             RETURNING *
             """)
-    Mono<ResultScore> insert(ResultScore score);
+    Mono<ResultScore> insert(@Param("score") ResultScore score);
 
     @Query("""
             SELECT *

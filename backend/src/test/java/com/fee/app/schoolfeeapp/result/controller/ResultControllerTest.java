@@ -4,27 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fee.app.schoolfeeapp.common.dto.ApiResponse;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
-import com.fee.app.schoolfeeapp.result.dto.request.CaConfigRequest;
-import com.fee.app.schoolfeeapp.result.dto.request.ExamScoreRequest;
-import com.fee.app.schoolfeeapp.result.dto.request.GradingRuleRequest;
-import com.fee.app.schoolfeeapp.result.dto.request.RecomputeRankingsRequest;
-import com.fee.app.schoolfeeapp.result.dto.request.ReportCardRequest;
-import com.fee.app.schoolfeeapp.result.dto.request.CommentRequest;
-import com.fee.app.schoolfeeapp.result.dto.response.CaConfigResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.ReportCardJobResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.ReportCommentResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.CaScoreRequest;
-import com.fee.app.schoolfeeapp.result.dto.response.CaScoreResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.ExamScoreResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.GradingRuleResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.MyChildResultResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.PublishResultResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.StudentResultResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.UpdateScoreRequest;
-import com.fee.app.schoolfeeapp.result.dto.response.UpdateScoreResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.SubjectLookupResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.CaComponentLookupResponse;
-import com.fee.app.schoolfeeapp.result.dto.response.ExamLookupResponse;
+import com.fee.app.schoolfeeapp.result.dto.request.*;
+import com.fee.app.schoolfeeapp.result.dto.response.*;
 import com.fee.app.schoolfeeapp.result.service.ResultService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,19 +13,20 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpStatus;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class ResultControllerTest {
@@ -54,6 +36,12 @@ class ResultControllerTest {
 
     @InjectMocks
     private ResultController resultController;
+
+    private static final UUID STUDENT_ID = UUID.fromString("bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+    private static final UUID TERM_ID = UUID.fromString("33333333-4444-5555-6666-777777777777");
+    private static final UUID CLASS_ID = UUID.fromString("33333333-2222-5555-6666-777777777777");
+
+
 
     @Test
     @DisplayName("Should configure CA successfully")
@@ -521,7 +509,7 @@ class ResultControllerTest {
     @DisplayName("Should get grading rules successfully")
     void shouldGetGradingRulesSuccessfully() {
         GradingRuleResponse serviceResponse = new GradingRuleResponse(
-                UUID.randomUUID(), 3, "Current grading rules");
+                UUID.randomUUID(), 3, "Current grading rules", null);
         when(resultService.getGradingRules()).thenReturn(Mono.just(serviceResponse));
 
         StepVerifier.create(resultController.getGradingRules())
@@ -557,7 +545,7 @@ class ResultControllerTest {
         GradingRuleRequest request = new GradingRuleRequest(
                 new ObjectMapper().readTree("[{\"grade\":\"A\"}]"));
         GradingRuleResponse serviceResponse = new GradingRuleResponse(
-                UUID.randomUUID(), 1, "Grading rules updated");
+                UUID.randomUUID(), 1, "Grading rules updated", null);
         when(resultService.configureGradingRules(request)).thenReturn(Mono.just(serviceResponse));
 
         StepVerifier.create(resultController.configureGradingRules(request))
@@ -615,7 +603,7 @@ class ResultControllerTest {
     @DisplayName("Should get CA components successfully")
     void shouldGetCaComponentsSuccessfully() {
         List<CaComponentLookupResponse> serviceResponse = List.of(
-                new CaComponentLookupResponse(UUID.randomUUID(), "Test component", 20)
+                new CaComponentLookupResponse(UUID.randomUUID(), "Test component", 20, 20.0, 1)
         );
         when(resultService.getCaComponents()).thenReturn(Mono.just(serviceResponse));
 
@@ -652,5 +640,97 @@ class ResultControllerTest {
                 .verifyComplete();
 
         verify(resultService).getExamsForTerm(termId);
+    }
+
+
+    @Test
+    @DisplayName("Should get Published Results config successfully")
+    void shouldGetPublishedStudentResultsSuccessfully() {
+       List<PublishedTermResultResponse> serviceResponse = List.of(new PublishedTermResultResponse(
+                UUID.randomUUID(),
+                "first term",
+                "2025-2026",
+                2.0,
+                "B",
+                4,
+                10
+
+        ));
+        when(resultService.getPublishedStudentResults(STUDENT_ID))
+                .thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(resultController.getPublishedStudentResults(STUDENT_ID))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    ApiResponse<List<PublishedTermResultResponse>> body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(resultService).getPublishedStudentResults(STUDENT_ID);
+    }
+
+    @Test
+    @DisplayName("Should get class result sheet successfully")
+    void shouldGetClassResultSheetSuccessfully() {
+        ClassResultSheetResponse serviceResponse = new ClassResultSheetResponse("JSS1",
+                "first term", 30, List.of("Maths","English"),
+                List.of(new ClassResultSheetResponse.StudentRow("1", "123",
+                        "James",1,11.0,"A",
+                        List.of(new ClassResultSheetResponse.SubjectScore("Maths", 80, "A", 2)) )));
+        when(resultService.getClassResultSheet(CLASS_ID, TERM_ID)).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(resultController.getClassResultSheet(CLASS_ID, TERM_ID))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    ApiResponse<ClassResultSheetResponse> body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(resultService).getClassResultSheet(CLASS_ID, TERM_ID);
+    }
+
+    @Test
+    @DisplayName("Should download student result successfully")
+    void shouldDownloadStudentResultSuccessfully() {
+        // Create a mock DataBuffer
+        DataBuffer mockBuffer = mock(DataBuffer.class);
+
+        // Mock the service to return the DataBuffer
+        when(resultService.downloadStudentResultPdf(STUDENT_ID, TERM_ID)).thenReturn(Mono.just(mockBuffer));
+        StepVerifier.create(resultController.downloadStudentResult(STUDENT_ID, TERM_ID))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    assertThat(response.getHeaders().getContentType().toString()).contains("application/pdf");
+                })
+                .verifyComplete();
+
+        verify(resultService).downloadStudentResultPdf(STUDENT_ID, TERM_ID);
+    }
+
+    @Test
+    @DisplayName("Should get class result sheet successfully")
+    void shouldShareStudentResultSuccessfully() {
+        ShareResultResponse serviceResponse = new ShareResultResponse("SMS", Instant.now(),
+                "Successfully shared","result", "url");
+        ShareResultRequest request = new ShareResultRequest("SMS", "url");
+        when(resultService.shareStudentResult(STUDENT_ID, TERM_ID,  request)).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(resultController.shareStudentResult(STUDENT_ID, TERM_ID,  request))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    ApiResponse<ShareResultResponse> body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(resultService).shareStudentResult(STUDENT_ID, TERM_ID,  request);
     }
 }
