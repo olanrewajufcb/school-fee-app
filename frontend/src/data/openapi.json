@@ -1,0 +1,7014 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "School Fee Management API",
+    "description": "RESTful API for school fee management system",
+    "contact": {
+      "name": "School Fee App Team",
+      "email": "support@schoolfeeapp.com"
+    },
+    "license": {
+      "name": "MIT License",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local Development"
+    },
+    {
+      "url": "http://localhost:8081",
+      "description": "Docker Development"
+    }
+  ],
+  "paths": {
+    "/api/v1/students/{studentId}": {
+      "get": {
+        "tags": [
+          "student-controller"
+        ],
+        "operationId": "getStudentDetails",
+        "parameters": [
+          {
+            "name": "studentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseStudentDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "student-controller"
+        ],
+        "operationId": "updateStudent",
+        "parameters": [
+          {
+            "name": "studentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStudentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseUpdateStudentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current": {
+      "get": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "getCurrentSchool",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseSchoolResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "updateSchool",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSchoolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseSchoolResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current/sessions/{sessionId}": {
+      "put": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "updateSession",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseUpdateSessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current/sessions/{sessionId}/set-current": {
+      "put": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "setCurrentSession",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseAcademicSessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current/sessions/{sessionId}/close": {
+      "put": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "closeSession",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseCloseSessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current/sessions/current/terms/{termId}/set-current": {
+      "put": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "setCurrentTerm",
+        "parameters": [
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseSetCurrentTermResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current/grade-levels": {
+      "get": {
+        "tags": [
+          "grade-level-controller"
+        ],
+        "operationId": "getGradeLevels",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListGradeLevelResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "grade-level-controller"
+        ],
+        "operationId": "configureGradeLevels",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigureGradeLevelsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseConfigureGradeLevelsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current/classes/{classId}": {
+      "get": {
+        "tags": [
+          "class-controller"
+        ],
+        "operationId": "getClassDetails",
+        "parameters": [
+          {
+            "name": "classId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseClassDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "class-controller"
+        ],
+        "operationId": "updateClass",
+        "parameters": [
+          {
+            "name": "classId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateClassRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseUpdateClassResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "class-controller"
+        ],
+        "operationId": "deactivateClass",
+        "parameters": [
+          {
+            "name": "classId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/terms/{termId}/unpublish": {
+      "put": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "unpublishResults",
+        "parameters": [
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponsePublishResultResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/terms/{termId}/publish": {
+      "put": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "publishResults",
+        "parameters": [
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponsePublishResultResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/scores/{scoreId}": {
+      "put": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "updateScore",
+        "parameters": [
+          {
+            "name": "scoreId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateScoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseUpdateScoreResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/report-cards/{studentId}/term/{termId}/teacher-comment": {
+      "put": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "addTeacherComment",
+        "parameters": [
+          {
+            "name": "studentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseReportCommentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/report-cards/{studentId}/term/{termId}/principal-comment": {
+      "put": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "addPrincipalComment",
+        "parameters": [
+          {
+            "name": "studentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseReportCommentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/grading-rules": {
+      "get": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "getGradingRules",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseGradingRuleResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "configureGradingRules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GradingRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseGradingRuleResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/ca-config": {
+      "get": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "getCaConfig",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseCaConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "configureCa",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseCaConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/templates/{templateId}": {
+      "put": {
+        "tags": [
+          "notification-controller"
+        ],
+        "operationId": "updateTemplate",
+        "parameters": [
+          {
+            "name": "templateId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseUpdateTemplateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/webhooks/paystack/callback": {
+      "post": {
+        "tags": [
+          "paystack-webhook-controller"
+        ],
+        "operationId": "handleCallback",
+        "parameters": [
+          {
+            "name": "x-paystack-signature",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseMapStringString"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students": {
+      "get": {
+        "tags": [
+          "student-controller"
+        ],
+        "operationId": "listStudents",
+        "parameters": [
+          {
+            "name": "classId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "ACTIVE"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponsePageResponseStudentListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "student-controller"
+        ],
+        "operationId": "enrollStudent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollStudentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseEnrollStudentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools": {
+      "get": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "listSchools",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "ACTIVE"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponsePageResponseSchoolSummaryResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "createSchool",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSchoolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseCreateSchoolResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current/sessions": {
+      "get": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "getSessions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListAcademicSessionResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "createSession",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAcademicSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseAcademicSessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current/classes": {
+      "get": {
+        "tags": [
+          "class-controller"
+        ],
+        "operationId": "listClasses",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "gradeLevel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "ACTIVE"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListClassResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "class-controller"
+        ],
+        "operationId": "createClass",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClassRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseClassResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current/classes/promote": {
+      "post": {
+        "tags": [
+          "class-controller"
+        ],
+        "operationId": "promoteStudents",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteStudentsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponsePromoteStudentsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/report-cards": {
+      "post": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "generateReportCards",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportCardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseReportCardJobResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/rankings/recompute": {
+      "post": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "recomputeRankings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecomputeRankingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseMapStringString"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/exam-scores": {
+      "post": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "enterExamScores",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExamScoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseExamScoreResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/ca-scores": {
+      "post": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "enterCaScores",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaScoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseCaScoreResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/receipts/{receiptNumber}/share": {
+      "post": {
+        "tags": [
+          "receipt-controller"
+        ],
+        "operationId": "shareReceipt",
+        "parameters": [
+          {
+            "name": "receiptNumber",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareReceiptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseShareReceiptResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/payments": {
+      "post": {
+        "tags": [
+          "payment-controller"
+        ],
+        "operationId": "initiatePayment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitiatePaymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseInitiatePaymentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/payments/offline": {
+      "post": {
+        "tags": [
+          "payment-controller"
+        ],
+        "operationId": "recordOfflinePayment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfflinePaymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfflinePaymentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/send-bulk": {
+      "post": {
+        "tags": [
+          "notification-controller"
+        ],
+        "operationId": "sendBulk",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendBulkNotificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseSendBulkNotificationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fees/structures": {
+      "get": {
+        "tags": [
+          "fee-controller"
+        ],
+        "operationId": "getFeeStructures",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "ACTIVE"
+            }
+          },
+          {
+            "name": "termId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListFeeStructureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "fee-controller"
+        ],
+        "operationId": "createFeeStructure",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFeeStructureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseCreateFeeStructureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fees/structures/{structureId}/assign": {
+      "post": {
+        "tags": [
+          "fee-controller"
+        ],
+        "operationId": "assignFees",
+        "parameters": [
+          {
+            "name": "structureId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseFeeAssignmentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/staff": {
+      "post": {
+        "tags": [
+          "user-management-controller"
+        ],
+        "operationId": "createStaff",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStaffRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseCreateStaffResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/parents": {
+      "post": {
+        "tags": [
+          "user-management-controller"
+        ],
+        "operationId": "createParent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateParentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseCreateParentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/guardians/{guardianId}/invite": {
+      "post": {
+        "tags": [
+          "guardian-invitation-controller"
+        ],
+        "operationId": "inviteGuardian",
+        "parameters": [
+          {
+            "name": "guardianId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseGuardianInvitationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/guardians/invite-bulk": {
+      "post": {
+        "tags": [
+          "guardian-invitation-controller"
+        ],
+        "operationId": "inviteGuardiansBulk",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkInvitationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseBulkInvitationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/{schoolId}/deactivate": {
+      "patch": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "deactivateSchool",
+        "parameters": [
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students/my-children": {
+      "get": {
+        "tags": [
+          "student-controller"
+        ],
+        "operationId": "getMyChildren",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListMyChildrenResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/{schoolId}": {
+      "get": {
+        "tags": [
+          "school-controller"
+        ],
+        "operationId": "getSchool",
+        "parameters": [
+          {
+            "name": "schoolId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseSchoolResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools/current/grade-levels/available": {
+      "get": {
+        "tags": [
+          "grade-level-controller"
+        ],
+        "operationId": "getAvailableGradeLevels",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListGradeLevelResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/students/{studentId}/term/{termId}": {
+      "get": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "getStudentResult",
+        "parameters": [
+          {
+            "name": "studentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseStudentResultResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/report-cards/jobs/{jobId}": {
+      "get": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "getReportCardJob",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseReportCardJobResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/my-children/current": {
+      "get": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "getMyChildrenResults",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListMyChildResultResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results/classes/{classId}/term/{termId}/result-sheet": {
+      "get": {
+        "tags": [
+          "result-controller"
+        ],
+        "operationId": "getClassResultSheet",
+        "parameters": [
+          {
+            "name": "classId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseClassResultSheetResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/fee-collection": {
+      "get": {
+        "tags": [
+          "report-controller"
+        ],
+        "operationId": "getFeeCollectionReport",
+        "parameters": [
+          {
+            "name": "termId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "current"
+            }
+          },
+          {
+            "name": "classId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "PDF"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataBuffer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/daily-summary": {
+      "get": {
+        "tags": [
+          "report-controller"
+        ],
+        "operationId": "getDailySummary",
+        "parameters": [
+          {
+            "name": "startDate",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseDailySummaryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/receipts/{receiptNumber}": {
+      "get": {
+        "tags": [
+          "receipt-controller"
+        ],
+        "operationId": "getReceipt",
+        "parameters": [
+          {
+            "name": "receiptNumber",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseReceiptDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/receipts/{receiptNumber}/pdf": {
+      "get": {
+        "tags": [
+          "receipt-controller"
+        ],
+        "operationId": "downloadReceiptPdf",
+        "parameters": [
+          {
+            "name": "receiptNumber",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataBuffer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/payments/{paymentId}": {
+      "get": {
+        "tags": [
+          "payment-controller"
+        ],
+        "operationId": "getPaymentStatus",
+        "parameters": [
+          {
+            "name": "paymentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponsePaymentStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/payments/history": {
+      "get": {
+        "tags": [
+          "payment-controller"
+        ],
+        "operationId": "getPaymentHistory",
+        "parameters": [
+          {
+            "name": "studentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponsePageResponsePaymentHistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/templates": {
+      "get": {
+        "tags": [
+          "notification-controller"
+        ],
+        "operationId": "getTemplates",
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListNotificationTemplateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/reminder-schedules": {
+      "get": {
+        "tags": [
+          "notification-controller"
+        ],
+        "operationId": "getReminderSchedules",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListReminderScheduleResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/balance": {
+      "get": {
+        "tags": [
+          "notification-controller"
+        ],
+        "operationId": "getBalance",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseNotificationBalanceResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fees/students/{studentId}": {
+      "get": {
+        "tags": [
+          "fee-controller"
+        ],
+        "operationId": "getStudentFees",
+        "parameters": [
+          {
+            "name": "studentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListStudentFeeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fees/dashboard": {
+      "get": {
+        "tags": [
+          "fee-controller"
+        ],
+        "operationId": "getDashboard",
+        "parameters": [
+          {
+            "name": "termId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "current"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseFeeDashboardResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/users": {
+      "get": {
+        "tags": [
+          "user-management-controller"
+        ],
+        "operationId": "listUsers",
+        "parameters": [
+          {
+            "name": "userType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "ACTIVE"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 10,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "userId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponsePageResponseUserSummaryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth-controller"
+        ],
+        "operationId": "getCurrentUser",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseUserProfileResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/keycloak-config": {
+      "get": {
+        "tags": [
+          "auth-controller"
+        ],
+        "operationId": "getKeycloakConfig",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseKeycloakConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UpdateStudentRequest": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string"
+          },
+          "middleName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "format": "date"
+          },
+          "currentClassId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "enrollmentStatus": {
+            "type": "string"
+          },
+          "medicalNotes": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseUpdateStudentResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UpdateStudentResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Meta": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "UpdateStudentResponse": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admissionNumber": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "currentClassId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "className": {
+            "type": "string"
+          },
+          "enrollmentStatus": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PaymentConfig": {
+        "type": "object",
+        "properties": {
+          "paystackPublicKey": {
+            "type": "string"
+          },
+          "paystackSubaccountCode": {
+            "type": "string"
+          },
+          "acceptedPaymentMethods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SmsConfig": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "apiKey": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "senderId": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateSchoolRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "logoUrl": {
+            "type": "string"
+          },
+          "paymentConfig": {
+            "$ref": "#/components/schemas/PaymentConfig"
+          },
+          "smsConfig": {
+            "$ref": "#/components/schemas/SmsConfig"
+          }
+        }
+      },
+      "ApiResponseSchoolResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SchoolResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CurrentTerm": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sessionName": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          }
+        }
+      },
+      "SchoolResponse": {
+        "type": "object",
+        "properties": {
+          "schoolId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "logoUrl": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "currentTerm": {
+            "$ref": "#/components/schemas/CurrentTerm"
+          },
+          "paymentConfig": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TermUpdate": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "UpdateSessionRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "terms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TermUpdate"
+            }
+          }
+        }
+      },
+      "ApiResponseUpdateSessionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UpdateSessionResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "UpdateSessionResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AcademicSessionResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "isCurrent": {
+            "type": "boolean"
+          },
+          "terms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TermResponse"
+            }
+          }
+        }
+      },
+      "ApiResponseAcademicSessionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AcademicSessionResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TermResponse": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "termNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "isCurrent": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CloseSessionRequest": {
+        "type": "object",
+        "properties": {
+          "completeAllTerms": {
+            "type": "boolean"
+          },
+          "archiveStudentRecords": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseCloseSessionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CloseSessionResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CloseSessionResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "closedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "termsCompleted": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "studentsArchived": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseSetCurrentTermResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SetCurrentTermResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PreviousTerm": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "SetCurrentTermResponse": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sessionName": {
+            "type": "string"
+          },
+          "isCurrent": {
+            "type": "boolean"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "previousCurrentTerm": {
+            "$ref": "#/components/schemas/PreviousTerm"
+          }
+        }
+      },
+      "ConfigureGradeLevelsRequest": {
+        "type": "object",
+        "properties": {
+          "enabledLevels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "namingConvention": {
+            "$ref": "#/components/schemas/NamingConvention"
+          }
+        },
+        "required": [
+          "enabledLevels"
+        ]
+      },
+      "NamingConvention": {
+        "type": "object",
+        "properties": {
+          "nursery": {
+            "type": "string"
+          },
+          "primary": {
+            "type": "string"
+          },
+          "juniorSecondary": {
+            "type": "string"
+          },
+          "seniorSecondary": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseConfigureGradeLevelsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ConfigureGradeLevelsResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ConfigureGradeLevelsResponse": {
+        "type": "object",
+        "properties": {
+          "enabledLevels": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "enabledLevelCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateClassRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "gradeLevel": {
+            "type": "string"
+          },
+          "classTeacherId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "capacity": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ApiResponseUpdateClassResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UpdateClassResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "UpdateClassResponse": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "classTeacher": {
+            "type": "string"
+          },
+          "capacity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponsePublishResultResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PublishResultResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PublishResultResponse": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "publishedBy": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateScoreRequest": {
+        "type": "object",
+        "properties": {
+          "score": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "score"
+        ]
+      },
+      "ApiResponseUpdateScoreResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UpdateScoreResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "UpdateScoreResponse": {
+        "type": "object",
+        "properties": {
+          "scoreId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "newScore": {
+            "type": "number"
+          },
+          "previousScore": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CommentRequest": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "comment"
+        ]
+      },
+      "ApiResponseReportCommentResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ReportCommentResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReportCommentResponse": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GradingRuleRequest": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/JsonNode"
+          }
+        },
+        "required": [
+          "config"
+        ]
+      },
+      "JsonNode": {
+        "type": "object"
+      },
+      "ApiResponseGradingRuleResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/GradingRuleResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GradingRuleResponse": {
+        "type": "object",
+        "properties": {
+          "schoolId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "gradesCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CaComponentRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "maxScore": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "weightPercentage": {
+            "type": "number",
+            "format": "double"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "CaConfigRequest": {
+        "type": "object",
+        "properties": {
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaComponentRequest"
+            }
+          },
+          "examWeightPercentage": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "components"
+        ]
+      },
+      "ApiResponseCaConfigResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CaConfigResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CaConfigResponse": {
+        "type": "object",
+        "properties": {
+          "componentCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "examWeightPercentage": {
+            "type": "number",
+            "format": "double"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateTemplateRequest": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiResponseUpdateTemplateResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UpdateTemplateResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "UpdateTemplateResponse": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseMapStringString": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EnrollStudentRequest": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "middleName": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string",
+            "pattern": "^(MALE|FEMALE)$"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "format": "date"
+          },
+          "classId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "guardians": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuardianInfo"
+            }
+          },
+          "medicalNotes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "classId",
+          "firstName",
+          "gender",
+          "lastName"
+        ]
+      },
+      "GuardianInfo": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^\\+?[0-9]{10,15}$"
+          },
+          "email": {
+            "type": "string"
+          },
+          "relationship": {
+            "type": "string"
+          },
+          "isPrimaryContact": {
+            "type": "boolean"
+          },
+          "canPickUpChild": {
+            "type": "boolean"
+          },
+          "canViewFees": {
+            "type": "boolean"
+          },
+          "canViewResults": {
+            "type": "boolean"
+          },
+          "canViewAttendance": {
+            "type": "boolean"
+          },
+          "canReceiveSms": {
+            "type": "boolean"
+          },
+          "contactPriority": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName",
+          "phone",
+          "relationship"
+        ]
+      },
+      "ApiResponseEnrollStudentResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/EnrollStudentResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EnrollStudentResponse": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admissionNumber": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "classId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "className": {
+            "type": "string"
+          },
+          "parentCreated": {
+            "type": "boolean"
+          },
+          "parentUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminUser": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "pattern": "^[\\w.-]+@[\\w.-]+\\.\\w{2,}$"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "phoneNumber": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "firstName",
+          "lastName",
+          "phoneNumber"
+        ]
+      },
+      "CreateSchoolRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 3
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{3,10}$"
+          },
+          "email": {
+            "type": "string",
+            "pattern": "^[\\w.-]+@[\\w.-]+\\.\\w{2,}$"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "logoUrl": {
+            "type": "string"
+          },
+          "paymentConfig": {
+            "$ref": "#/components/schemas/PaymentConfig"
+          },
+          "smsConfig": {
+            "$ref": "#/components/schemas/SmsConfig"
+          },
+          "termConfig": {
+            "$ref": "#/components/schemas/TermConfig"
+          },
+          "adminUser": {
+            "$ref": "#/components/schemas/AdminUser"
+          }
+        },
+        "required": [
+          "code",
+          "email",
+          "name",
+          "phone"
+        ]
+      },
+      "TermConfig": {
+        "type": "object",
+        "properties": {
+          "termsPerYear": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "termNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "academicYearStart": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseCreateSchoolResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CreateSchoolResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateSchoolResponse": {
+        "type": "object",
+        "properties": {
+          "schoolId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "adminUserCreated": {
+            "type": "boolean"
+          },
+          "adminTemporaryPassword": {
+            "type": "string"
+          },
+          "currentSessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "currentSessionName": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateAcademicSessionRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "terms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TermRequest"
+            }
+          },
+          "setAsCurrent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "endDate",
+          "name",
+          "startDate",
+          "terms"
+        ]
+      },
+      "TermRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "termNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "endDate",
+          "name",
+          "startDate"
+        ]
+      },
+      "CreateClassRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "gradeLevel": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "academicSessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "classTeacherId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "capacity": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "academicSessionId",
+          "gradeLevel",
+          "name"
+        ]
+      },
+      "ApiResponseClassResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClassResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClassResponse": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "gradeLevel": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "sessionName": {
+            "type": "string"
+          },
+          "classTeacher": {
+            "$ref": "#/components/schemas/ClassTeacher"
+          },
+          "capacity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currentEnrollment": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "availableSpots": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "studentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClassTeacher": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "PromoteStudentsRequest": {
+        "type": "object",
+        "properties": {
+          "fromClassId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "toClassId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "studentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "newSessionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "fromClassId",
+          "newSessionId",
+          "studentIds",
+          "toClassId"
+        ]
+      },
+      "ApiResponsePromoteStudentsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PromoteStudentsResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FailedPromotion": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "PromoteStudentsResponse": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fromClass": {
+            "type": "string"
+          },
+          "toClass": {
+            "type": "string"
+          },
+          "studentsPromoted": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "failedPromotions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FailedPromotion"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ReportCardRequest": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "classId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "studentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "includeAttendance": {
+            "type": "boolean"
+          },
+          "includeTeacherComment": {
+            "type": "boolean"
+          },
+          "includePrincipalComment": {
+            "type": "boolean"
+          },
+          "teacherComment": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "classId",
+          "studentIds",
+          "termId"
+        ]
+      },
+      "ApiResponseReportCardJobResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ReportCardJobResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReportCardJobResponse": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "totalStudents": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "completedStudents": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "failedStudents": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "downloadUrl": {
+            "type": "string"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "RecomputeRankingsRequest": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "classId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "classId",
+          "termId"
+        ]
+      },
+      "ExamScoreRequest": {
+        "type": "object",
+        "properties": {
+          "examId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "classId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "maxScore": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "scores": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreEntry"
+            }
+          }
+        },
+        "required": [
+          "classId",
+          "examId",
+          "scores",
+          "subjectId",
+          "termId"
+        ]
+      },
+      "ScoreEntry": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "score": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "score",
+          "studentId"
+        ]
+      },
+      "ApiResponseExamScoreResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ExamScoreResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ExamScoreResponse": {
+        "type": "object",
+        "properties": {
+          "batchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "className": {
+            "type": "string"
+          },
+          "subjectName": {
+            "type": "string"
+          },
+          "scoresEntered": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "finalScoresComputed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "classAverage": {
+            "type": "number"
+          },
+          "classHighest": {
+            "type": "number"
+          },
+          "classLowest": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CaScoreRequest": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "classId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "caComponentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "maxScore": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "scores": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreEntry"
+            }
+          }
+        },
+        "required": [
+          "caComponentId",
+          "classId",
+          "scores",
+          "subjectId",
+          "termId"
+        ]
+      },
+      "ApiResponseCaScoreResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CaScoreResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CaScoreResponse": {
+        "type": "object",
+        "properties": {
+          "batchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "className": {
+            "type": "string"
+          },
+          "subjectName": {
+            "type": "string"
+          },
+          "caComponent": {
+            "type": "string"
+          },
+          "scoresEntered": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ShareReceiptRequest": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "pattern": "^(SMS|EMAIL|WHATSAPP)$"
+          },
+          "recipient": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "recipient"
+        ]
+      },
+      "ApiResponseShareReceiptResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ShareReceiptResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ShareReceiptResponse": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "InitiatePaymentRequest": {
+        "type": "object",
+        "properties": {
+          "studentFeeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "phoneNumber": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "payOptionalItems": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "amount",
+          "paymentMethod",
+          "phoneNumber",
+          "studentFeeIds"
+        ]
+      },
+      "ApiResponseInitiatePaymentResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/InitiatePaymentResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InitiatePaymentResponse": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "gatewayMessage": {
+            "type": "string"
+          },
+          "checkoutRequestId": {
+            "type": "string"
+          },
+          "expiresInSeconds": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OfflinePaymentRequest": {
+        "type": "object",
+        "properties": {
+          "studentFeeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "paymentDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "receivedBy": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "generateReceipt": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "amount",
+          "paymentDate",
+          "paymentMethod",
+          "studentFeeId"
+        ]
+      },
+      "ApiResponseOfflinePaymentResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OfflinePaymentResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OfflinePaymentResponse": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "receiptNumber": {
+            "type": "string"
+          },
+          "approvedBy": {
+            "type": "string"
+          }
+        }
+      },
+      "SendBulkNotificationRequest": {
+        "type": "object",
+        "properties": {
+          "studentFeeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "templateCode": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string",
+            "pattern": "^(SMS|WHATSAPP|BOTH)$"
+          }
+        },
+        "required": [
+          "channel",
+          "studentFeeIds",
+          "templateCode"
+        ]
+      },
+      "ApiResponseSendBulkNotificationResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SendBulkNotificationResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SendBulkNotificationResponse": {
+        "type": "object",
+        "properties": {
+          "batchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recipientsCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "estimatedCost": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateFeeStructureRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "applicableToClassIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeeItemRequest"
+            }
+          },
+          "lateFeeConfig": {
+            "$ref": "#/components/schemas/LateFeeConfig"
+          }
+        },
+        "required": [
+          "applicableToClassIds",
+          "dueDate",
+          "items",
+          "name",
+          "sessionId",
+          "termId"
+        ]
+      },
+      "FeeItemRequest": {
+        "type": "object",
+        "properties": {
+          "categoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "isMandatory": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "amount",
+          "description"
+        ]
+      },
+      "LateFeeConfig": {
+        "type": "object",
+        "properties": {
+          "applyAfterDays": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "percentageAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "flatAmount": {
+            "type": "number"
+          }
+        }
+      },
+      "ApiResponseCreateFeeStructureResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CreateFeeStructureResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateFeeStructureResponse": {
+        "type": "object",
+        "properties": {
+          "structureId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "totalAmount": {
+            "type": "number"
+          },
+          "mandatoryAmount": {
+            "type": "number"
+          },
+          "applicableClassCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "estimatedStudentCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseFeeAssignmentResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FeeAssignmentResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FeeAssignmentResponse": {
+        "type": "object",
+        "properties": {
+          "structureId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "studentsAssigned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalExpectedAmount": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "nextReminderDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateStaffRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "phoneNumber": {
+            "type": "string"
+          },
+          "userType": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "email",
+          "firstName",
+          "lastName",
+          "phoneNumber",
+          "roles",
+          "userType"
+        ]
+      },
+      "ApiResponseCreateStaffResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CreateStaffResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateStaffResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "userType": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "schoolId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schoolName": {
+            "type": "string"
+          },
+          "temporaryPassword": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ChildLink": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "relationship": {
+            "type": "string"
+          },
+          "isPrimaryContact": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "relationship",
+          "studentId"
+        ]
+      },
+      "CreateParentRequest": {
+        "type": "object",
+        "properties": {
+          "phoneNumber": {
+            "type": "string",
+            "pattern": "^\\+?[0-9]{10,15}$"
+          },
+          "email": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChildLink"
+            }
+          }
+        },
+        "required": [
+          "children",
+          "firstName",
+          "lastName",
+          "phoneNumber"
+        ]
+      },
+      "ApiResponseCreateParentResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CreateParentResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateParentResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "guardianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "phoneNumber": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "userType": {
+            "type": "string"
+          },
+          "childrenLinked": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "invitationSent": {
+            "type": "boolean"
+          },
+          "temporaryPassword": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseGuardianInvitationResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/GuardianInvitationResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GuardianInvitationResponse": {
+        "type": "object",
+        "properties": {
+          "guardianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "guardianName": {
+            "type": "string"
+          },
+          "phoneNumber": {
+            "type": "string"
+          },
+          "invitationSent": {
+            "type": "boolean"
+          },
+          "invitationToken": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "BulkInvitationRequest": {
+        "type": "object",
+        "properties": {
+          "guardianIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "guardianIds"
+        ]
+      },
+      "ApiResponseBulkInvitationResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BulkInvitationResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BulkInvitationResponse": {
+        "type": "object",
+        "properties": {
+          "totalRequested": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "invitationsSent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "invitationsFailed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvitationResult"
+            }
+          }
+        }
+      },
+      "InvitationResult": {
+        "type": "object",
+        "properties": {
+          "guardianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "phoneNumber": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseVoid": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "object"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponsePageResponseStudentListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PageResponseStudentListResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CurrentClass": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "gradeLevel": {
+            "type": "string"
+          }
+        }
+      },
+      "PageResponseStudentListResponse": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StudentListResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "StudentListResponse": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admissionNumber": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "middleName": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "format": "date"
+          },
+          "currentClass": {
+            "$ref": "#/components/schemas/CurrentClass"
+          },
+          "enrollmentDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string"
+          },
+          "parentPhone": {
+            "type": "string"
+          },
+          "parentName": {
+            "type": "string"
+          },
+          "profilePhotoUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseStudentDetailResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/StudentDetailResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FeeSummary": {
+        "type": "object",
+        "properties": {
+          "currentTermFee": {
+            "type": "number"
+          },
+          "amountPaid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "ParentInfo": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phoneNumber": {
+            "type": "string"
+          },
+          "relationship": {
+            "type": "string"
+          },
+          "isPrimaryContact": {
+            "type": "boolean"
+          }
+        }
+      },
+      "StudentDetailResponse": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admissionNumber": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "middleName": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "format": "date"
+          },
+          "currentClass": {
+            "$ref": "#/components/schemas/CurrentClass"
+          },
+          "enrollmentDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string"
+          },
+          "parents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParentInfo"
+            }
+          },
+          "feeSummary": {
+            "$ref": "#/components/schemas/FeeSummary"
+          },
+          "medicalNotes": {
+            "type": "string"
+          },
+          "profilePhotoUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseListMyChildrenResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyChildrenResponse"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FeeStatus": {
+        "type": "object",
+        "properties": {
+          "termName": {
+            "type": "string"
+          },
+          "totalFee": {
+            "type": "number"
+          },
+          "amountPaid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "MyChildrenResponse": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admissionNumber": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "currentClass": {
+            "type": "string"
+          },
+          "profilePhotoUrl": {
+            "type": "string"
+          },
+          "feeStatus": {
+            "$ref": "#/components/schemas/FeeStatus"
+          }
+        }
+      },
+      "ApiResponsePageResponseSchoolSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PageResponseSchoolSummaryResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PageResponseSchoolSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SchoolSummaryResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "SchoolSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "schoolId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "studentCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "activeUsers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "currentTerm": {
+            "type": "string"
+          },
+          "collectionRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseListAcademicSessionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AcademicSessionResponse"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseListGradeLevelResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GradeLevelResponse"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GradeLevelResponse": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ApiResponseListClassResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClassResponse"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseClassDetailResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClassDetailResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClassDetailResponse": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "gradeLevel": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "sessionName": {
+            "type": "string"
+          },
+          "classTeacher": {
+            "$ref": "#/components/schemas/ClassTeacher"
+          },
+          "capacity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currentEnrollment": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "students": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StudentSummary"
+            }
+          },
+          "statistics": {
+            "$ref": "#/components/schemas/ClassStatistics"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClassStatistics": {
+        "type": "object",
+        "properties": {
+          "maleCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "femaleCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "fullyPaidFees": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pendingFees": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "StudentSummary": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admissionNumber": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "parentPhone": {
+            "type": "string"
+          },
+          "feeStatus": {
+            "$ref": "#/components/schemas/FeeStatus"
+          }
+        }
+      },
+      "ApiResponseStudentResultResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/StudentResultResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AttendanceInfo": {
+        "type": "object",
+        "properties": {
+          "daysOpen": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "daysPresent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "daysAbsent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "attendanceRate": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "CaBreakdown": {
+        "type": "object",
+        "properties": {
+          "component": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "maxScore": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "RankingInfo": {
+        "type": "object",
+        "properties": {
+          "classPosition": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "outOf": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "percentile": {
+            "type": "number",
+            "format": "double"
+          },
+          "topThird": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ResultSummary": {
+        "type": "object",
+        "properties": {
+          "totalScore": {
+            "type": "number"
+          },
+          "totalMaxScore": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "average": {
+            "type": "number"
+          },
+          "overallGrade": {
+            "type": "string"
+          },
+          "totalPoints": {
+            "type": "number"
+          },
+          "subjectsTaken": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "subjectsPassed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "subjectsFailed": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "StudentInfo": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "admissionNumber": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "className": {
+            "type": "string"
+          },
+          "classSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "profilePhotoUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "StudentResultResponse": {
+        "type": "object",
+        "properties": {
+          "student": {
+            "$ref": "#/components/schemas/StudentInfo"
+          },
+          "term": {
+            "$ref": "#/components/schemas/TermInfo"
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubjectResult"
+            }
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ResultSummary"
+          },
+          "ranking": {
+            "$ref": "#/components/schemas/RankingInfo"
+          },
+          "attendance": {
+            "$ref": "#/components/schemas/AttendanceInfo"
+          },
+          "teacherComment": {
+            "type": "string"
+          },
+          "principalComment": {
+            "type": "string"
+          }
+        }
+      },
+      "SubjectResult": {
+        "type": "object",
+        "properties": {
+          "subjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subjectName": {
+            "type": "string"
+          },
+          "caScores": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaBreakdown"
+            }
+          },
+          "caTotal": {
+            "type": "number"
+          },
+          "caMaxTotal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "examScore": {
+            "type": "number"
+          },
+          "examMaxScore": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "finalScore": {
+            "type": "number"
+          },
+          "finalMaxScore": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "percentage": {
+            "type": "number"
+          },
+          "grade": {
+            "type": "string"
+          },
+          "remark": {
+            "type": "string"
+          },
+          "points": {
+            "type": "number"
+          },
+          "subjectPosition": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "classHighest": {
+            "type": "number"
+          },
+          "classLowest": {
+            "type": "number"
+          },
+          "classAverage": {
+            "type": "number"
+          }
+        }
+      },
+      "TermInfo": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sessionName": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseListMyChildResultResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyChildResultResponse"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MyChildResultResponse": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "className": {
+            "type": "string"
+          },
+          "termName": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ResultSummary"
+          },
+          "topSubjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopSubject"
+            }
+          }
+        }
+      },
+      "TopSubject": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "grade": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseClassResultSheetResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClassResultSheetResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClassResultSheetResponse": {
+        "type": "object",
+        "properties": {
+          "className": {
+            "type": "string"
+          },
+          "termName": {
+            "type": "string"
+          },
+          "classSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "students": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StudentRow"
+            }
+          }
+        }
+      },
+      "StudentRow": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string"
+          },
+          "admissionNumber": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "average": {
+            "type": "number",
+            "format": "double"
+          },
+          "overallGrade": {
+            "type": "string"
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubjectScore"
+            }
+          }
+        }
+      },
+      "SubjectScore": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "finalScore": {
+            "type": "number",
+            "format": "double"
+          },
+          "grade": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DataBuffer": {
+        "type": "object"
+      },
+      "ApiResponseDailySummaryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DailySummaryResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DailyBreakdown": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "transactions": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DailySummaryResponse": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/PeriodInfo"
+          },
+          "totalCollected": {
+            "type": "number"
+          },
+          "totalTransactions": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "byPaymentMethod": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PaymentMethodSummary"
+            }
+          },
+          "dailyBreakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyBreakdown"
+            }
+          }
+        }
+      },
+      "PaymentMethodSummary": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PeriodInfo": {
+        "type": "object",
+        "properties": {
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "ApiResponseReceiptDetailResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ReceiptDetailResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BreakdownItem": {
+        "type": "object",
+        "properties": {
+          "studentName": {
+            "type": "string"
+          },
+          "admissionNumber": {
+            "type": "string"
+          },
+          "className": {
+            "type": "string"
+          },
+          "term": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          }
+        }
+      },
+      "ReceiptDetailResponse": {
+        "type": "object",
+        "properties": {
+          "receiptNumber": {
+            "type": "string"
+          },
+          "paymentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schoolName": {
+            "type": "string"
+          },
+          "schoolAddress": {
+            "type": "string"
+          },
+          "paidBy": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "amountInWords": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "paymentDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "breakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BreakdownItem"
+            }
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "smsSent": {
+            "type": "boolean"
+          },
+          "emailSent": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiResponsePaymentStatusResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PaymentStatusResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PaymentStatusResponse": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "transactionReference": {
+            "type": "string"
+          },
+          "paidAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/ReceiptInfo"
+          }
+        }
+      },
+      "ReceiptInfo": {
+        "type": "object",
+        "properties": {
+          "receiptNumber": {
+            "type": "string"
+          },
+          "receiptUrl": {
+            "type": "string"
+          },
+          "breakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BreakdownItem"
+            }
+          }
+        }
+      },
+      "ApiResponsePageResponsePaymentHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PageResponsePaymentHistoryResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PageResponsePaymentHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentHistoryResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PaymentHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "receiptNumber": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponseListNotificationTemplateResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationTemplateResponse"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NotificationTemplateResponse": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseListReminderScheduleResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReminderScheduleResponse"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "LocalTime": {
+        "type": "object",
+        "properties": {
+          "hour": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "minute": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "second": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nano": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ReminderScheduleResponse": {
+        "type": "object",
+        "properties": {
+          "scheduleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "triggerType": {
+            "type": "string"
+          },
+          "daysOffset": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sendTime": {
+            "$ref": "#/components/schemas/LocalTime"
+          },
+          "templateCode": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiResponseNotificationBalanceResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/NotificationBalanceResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NotificationBalanceResponse": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "balance": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "costPerSms": {
+            "type": "number"
+          },
+          "lastPurchased": {
+            "type": "string",
+            "format": "date"
+          },
+          "estimatedRemainingDays": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ApiResponseListStudentFeeResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StudentFeeResponse"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FeeItemDetail": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "isMandatory": {
+            "type": "boolean"
+          }
+        }
+      },
+      "StudentFeeResponse": {
+        "type": "object",
+        "properties": {
+          "studentFeeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "structureName": {
+            "type": "string"
+          },
+          "termName": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeeItemDetail"
+            }
+          },
+          "totalAmount": {
+            "type": "number"
+          },
+          "discountAmount": {
+            "type": "number"
+          },
+          "amountPaid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "daysUntilDue": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "lateFeeApplicable": {
+            "type": "boolean"
+          },
+          "lateFeeAmount": {
+            "type": "number"
+          },
+          "lastReminderSent": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseListFeeStructureResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeeStructureResponse"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FeeStructureResponse": {
+        "type": "object",
+        "properties": {
+          "structureId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "termName": {
+            "type": "string"
+          },
+          "sessionName": {
+            "type": "string"
+          },
+          "totalAmount": {
+            "type": "number"
+          },
+          "mandatoryAmount": {
+            "type": "number"
+          },
+          "applicableToClasses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "applicableClassCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "studentCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "collectionRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseFeeDashboardResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FeeDashboardResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClassCollection": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string"
+          },
+          "className": {
+            "type": "string"
+          },
+          "studentCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "expectedAmount": {
+            "type": "number"
+          },
+          "collectedAmount": {
+            "type": "number"
+          },
+          "collectionRate": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "DailyTrend": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "transactions": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DashboardSummary": {
+        "type": "object",
+        "properties": {
+          "totalExpected": {
+            "type": "number"
+          },
+          "totalCollected": {
+            "type": "number"
+          },
+          "totalOutstanding": {
+            "type": "number"
+          },
+          "collectionRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "fullyPaidStudents": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "partiallyPaidStudents": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unpaidStudents": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DeadlineInfo": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "amount": {
+            "type": "number"
+          }
+        }
+      },
+      "FeeDashboardResponse": {
+        "type": "object",
+        "properties": {
+          "termName": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/DashboardSummary"
+          },
+          "byClass": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClassCollection"
+            }
+          },
+          "upcomingDeadlines": {
+            "$ref": "#/components/schemas/UpcomingDeadlines"
+          },
+          "dailyCollectionTrend": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DailyTrend"
+            }
+          }
+        }
+      },
+      "UpcomingDeadlines": {
+        "type": "object",
+        "properties": {
+          "dueIn3Days": {
+            "$ref": "#/components/schemas/DeadlineInfo"
+          },
+          "dueToday": {
+            "$ref": "#/components/schemas/DeadlineInfo"
+          },
+          "overdue": {
+            "$ref": "#/components/schemas/DeadlineInfo"
+          }
+        }
+      },
+      "ApiResponsePageResponseUserSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PageResponseUserSummaryResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PageResponseUserSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserSummaryResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "UserSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phoneNumber": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "userType": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "childrenCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastLogin": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseUserProfileResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UserProfileResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ChildInfo": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "guardianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "relationship": {
+            "type": "string"
+          },
+          "canViewFees": {
+            "type": "boolean"
+          },
+          "canViewResults": {
+            "type": "boolean"
+          },
+          "canViewAttendance": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UserProfileResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "keycloakId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phoneNumber": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "userType": {
+            "type": "string"
+          },
+          "schoolId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schoolName": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChildInfo"
+            }
+          },
+          "lastLogin": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiResponseKeycloakConfigResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "$ref": "#/components/schemas/KeycloakConfigResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "errors": {},
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "KeycloakConfigResponse": {
+        "type": "object",
+        "properties": {
+          "authServerUrl": {
+            "type": "string"
+          },
+          "realm": {
+            "type": "string"
+          },
+          "clientId": {
+            "type": "string"
+          },
+          "tokenEndpoint": {
+            "type": "string"
+          },
+          "logoutEndpoint": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

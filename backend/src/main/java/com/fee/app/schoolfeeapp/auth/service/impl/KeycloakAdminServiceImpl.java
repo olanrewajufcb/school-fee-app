@@ -26,6 +26,8 @@ import java.security.SecureRandom;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
+
 import static java.util.stream.Collectors.toList;
 
 @Service
@@ -82,7 +84,7 @@ public class KeycloakAdminServiceImpl implements IdentityProviderService {
      * @param realmRoles Roles to assign
      * @return The Keycloak user ID
      */
-    public Mono<UUID> createUser(
+    public Mono<KeycloakUserResult> createUser(
             UserRepresentation userRepresentation,
             String userType,
             Set<String> realmRoles) {
@@ -126,7 +128,7 @@ public class KeycloakAdminServiceImpl implements IdentityProviderService {
                 assignRealmRoles(userId, realmRoles);
                 log.debug("Roles {} assigned to user: {}", realmRoles, userId);
 
-                return UUID.fromString(userId);
+                return new KeycloakUserResult(UUID.fromString(userId), tempPassword);
             }
         }).subscribeOn(Schedulers.boundedElastic());
     }
@@ -134,7 +136,7 @@ public class KeycloakAdminServiceImpl implements IdentityProviderService {
     /**
      * Create a staff user (admin, accountant, or teacher).
      */
-    public Mono<UUID> createStaffUser(
+    public Mono<KeycloakUserResult> createStaffUser(
             CreateStaffRequest request,
             UUID schoolId,
             String schoolName) {

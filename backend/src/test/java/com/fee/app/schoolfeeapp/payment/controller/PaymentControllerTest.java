@@ -53,6 +53,7 @@ class PaymentControllerTest {
                 "PAYSTACK",
                 BigDecimal.valueOf(5000),
                 "Paystack checkout initialized",
+                "https://checkout.paystack.com/mock-url",
                 "paystack-ref-123",
                 3600);
         when(paymentService.initiatePayment(request)).thenReturn(Mono.just(serviceResponse));

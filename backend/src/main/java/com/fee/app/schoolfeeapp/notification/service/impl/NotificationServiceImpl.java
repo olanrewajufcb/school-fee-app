@@ -31,12 +31,14 @@ import com.fee.app.schoolfeeapp.student.domain.Student;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
@@ -49,6 +51,9 @@ class NotificationServiceImpl implements NotificationService {
 
     private static final Set<String> SUPPORTED_TEMPLATE_CHANNELS =
             Set.of("SMS", "WHATSAPP", "EMAIL");
+    private static final Set<String> SUPPORTED_BULK_CHANNELS =
+            Set.of("SMS", "WHATSAPP", "BOTH");
+    private static final List<String> DIRECT_BULK_CHANNELS = List.of("SMS", "WHATSAPP");
 
     private final NotificationTemplateRepository templateRepository;
     private final NotificationRepository notificationRepository;
@@ -116,7 +121,10 @@ class NotificationServiceImpl implements NotificationService {
     @Override
     public Mono<List<ReminderScheduleResponse>> getReminderSchedules() {
         return jwtUtils.getCurrentUser()
-                .flatMapMany(user -> scheduleRepository.findBySchoolId(user.getSchoolId()))
+                .flatMapMany(user -> {
+                    UUID schoolId = requireSchoolId(user);
+                    return scheduleRepository.findBySchoolId(schoolId);
+                })
                 .map(this::toScheduleResponse)
                 .collectList();
     }
@@ -127,39 +135,9 @@ class NotificationServiceImpl implements NotificationService {
 
     @Override
     public Mono<SendBulkNotificationResponse> sendBulkNotifications(SendBulkNotificationRequest request) {
-        return jwtUtils.getCurrentUser()
-                .flatMap(user -> {
-                    UUID schoolId = user.getSchoolId();
-
-                    return templateRepository
-                            .findBySchoolIdAndTemplateCode(schoolId, request.templateCode())
-                            .switchIfEmpty(Mono.error(new SchoolFeeException(
-                                    "TEMPLATE_NOT_FOUND",
-                                    "Template not found: " + request.templateCode())))
-                            .flatMap(template ->
-                                    Flux.fromIterable(request.studentFeeIds())
-                                            .flatMap(feeId ->
-                                                    studentFeeRepository.findById(feeId)
-                                                            .filter(fee -> fee.getSchoolId().equals(schoolId)))
-                                            .flatMap(fee -> sendFeeReminder(fee, template, request.channel()))
-                                            .collectList()
-                                            .map(results -> {
-                                                long successCount = results.stream()
-                                                        .filter(ChannelResult::success).count();
-                                                BigDecimal cost = channelSelector
-                                                        .select(request.channel())
-                                                        .getCostPerMessage()
-                                                        .multiply(BigDecimal.valueOf(successCount));
-
-                                                return new SendBulkNotificationResponse(
-                                                        UUID.randomUUID(),
-                                                        results.size(),
-                                                        cost,
-                                                        "QUEUED",
-                                                        successCount + " messages queued for delivery"
-                                                );
-                                            }));
-                });
+        return Mono.fromCallable(() -> validateAndNormalizeBulkRequest(request))
+                .flatMap(bulkRequest -> jwtUtils.getCurrentUser()
+                        .flatMap(user -> sendBulkNotificationsForUser(bulkRequest, user)));
     }
 
     // ========================================================================
@@ -184,81 +162,195 @@ class NotificationServiceImpl implements NotificationService {
     // PRIVATE HELPERS
     // ========================================================================
 
-    private Mono<ChannelResult> sendFeeReminder(
-            StudentFee fee, NotificationTemplate template, String channel) {
+    private Mono<SendBulkNotificationResponse> sendBulkNotificationsForUser(
+            BulkNotification bulkRequest, SchoolFeeUser user) {
+        UUID schoolId = requireSchoolId(user);
+        UUID batchId = UUID.randomUUID();
+        int concurrency = 10;
 
-        return studentRepository.findById(fee.getStudentId())
-                .flatMap(student ->
-                        findPrimaryGuardian(student.getId())
-                                .flatMap(guardian -> {
-                                    String message = renderTemplate(template.getBodyTemplate(),
+        return templateRepository
+                .findActiveForBulkSend(
+                        schoolId,
+                        bulkRequest.templateCode(),
+                        bulkRequest.channel())
+                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                        "TEMPLATE_NOT_FOUND",
+                        "Active template not found: " + bulkRequest.templateCode())))
+                .flatMap(template -> Mono.fromCallable(() -> resolveBulkChannels(bulkRequest.channel()))
+                        .flatMapMany(channels -> Flux.fromIterable(bulkRequest.studentFeeIds())
+                                .flatMap(feeId -> prepareFeeReminder(
+                                        feeId,
+                                        schoolId,
+                                        template,
+                                        bulkRequest.channel())
+                                        .flatMapMany(reminder -> sendPreparedReminder(
+                                                reminder,
+                                                channels,
+                                                batchId))
+                                        .onErrorResume(e -> {
+                                            String channelStr = bulkRequest.channel() != null ? bulkRequest.channel() : "UNKNOWN";
+                                            return Flux.just(ChannelResult.builder()
+                                                    .channel(channelStr)
+                                                    .success(false)
+                                                    .errorMessage(e.getMessage())
+                                                    .build());
+                                        }), concurrency))
+                        .collectList()
+                        .map(results -> toBulkResponse(batchId, results)));
+    }
+
+    private SendBulkNotificationResponse toBulkResponse(UUID batchId, List<ChannelResult> results) {
+        long successCount = results.stream()
+                .filter(ChannelResult::success)
+                .count();
+        BigDecimal cost = calculateSuccessfulDeliveryCost(results);
+        String status = bulkStatus(results.size(), successCount);
+
+        return new SendBulkNotificationResponse(
+                batchId,
+                results.size(),
+                cost,
+                status,
+                successCount + " of " + results.size() + " messages queued for delivery");
+    }
+
+    private Mono<PreparedFeeReminder> prepareFeeReminder(
+            UUID feeId, UUID schoolId, NotificationTemplate template, String requestedChannel) {
+
+        return studentFeeRepository.findByIdAndSchoolId(feeId, schoolId)
+                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                        "STUDENT_FEE_NOT_FOUND",
+                        "Student fee not found or does not belong to your school",
+                        "studentFeeIds")))
+                .flatMap(fee -> studentRepository
+                        .findByIdAndSchoolIdAndDeletedAtIsNull(fee.getStudentId(), schoolId)
+                        .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                "STUDENT_NOT_FOUND",
+                                "Student linked to fee was not found",
+                                "studentFeeIds")))
+                        .flatMap(student -> findPrimaryGuardian(student.getId(), schoolId)
+                                .map(guardian -> {
+                                    String phone = trimToNull(guardian.getPhone());
+                                    if (phone == null) {
+                                        throw new SchoolFeeException(
+                                                "GUARDIAN_CONTACT_MISSING",
+                                                "Primary guardian has no phone number",
+                                                "studentFeeIds");
+                                    }
+                                    String message = renderTemplate(
+                                            template.getBodyTemplate(),
                                             buildTemplateVars(fee, student, guardian));
-
-                                    return sendToChannels(
-                                            channel,
-                                            guardian.getPhone(),
-                                            message,
-                                            fee.getId(),
-                                            fee.getSchoolId());
-                                }));
+                                    return new PreparedFeeReminder(
+                                            fee,
+                                            student,
+                                            guardian,
+                                            template,
+                                            requestedChannel,
+                                            phone,
+                                            message);
+                                })));
     }
 
-    private Mono<ChannelResult> sendToChannels(
-            String channel, String phone, String message, UUID feeId, UUID schoolId) {
-
-        if ("BOTH".equalsIgnoreCase(channel)) {
-            return Flux.fromIterable(channelSelector.getAvailableChannels())
-                    .flatMap(ch -> channelSelector.select(ch).send(phone, message, feeId.toString())
-                            .flatMap(result -> logAndSaveNotification(
-                                    result, phone, message, ch, feeId, schoolId)
-                                    .thenReturn(result)))
-                    .last();
-        }
-
-        NotificationChannel selectedChannel = channelSelector.select(channel);
-        return selectedChannel.send(phone, message, feeId.toString())
-                .flatMap(result -> logAndSaveNotification(
-                        result, phone, message, channel, feeId, schoolId)
-                        .thenReturn(result));
+    private Flux<ChannelResult> sendPreparedReminder(
+            PreparedFeeReminder reminder, List<NotificationChannel> channels, UUID batchId) {
+        return Flux.fromIterable(channels)
+                .flatMap(channel -> sendToChannel(reminder, channel, batchId));
     }
 
-    private Mono<Void> logAndSaveNotification(
-            ChannelResult result, String phone, String message,
-            String channel, UUID feeId, UUID schoolId) {
+    private Mono<ChannelResult> sendToChannel(
+            PreparedFeeReminder reminder, NotificationChannel channel, UUID batchId) {
 
-        Notification notification = Notification.builder()
+        String channelName = channel.getChannel();
+        Notification notification = buildQueuedNotification(reminder, channelName, batchId);
+
+        return notificationRepository.insertNotification(notification)
+                .flatMap(saved -> Mono.defer(() -> channel.send(
+                                reminder.phone(),
+                                reminder.message(),
+                                reminder.fee().getId().toString()))
+                        .onErrorResume(error -> Mono.just(ChannelResult.builder()
+                                .channel(channelName)
+                                .success(false)
+                                .errorMessage(error.getMessage())
+                                .build()))
+                        .flatMap(result -> notificationRepository.updateDeliveryResult(
+                                        saved.getId(),
+                                        result.success() ? "SENT" : "FAILED",
+                                        result.messageId(),
+                                        result.success() ? channel.getCostPerMessage() : BigDecimal.ZERO,
+                                        result.errorMessage(),
+                                        result.success() ? Instant.now() : null)
+                                .thenReturn(result)))
+                .onErrorResume(DuplicateKeyException.class, error ->
+                        Mono.just(ChannelResult.builder()
+                                .channel(channelName)
+                                .success(false)
+                                .errorMessage("Notification already queued for this fee and channel today")
+                                .build()));
+    }
+
+    private Notification buildQueuedNotification(
+            PreparedFeeReminder reminder, String channel, UUID batchId) {
+        Instant now = Instant.now();
+        return Notification.builder()
                 .id(UUID.randomUUID())
-                .schoolId(schoolId)
-                .recipientPhone(phone)
+                .schoolId(reminder.fee().getSchoolId())
+                .recipientId(reminder.guardian().getId())
+                .recipientPhone(reminder.phone())
                 .channel(channel)
-                .body(message)
-                .renderedBody(message)
-                .status(result.success() ? "SENT" : "FAILED")
-                .providerMessageId(result.messageId())
-                .errorMessage(result.errorMessage())
+                .templateCode(reminder.template().getTemplateCode())
+                .body(reminder.template().getBodyTemplate())
+                .renderedBody(reminder.message())
+                .status("QUEUED")
+                .providerCost(BigDecimal.ZERO)
+                .retryCount(0)
+                .maxRetries(3)
+                .correlationId(batchId)
                 .contextType("FEE_REMINDER")
-                .contextId(feeId)
-                .createdAt(Instant.now())
-                .sentAt(result.success() ? Instant.now() : null)
+                .contextId(reminder.fee().getId())
+                .idempotencyKey(buildDailyIdempotencyKey(reminder, channel))
+                .createdAt(now)
                 .build();
-
-        return notificationRepository.save(notification).then();
     }
 
-    private Mono<StudentGuardian> findPrimaryGuardian(UUID studentId) {
+    private Mono<StudentGuardian> findPrimaryGuardian(UUID studentId, UUID schoolId) {
         return guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId)
                 .next()
-                .flatMap(link -> guardianRepository.findById(link.getGuardianId()));
+                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                        "GUARDIAN_NOT_FOUND",
+                        "Primary guardian not found for student",
+                        "studentFeeIds")))
+                .flatMap(link -> {
+                    if (!schoolId.equals(link.getSchoolId())) {
+                        return Mono.error(new SchoolFeeException(
+                                "GUARDIAN_NOT_FOUND",
+                                "Primary guardian not found for student",
+                                "studentFeeIds"));
+                    }
+                    if (Boolean.FALSE.equals(link.getCanReceiveSms())) {
+                        return Mono.error(new SchoolFeeException(
+                                "GUARDIAN_CONTACT_NOT_ALLOWED",
+                                "Primary guardian cannot receive fee reminders",
+                                "studentFeeIds"));
+                    }
+                    return guardianRepository.findByIdAndDeletedAtIsNull(link.getGuardianId());
+                })
+                .filter(guardian -> schoolId.equals(guardian.getSchoolId()))
+                .filter(guardian -> !Boolean.FALSE.equals(guardian.getIsActive()))
+                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                        "GUARDIAN_NOT_FOUND",
+                        "Primary guardian not found for student",
+                        "studentFeeIds")));
     }
 
     private Map<String, String> buildTemplateVars(
             StudentFee fee, Student student, StudentGuardian guardian) {
         Map<String, String> vars = new HashMap<>();
         vars.put("parent_name", guardian.getFirstName());
-        vars.put("amount", fee.getTotalAmount().toString());
+        vars.put("amount", Objects.toString(fee.getTotalAmount(), ""));
         vars.put("student_name", student.getFirstName() + " " + student.getLastName());
-        vars.put("due_date", fee.getDueDate().toString());
-        vars.put("days", String.valueOf(
+        vars.put("due_date", Objects.toString(fee.getDueDate(), ""));
+        vars.put("days", fee.getDueDate() == null ? "" : String.valueOf(
                 java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), fee.getDueDate())));
         vars.put("admission_number", student.getAdmissionNumber());
         vars.put("payment_link", "https://schoolfee.app/pay/" + fee.getId());
@@ -312,6 +404,104 @@ class NotificationServiceImpl implements NotificationService {
                     "channel");
         }
         return normalized;
+    }
+
+    private BulkNotification validateAndNormalizeBulkRequest(SendBulkNotificationRequest request) {
+        if (request == null) {
+            throw new SchoolFeeException(
+                    "INVALID_BULK_NOTIFICATION_REQUEST",
+                    "Bulk notification request is required");
+        }
+        if (request.studentFeeIds() == null || request.studentFeeIds().isEmpty()) {
+            throw new SchoolFeeException(
+                    "INVALID_BULK_NOTIFICATION_REQUEST",
+                    "At least one student fee ID is required",
+                    "studentFeeIds");
+        }
+        if (request.studentFeeIds().stream().anyMatch(Objects::isNull)) {
+            throw new SchoolFeeException(
+                    "INVALID_BULK_NOTIFICATION_REQUEST",
+                    "Student fee IDs cannot contain null values",
+                    "studentFeeIds");
+        }
+        Set<UUID> uniqueFeeIds = new LinkedHashSet<>(request.studentFeeIds());
+        if (uniqueFeeIds.size() != request.studentFeeIds().size()) {
+            throw new SchoolFeeException(
+                    "DUPLICATE_NOTIFICATION_TARGET",
+                    "Student fee IDs must be unique within a bulk notification request",
+                    "studentFeeIds");
+        }
+
+        String templateCode = trimToNull(request.templateCode());
+        if (templateCode == null) {
+            throw new SchoolFeeException(
+                    "INVALID_BULK_NOTIFICATION_REQUEST",
+                    "Template code is required",
+                    "templateCode");
+        }
+
+        String channel = trimToNull(request.channel());
+        if (channel == null) {
+            throw new SchoolFeeException(
+                    "INVALID_BULK_NOTIFICATION_REQUEST",
+                    "Channel is required",
+                    "channel");
+        }
+        channel = channel.toUpperCase(Locale.ROOT);
+        if (!SUPPORTED_BULK_CHANNELS.contains(channel)) {
+            throw new SchoolFeeException(
+                    "UNSUPPORTED_CHANNEL",
+                    "Unsupported bulk notification channel: " + request.channel(),
+                    "channel");
+        }
+
+        return new BulkNotification(List.copyOf(uniqueFeeIds), templateCode, channel);
+    }
+
+    private List<NotificationChannel> resolveBulkChannels(String channel) {
+        if (!"BOTH".equals(channel)) {
+            return List.of(channelSelector.select(channel));
+        }
+
+        List<String> availableChannels = channelSelector.getAvailableChannels();
+        if (!availableChannels.containsAll(DIRECT_BULK_CHANNELS)) {
+            throw new SchoolFeeException(
+                    "UNSUPPORTED_CHANNEL",
+                    "SMS and WHATSAPP channels must both be configured for bulk channel BOTH",
+                    "channel");
+        }
+        return DIRECT_BULK_CHANNELS.stream()
+                .map(channelSelector::select)
+                .toList();
+    }
+
+    private BigDecimal calculateSuccessfulDeliveryCost(List<ChannelResult> results) {
+        return results.stream()
+                .filter(ChannelResult::success)
+                .map(result -> channelSelector.select(result.channel()).getCostPerMessage())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private String bulkStatus(int attempts, long successCount) {
+        if (attempts == 0 || successCount == 0) {
+            return "FAILED";
+        }
+        if (successCount == attempts) {
+            return "QUEUED";
+        }
+        return "PARTIAL";
+    }
+
+    private String buildDailyIdempotencyKey(PreparedFeeReminder reminder, String channel) {
+        String source = String.join(":",
+                "FEE_REMINDER",
+                reminder.fee().getSchoolId().toString(),
+                reminder.fee().getId().toString(),
+                reminder.template().getTemplateCode(),
+                channel,
+                LocalDate.now().toString());
+        UUID digest = UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8));
+        return "FEE_REMINDER:" + digest;
     }
 
     private TemplateUpdate validateAndNormalizeUpdate(UUID templateId, UpdateTemplateRequest request) {
@@ -395,5 +585,21 @@ class NotificationServiceImpl implements NotificationService {
             String body,
             String name,
             Boolean isActive) {
+    }
+
+    private record BulkNotification(
+            List<UUID> studentFeeIds,
+            String templateCode,
+            String channel) {
+    }
+
+    private record PreparedFeeReminder(
+            StudentFee fee,
+            Student student,
+            StudentGuardian guardian,
+            NotificationTemplate template,
+            String requestedChannel,
+            String phone,
+            String message) {
     }
 }

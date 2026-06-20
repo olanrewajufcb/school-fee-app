@@ -700,7 +700,7 @@ class StudentServiceImplIntegrationTest {
                 )
                 """)
                 .bind("userId", userId)
-                .bind("keycloakId", UUID.randomUUID())
+                .bind("keycloakId", userId)
                 .bind("schoolId", schoolId)
                 .bind("email", "parent-" + userId + "@gis.edu")
                 .bind("phone", "2348031234567")

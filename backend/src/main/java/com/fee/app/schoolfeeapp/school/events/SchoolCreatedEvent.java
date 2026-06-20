@@ -12,7 +12,9 @@ public record SchoolCreatedEvent(
         UUID schoolId,
         String schoolName,
         String schoolCode,
-        UUID adminKeycloakId
+        UUID adminKeycloakId,
+        String adminTemporaryPassword,
+        String adminEmail
 ) implements DomainEvent {
 
     @Override

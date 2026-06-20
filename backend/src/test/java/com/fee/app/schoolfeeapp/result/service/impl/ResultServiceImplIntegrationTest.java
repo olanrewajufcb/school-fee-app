@@ -7,6 +7,7 @@ import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.result.dto.request.CaConfigRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.ExamScoreRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.ReportCardRequest;
+import com.fee.app.schoolfeeapp.result.dto.request.GradingRuleRequest;
 import com.fee.app.schoolfeeapp.result.dto.response.CaScoreRequest;
 import com.fee.app.schoolfeeapp.result.dto.response.PublishResultResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.ReportCardJobResponse;
@@ -433,6 +434,221 @@ class ResultServiceImplIntegrationTest {
     }
 
     @Test
+    @DisplayName("Should reject unpublishing when term does not exist in school")
+    void shouldRejectUnpublishingWhenTermDoesNotExistInSchool() {
+        seedSchool();
+        seedUser("SCHOOL_ADMIN");
+        seedSession();
+
+        StepVerifier.create(resultService.unpublishResults(TERM_ID))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("TERM_NOT_FOUND");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should allow re-publishing after unpublish")
+    void shouldAllowRePublishingAfterUnpublish() {
+        seedScoreEntryFixture();
+
+        // First publish
+        PublishResultResponse firstPublish = resultService.publishResults(TERM_ID).block();
+        assertThat(firstPublish).isNotNull();
+        assertThat(firstPublish.status()).isEqualTo("PUBLISHED");
+        assertThat(countRows(
+                "SELECT COUNT(*) FROM result.published_results WHERE school_id = :schoolId AND term_id = :termId",
+                Map.of("schoolId", SCHOOL_ID, "termId", TERM_ID))).isEqualTo(1L);
+
+        // Unpublish
+        PublishResultResponse unpublished = resultService.unpublishResults(TERM_ID).block();
+        assertThat(unpublished).isNotNull();
+        assertThat(unpublished.status()).isEqualTo("UNPUBLISHED");
+        assertThat(countRows(
+                "SELECT COUNT(*) FROM result.published_results WHERE school_id = :schoolId AND term_id = :termId",
+                Map.of("schoolId", SCHOOL_ID, "termId", TERM_ID))).isZero();
+
+        // Re-publish
+        PublishResultResponse rePublished = resultService.publishResults(TERM_ID).block();
+        assertThat(rePublished).isNotNull();
+        assertThat(rePublished.status()).isEqualTo("PUBLISHED");
+        assertThat(countRows(
+                "SELECT COUNT(*) FROM result.published_results WHERE school_id = :schoolId AND term_id = :termId",
+                Map.of("schoolId", SCHOOL_ID, "termId", TERM_ID))).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("Should allow score modification after unpublish")
+    void shouldAllowScoreModificationAfterUnpublish() {
+        seedScoreEntryFixture();
+        seedExam();
+        seedExamScore(BigDecimal.valueOf(55));
+
+        // Publish results
+        resultService.publishResults(TERM_ID).block();
+
+        // Verify score update is rejected while published
+        StepVerifier.create(resultService.updateScore(SCORE_ID, new UpdateScoreRequest(BigDecimal.valueOf(70), "Correction")))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("RESULTS_ALREADY_PUBLISHED");
+                })
+                .verify();
+
+        // Unpublish
+        resultService.unpublishResults(TERM_ID).block();
+
+        // Score update should now succeed
+        StepVerifier.create(resultService.updateScore(SCORE_ID, new UpdateScoreRequest(BigDecimal.valueOf(70), "Correction after unpublish")))
+                .assertNext(response -> {
+                    assertThat(response.previousScore()).isEqualByComparingTo("55");
+                    assertThat(response.newScore()).isEqualByComparingTo("70");
+                })
+                .verifyComplete();
+
+        // Verify updated score in DB
+        assertThat(fetchOne(
+                "SELECT score FROM result.scores WHERE id = :scoreId",
+                Map.of("scoreId", SCORE_ID))).containsEntry("score", BigDecimal.valueOf(70.0));
+    }
+
+    @Test
+    @DisplayName("Should return grading rules after configuring them")
+    void shouldReturnGradingRulesAfterConfiguring() {
+        seedSchool();
+        seedUser("SCHOOL_ADMIN");
+        seedGradeConfig("[{\"grade\":\"A\",\"min\":70,\"max\":100},{\"grade\":\"B\",\"min\":60,\"max\":69}]");
+
+        StepVerifier.create(resultService.getGradingRules())
+                .assertNext(response -> {
+                    assertThat(response.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(response.gradesCount()).isEqualTo(2);
+                    assertThat(response.message()).isEqualTo("Current grading rules");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should return default response when no grading rules configured")
+    void shouldReturnDefaultResponseWhenNoGradingRulesConfigured() {
+        seedSchool();
+        seedUser("SCHOOL_ADMIN");
+
+        StepVerifier.create(resultService.getGradingRules())
+                .assertNext(response -> {
+                    assertThat(response.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(response.gradesCount()).isZero();
+                    assertThat(response.message()).isEqualTo("No grading rules configured");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should reject get grading rules when user has no school context")
+    void shouldRejectGetGradingRulesWhenUserHasNoSchoolContext() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(SchoolFeeUser.builder()
+                .userId(USER_ID)
+                .userType("SCHOOL_ADMIN")
+                .roles(Set.of("SCHOOL_ADMIN"))
+                .build()));
+
+        StepVerifier.create(resultService.getGradingRules())
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("SCHOOL_CONTEXT_REQUIRED");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should configure grading rules when no previous config exists")
+    void shouldConfigureGradingRulesWhenNoPreviousConfigExists() {
+        seedSchool();
+        seedUser("SCHOOL_ADMIN");
+
+        // Verify no config exists initially
+        assertThat(countRows(
+                "SELECT COUNT(*) FROM result.grade_configs WHERE school_id = :schoolId",
+                Map.of("schoolId", SCHOOL_ID))).isZero();
+
+        seedGradeConfig("[{\"grade\":\"A\",\"min\":70,\"max\":100},{\"grade\":\"B\",\"min\":60,\"max\":69}]");
+
+        // Verify config was saved
+        assertThat(countRows(
+                "SELECT COUNT(*) FROM result.grade_configs WHERE school_id = :schoolId",
+                Map.of("schoolId", SCHOOL_ID))).isEqualTo(1L);
+
+        // Verify we can read it back via getGradingRules
+        StepVerifier.create(resultService.getGradingRules())
+                .assertNext(response -> {
+                    assertThat(response.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(response.gradesCount()).isEqualTo(2);
+                    assertThat(response.message()).isEqualTo("Current grading rules");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should update grading rules when config already exists")
+    void shouldUpdateGradingRulesWhenConfigAlreadyExists() {
+        seedSchool();
+        seedUser("SCHOOL_ADMIN");
+
+        // Seed initial config with 2 grades
+        seedGradeConfig("[{\"grade\":\"A\",\"min\":70,\"max\":100},{\"grade\":\"B\",\"min\":60,\"max\":69}]");
+
+        // Verify initial state
+        StepVerifier.create(resultService.getGradingRules())
+                .assertNext(response -> assertThat(response.gradesCount()).isEqualTo(2))
+                .verifyComplete();
+
+        // Update to 3 grades by inserting a new config directly
+        databaseClient.sql("""
+                UPDATE result.grade_configs
+                SET config = :config::jsonb, updated_at = NOW()
+                WHERE school_id = :schoolId
+                """)
+                .bind("config", "[{\"grade\":\"A\"},{\"grade\":\"B\"},{\"grade\":\"C\"}]")
+                .bind("schoolId", SCHOOL_ID)
+                .fetch()
+                .rowsUpdated()
+                .block();
+
+        // Verify updated state
+        StepVerifier.create(resultService.getGradingRules())
+                .assertNext(response -> {
+                    assertThat(response.gradesCount()).isEqualTo(3);
+                    assertThat(response.message()).isEqualTo("Current grading rules");
+                })
+                .verifyComplete();
+
+        // Verify only 1 config row exists (updated, not duplicated)
+        assertThat(countRows(
+                "SELECT COUNT(*) FROM result.grade_configs WHERE school_id = :schoolId",
+                Map.of("schoolId", SCHOOL_ID))).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("Should reject configure grading rules when user has no school context")
+    void shouldRejectConfigureGradingRulesWhenUserHasNoSchoolContext() throws Exception {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(SchoolFeeUser.builder()
+                .userId(USER_ID)
+                .userType("SCHOOL_ADMIN")
+                .roles(Set.of("SCHOOL_ADMIN"))
+                .build()));
+
+        GradingRuleRequest request = new GradingRuleRequest(
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree("[{\"grade\":\"A\"}]"));
+
+        StepVerifier.create(resultService.configureGradingRules(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("SCHOOL_CONTEXT_REQUIRED");
+                })
+                .verify();
+    }
+
     @DisplayName("Should add teacher and principal comments for student term")
     void shouldAddTeacherAndPrincipalCommentsForStudentTerm() {
         seedScoreEntryFixture();
@@ -545,7 +761,7 @@ class ResultServiceImplIntegrationTest {
                 )
                 """)
                 .bind("userId", USER_ID)
-                .bind("keycloakId", UUID.randomUUID())
+                .bind("keycloakId", USER_ID)
                 .bind("schoolId", SCHOOL_ID)
                 .bind("email", "result-user@gis.edu")
                 .bind("userType", userType)
@@ -910,6 +1126,23 @@ class ResultServiceImplIntegrationTest {
                 .block();
     }
 
+    private void seedGradeConfig(String configJson) {
+        databaseClient.sql("""
+                INSERT INTO result.grade_configs (
+                    id, school_id, config, is_active
+                )
+                VALUES (
+                    :id, :schoolId, :config::jsonb, true
+                )
+                """)
+                .bind("id", UUID.randomUUID())
+                .bind("schoolId", SCHOOL_ID)
+                .bind("config", configJson)
+                .fetch()
+                .rowsUpdated()
+                .block();
+    }
+
     private long countRows(String sql, Map<String, ?> bindings) {
         DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(sql);
         for (Map.Entry<String, ?> binding : bindings.entrySet()) {
@@ -938,6 +1171,7 @@ class ResultServiceImplIntegrationTest {
         databaseClient.sql("DELETE FROM result.class_subjects").fetch().rowsUpdated().block();
         databaseClient.sql("DELETE FROM result.subjects").fetch().rowsUpdated().block();
         databaseClient.sql("DELETE FROM result.ca_components").fetch().rowsUpdated().block();
+        databaseClient.sql("DELETE FROM result.grade_configs").fetch().rowsUpdated().block();
         databaseClient.sql("DELETE FROM school.student_guardian_links").fetch().rowsUpdated().block();
         databaseClient.sql("DELETE FROM school.student_class_history").fetch().rowsUpdated().block();
         databaseClient.sql("DELETE FROM school.students").fetch().rowsUpdated().block();

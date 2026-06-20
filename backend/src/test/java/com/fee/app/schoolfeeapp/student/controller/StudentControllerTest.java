@@ -345,11 +345,20 @@ class StudentControllerTest {
                 "ACTIVE",
                 List.of(new StudentDetailResponse.ParentInfo(
                         UUID.randomUUID(),
+                        UUID.randomUUID(),
                         "Grace Hopper",
                         "2348031234567",
                         "MOTHER",
                         true)),
                 new StudentDetailResponse.FeeSummary(
+                        "First Term",
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        "PENDING",
+                        null),
+                new StudentDetailResponse.FeeSummary(
+                        "Second Term",
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,

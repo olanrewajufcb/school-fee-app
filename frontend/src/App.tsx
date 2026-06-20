@@ -3,14 +3,17 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import { RouteGuard } from '@/components/guards/RouteGuard';
 import { ParentDashboard } from '@/components/parent/ParentDashboard';
-import {useAuth} from "@/hooks/useAuth.ts";
-import LoginPage from "@/pages/auth/LoginPage.tsx";
-import UnauthorizedPage from "@/pages/auth/UnAuthorizedPage.tsx";
+import { useAuth } from '@/components/auth/AuthProvider';
+import LoginPage from "@/pages/auth/LoginPage";
+import ParentJoinPage from "@/pages/auth/ParentJoinPage";
+import UnauthorizedPage from "@/pages/auth/UnAuthorizedPage";
 
 // Lazy-loaded pages (loaded only when needed)
 const AdminDashboard = React.lazy(() => import('@/components/admin/AdminDashboard'));
+const SuperAdminDashboard = React.lazy(() => import('@/components/super-admin/SuperAdminDashboard'));
 const AccountantDashboard = React.lazy(() => import('@/components/accountant/AccountantDashboard'));
 const TeacherDashboard = React.lazy(() => import('@/components/teacher/TeacherDashboard'));
+const ApiExplorer = React.lazy(() => import('@/pages/ApiExplorer'));
 
 export const App: React.FC = () => {
     return (
@@ -26,7 +29,10 @@ export const App: React.FC = () => {
                     <Routes>
                         {/* Public routes */}
                         <Route path="/login" element={<LoginPage />} />
+                        <Route path="/join" element={<ParentJoinPage />} />
+                        <Route path="/join/:inviteToken" element={<ParentJoinPage />} />
                         <Route path="/unauthorized" element={<UnauthorizedPage />} />
+                        <Route path="/docs" element={<ApiExplorer />} />
 
                         {/* Parent routes */}
                         <Route
@@ -42,15 +48,25 @@ export const App: React.FC = () => {
                         <Route
                             path="/admin"
                             element={
-                                <RouteGuard requiredUserTypes={['SCHOOL_ADMIN', 'SUPER_ADMIN']}>
+                                <RouteGuard requiredUserTypes={['SCHOOL_ADMIN']}>
                                     <AdminDashboard />
                                 </RouteGuard>
                             }
                         />
 
-                        {/* Accountant routes */}
                         <Route
-                            path="/accountant"
+                            path="/super-admin/*"
+                            element={
+                                <RouteGuard requiredUserTypes={['SUPER_ADMIN']}>
+                                    <SuperAdminDashboard />
+                                </RouteGuard>
+                            }
+                        />
+
+                        {/* Accountant routes */}
+                        <Route path="/accountant" element={<Navigate to="/accountant/dashboard" replace />} />
+                        <Route
+                            path="/accountant/dashboard"
                             element={
                                 <RouteGuard requiredUserTypes={['ACCOUNTANT', 'SCHOOL_ADMIN', 'SUPER_ADMIN']}>
                                     <AccountantDashboard />
@@ -59,8 +75,9 @@ export const App: React.FC = () => {
                         />
 
                         {/* Teacher routes */}
+                        <Route path="/teacher" element={<Navigate to="/teacher/dashboard" replace />} />
                         <Route
-                            path="/teacher"
+                            path="/teacher/dashboard"
                             element={
                                 <RouteGuard requiredUserTypes={['TEACHER']}>
                                     <TeacherDashboard />
@@ -99,9 +116,10 @@ const RoleBasedRedirect: React.FC = () => {
         return <Navigate to="/login" replace />;
     }
 
-    if (isSuperAdmin || isSchoolAdmin) return <Navigate to="/admin" replace />;
-    if (isAccountant) return <Navigate to="/accountant" replace />;
-    if (isTeacher) return <Navigate to="/teacher" replace />;
+    if (isSuperAdmin) return <Navigate to="/super-admin" replace />;
+    if (isSchoolAdmin) return <Navigate to="/admin" replace />;
+    if (isAccountant) return <Navigate to="/accountant/dashboard" replace />;
+    if (isTeacher) return <Navigate to="/teacher/dashboard" replace />;
     if (isParent) return <Navigate to="/dashboard" replace />;
 
     return <Navigate to="/unauthorized" replace />;

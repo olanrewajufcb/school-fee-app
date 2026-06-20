@@ -65,4 +65,13 @@ public class FeeController {
         return feeService.getFeeDashboard(termId)
                 .map(response -> ResponseEntity.ok(ApiResponse.success(response)));
     }
+
+    @GetMapping("/outstanding-ids")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'ACCOUNTANT')")
+    public Mono<ResponseEntity<ApiResponse<List<UUID>>>> getOutstandingFeeIds(
+            @RequestParam(required = false, defaultValue = "current") String termId,
+            @RequestParam String filter) {
+        return feeService.getOutstandingFeeIds(termId, filter)
+                .map(response -> ResponseEntity.ok(ApiResponse.success(response)));
+    }
 }

@@ -1,10 +1,7 @@
 package com.fee.app.schoolfeeapp.auth.controller;
 
-import com.fee.app.schoolfeeapp.auth.dto.request.CreateParentRequest;
-import com.fee.app.schoolfeeapp.auth.dto.request.CreateStaffRequest;
-import com.fee.app.schoolfeeapp.auth.dto.response.CreateParentResponse;
-import com.fee.app.schoolfeeapp.auth.dto.response.CreateStaffResponse;
-import com.fee.app.schoolfeeapp.auth.dto.response.UserSummaryResponse;
+import com.fee.app.schoolfeeapp.auth.dto.request.*;
+import com.fee.app.schoolfeeapp.auth.dto.response.*;
 import com.fee.app.schoolfeeapp.auth.service.UserManagementService;
 import com.fee.app.schoolfeeapp.common.dto.ApiResponse;
 import com.fee.app.schoolfeeapp.common.dto.PageResponse;
@@ -22,6 +19,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -121,5 +119,42 @@ public class UserManagementController {
               .map(response ->
                       ResponseEntity.ok(ApiResponse.success(response)));
   }
+
+    // ========================================================================
+    // PARENT SELF-ONBOARDING (Public)
+    // ========================================================================
+
+    @PostMapping("/check-account")
+    public Mono<ResponseEntity<ApiResponse<CheckAccountResponse>>> checkAccount(
+            @Valid @RequestBody CheckAccountRequest request) {
+        return userManagementService.checkAccount(request)
+                .map(response -> ResponseEntity.ok(ApiResponse.success(response)));
+    }
+
+    @PostMapping("/send-otp")
+    public Mono<ResponseEntity<ApiResponse<Map<String, String>>>> sendOtp(
+            @Valid @RequestBody SendOtpRequest request) {
+        return userManagementService.sendOtp(request)
+                .thenReturn(ResponseEntity.ok(
+                        ApiResponse.success(Map.of("message", "Verification code sent to " + request.phoneNumber()))));
+    }
+
+    @PostMapping("/verify-otp")
+    public Mono<ResponseEntity<ApiResponse<Map<String, String>>>> verifyOtp(
+            @Valid @RequestBody VerifyOtpRequest request) {
+        return userManagementService.verifyOtpAndCreateAccount(request)
+                .map(response -> ResponseEntity.ok(ApiResponse.success(response)));
+    }
+
+    @PostMapping("/set-password")
+    public Mono<ResponseEntity<ApiResponse<Map<String, String>>>> setPassword(
+            @Valid @RequestBody SetPasswordRequest request) {
+        return userManagementService.setPassword(request)
+                .map(response -> ResponseEntity.ok(ApiResponse.success(response)));
+    }
+
+
+
+
 
 }

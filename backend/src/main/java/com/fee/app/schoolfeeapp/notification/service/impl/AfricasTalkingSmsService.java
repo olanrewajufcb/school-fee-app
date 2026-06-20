@@ -10,17 +10,17 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
-
-import java.util.HashMap;
-import java.util.Map;
 
 @Service
 @Slf4j
 public class AfricasTalkingSmsService implements SmsService {
 
-    private final WebClient webClient;
+    private WebClient webClient;
     private final ObjectMapper objectMapper;
 
     @Value("${notification.sms.api-key:}")
@@ -38,13 +38,18 @@ public class AfricasTalkingSmsService implements SmsService {
     @Value("${notification.sms.enabled:false}")
     private boolean enabled;
 
-    private static final String AT_BASE_URL = "https://api.africastalking.com";
-    private static final String AT_USERNAME = "sandbox";
+    private static final String AT_PROD_URL = "https://api.africastalking.com";
+    private static final String AT_SANDBOX_URL = "https://api.sandbox.africastalking.com";
 
     public AfricasTalkingSmsService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+    }
+
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        String baseUrl = "sandbox".equalsIgnoreCase(username) ? AT_SANDBOX_URL : AT_PROD_URL;
         this.webClient = WebClient.builder()
-                .baseUrl(AT_BASE_URL)
+                .baseUrl(baseUrl)
                 .build();
     }
 
@@ -70,11 +75,14 @@ public class AfricasTalkingSmsService implements SmsService {
         }
 
         // Build request body
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("username", username);
-        requestBody.put("to", new String[]{formattedPhone});
-        requestBody.put("message", message);
-        requestBody.put("from", senderId);
+        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+        formData.add("username", username);
+        formData.add("to", formattedPhone);
+        formData.add("message", message);
+
+        if (!"sandbox".equalsIgnoreCase(username) && senderId != null && !senderId.trim().isEmpty()) {
+            formData.add("from", senderId);
+        }
 
         log.info("Sending SMS to {}: {}", formattedPhone, maskMessage(message));
 
@@ -82,8 +90,8 @@ public class AfricasTalkingSmsService implements SmsService {
                 .uri("/version1/messaging")
                 .header("apiKey", apiKey)
                 .header("Accept", MediaType.APPLICATION_JSON_VALUE)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(BodyInserters.fromFormData(formData))
                 .retrieve()
                 .onStatus(
                         status -> status != HttpStatus.CREATED,
@@ -110,6 +118,11 @@ public class AfricasTalkingSmsService implements SmsService {
             return Mono.just(2500);
         }
 
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            log.debug("SMS API key is not configured, skipping balance check");
+            return Mono.just(-1);
+        }
+
         return webClient.get()
                 .uri("/version1/user?username=" + username)
                 .header("apiKey", apiKey)
@@ -118,7 +131,14 @@ public class AfricasTalkingSmsService implements SmsService {
                 .bodyToMono(String.class)
                 .flatMap(this::parseBalanceResponse)
                 .onErrorResume(error -> {
-                    log.error("Failed to get SMS balance: {}", error.getMessage());
+                    String msg = error.getMessage();
+                    if (msg != null && msg.contains("401")) {
+                        log.warn("Failed to get SMS balance (unauthorized - credentials may be missing or invalid in this environment): {}", msg);
+                    } else if (msg != null && (msg.contains("Connection reset") || msg.contains("Connection refused") || msg.contains("timeout") || msg.contains("Timeout") || msg.contains("reset"))) {
+                        log.warn("Failed to get SMS balance (network/connectivity issue): {}", msg);
+                    } else {
+                        log.error("Failed to get SMS balance: {}", msg, error);
+                    }
                     return Mono.just(-1);
                 });
     }
@@ -141,6 +161,7 @@ public class AfricasTalkingSmsService implements SmsService {
      * }
      */
     private Mono<Void> parseSmsResponse(String responseBody) {
+        log.info("Raw SMS response from Africa's Talking: {}", responseBody);
         return Mono.fromCallable(() -> {
             JsonNode root = objectMapper.readTree(responseBody);
             JsonNode data = root.path("SMSMessageData");

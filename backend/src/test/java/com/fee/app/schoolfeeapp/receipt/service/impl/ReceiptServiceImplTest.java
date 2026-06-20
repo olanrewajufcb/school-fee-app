@@ -2,6 +2,8 @@ package com.fee.app.schoolfeeapp.receipt.service.impl;
 
 import com.fee.app.schoolfeeapp.auth.util.JwtUtils;
 import com.fee.app.schoolfeeapp.auth.util.SchoolFeeUser;
+import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
+import com.fee.app.schoolfeeapp.auth.domain.User;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.fee.domain.StudentFee;
 import com.fee.app.schoolfeeapp.fee.repository.StudentFeeRepository;
@@ -19,6 +21,7 @@ import com.fee.app.schoolfeeapp.student.domain.Student;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -36,6 +39,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,6 +63,8 @@ class ReceiptServiceImplTest {
     private SmsService smsService;
     @Mock
     private JwtUtils jwtUtils;
+    @Mock
+    private UserRepository userRepository;
 
     private ReceiptServiceImpl receiptService;
 
@@ -82,7 +88,14 @@ class ReceiptServiceImplTest {
                 schoolRepository,
                 new ReceiptPdfGenerator(),
                 smsService,
-                jwtUtils);
+                jwtUtils,
+                userRepository);
+
+        org.mockito.Mockito.lenient().when(userRepository.findByKeycloakIdAndDeletedAtIsNull(org.mockito.ArgumentMatchers.any(UUID.class)))
+                .thenAnswer(invocation -> Mono.just(User.builder()
+                        .id(invocation.getArgument(0))
+                        .keycloakId(invocation.getArgument(0))
+                        .build()));
     }
 
     @Test
@@ -290,5 +303,289 @@ class ReceiptServiceImplTest {
                 .userType("PARENT")
                 .roles(Set.of("PARENT"))
                 .build();
+    }
+
+    @Nested
+    @DisplayName("shareReceipt() Tests")
+    class ShareReceiptTests {
+
+        @Mock
+        private com.fee.app.schoolfeeapp.receipt.dto.request.ShareReceiptRequest shareRequest;
+
+        @Test
+        @DisplayName("Should share receipt via SMS successfully")
+        void shouldShareReceiptViaSmsSuccessfully() {
+            when(shareRequest.channel()).thenReturn("SMS");
+            when(shareRequest.recipient()).thenReturn("+2348012345678");
+
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+            when(receiptRepository.findByReceiptNumber(RECEIPT_NUMBER)).thenReturn(Mono.just(receipt()));
+            when(smsService.send(anyString(), anyString())).thenReturn(Mono.empty());
+
+            StepVerifier.create(receiptService.shareReceipt(RECEIPT_NUMBER, shareRequest))
+                    .assertNext(response -> {
+                        assertThat(response.channel()).isEqualTo("SMS");
+                        assertThat(response.sentAt()).isNotNull();
+                        assertThat(response.message()).contains("sent to +2348012345678");
+                        assertThat(response.message()).contains(RECEIPT_NUMBER);
+                    })
+                    .verifyComplete();
+
+            // Verify that the SMS service was actually invoked with the correct recipient
+            verify(smsService).send(eq("+2348012345678"), anyString());
+        }
+
+        @Test
+        @DisplayName("Should share receipt via Email (Phase 2 dummy)")
+        void shouldShareReceiptViaEmail() {
+            when(shareRequest.channel()).thenReturn("EMAIL");
+            when(shareRequest.recipient()).thenReturn("parent@example.com");
+
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+            when(receiptRepository.findByReceiptNumber(RECEIPT_NUMBER)).thenReturn(Mono.just(receipt()));
+
+            StepVerifier.create(receiptService.shareReceipt(RECEIPT_NUMBER, shareRequest))
+                    .assertNext(response -> {
+                        assertThat(response.channel()).isEqualTo("EMAIL");
+                        assertThat(response.sentAt()).isNotNull();
+                        assertThat(response.message()).contains("emailed to parent@example.com");
+                    })
+                    .verifyComplete();
+
+            verify(smsService, never()).send(anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("Should share receipt via WhatsApp (Phase 2 dummy)")
+        void shouldShareReceiptViaWhatsApp() {
+            when(shareRequest.channel()).thenReturn("WHATSAPP");
+            when(shareRequest.recipient()).thenReturn("+2348012345678");
+
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+            when(receiptRepository.findByReceiptNumber(RECEIPT_NUMBER)).thenReturn(Mono.just(receipt()));
+
+            StepVerifier.create(receiptService.shareReceipt(RECEIPT_NUMBER, shareRequest))
+                    .assertNext(response -> {
+                        assertThat(response.channel()).isEqualTo("WHATSAPP");
+                        assertThat(response.sentAt()).isNotNull();
+                        assertThat(response.message()).contains("shared via WhatsApp to +2348012345678");
+                    })
+                    .verifyComplete();
+
+            verify(smsService, never()).send(anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("Should reject sharing when receipt is not found")
+        void shouldRejectSharingWhenReceiptNotFound() {
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+            when(receiptRepository.findByReceiptNumber(RECEIPT_NUMBER)).thenReturn(Mono.empty());
+
+            StepVerifier.create(receiptService.shareReceipt(RECEIPT_NUMBER, shareRequest))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("RECEIPT_NOT_FOUND");
+                    })
+                    .verify();
+
+            verify(smsService, never()).send(anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("Should reject sharing when receipt belongs to another school")
+        void shouldRejectSharingWhenReceiptInAnotherSchool() {
+            Receipt otherSchoolReceipt = receipt();
+            otherSchoolReceipt.setSchoolId(OTHER_SCHOOL_ID); // Set to different school
+
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser())); // parentUser uses SCHOOL_ID
+            when(receiptRepository.findByReceiptNumber(RECEIPT_NUMBER)).thenReturn(Mono.just(otherSchoolReceipt));
+
+            StepVerifier.create(receiptService.shareReceipt(RECEIPT_NUMBER, shareRequest))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("RECEIPT_NOT_IN_SCHOOL");
+                    })
+                    .verify();
+
+            verify(smsService, never()).send(anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("Should propagate error if SMS service fails")
+        void shouldPropagateErrorIfSmsServiceFails() {
+            when(shareRequest.channel()).thenReturn("SMS");
+            when(shareRequest.recipient()).thenReturn("+2348012345678");
+
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+            when(receiptRepository.findByReceiptNumber(RECEIPT_NUMBER)).thenReturn(Mono.just(receipt()));
+
+            // Mock SMS service throwing an error
+            when(smsService.send(anyString(), anyString()))
+                    .thenReturn(Mono.error(new RuntimeException("SMS Gateway Timeout")));
+
+            StepVerifier.create(receiptService.shareReceipt(RECEIPT_NUMBER, shareRequest))
+                    .expectErrorMessage("SMS Gateway Timeout")
+                    .verify();
+        }
+    }
+
+    @Nested
+    @DisplayName("Coverage Edge Cases & Fallbacks")
+    class CoverageEdgeCases {
+
+        @Test
+        @DisplayName("Should format school address with only city (triggers sb.isEmpty() branch)")
+        void shouldFormatSchoolAddressWithOnlyCity() {
+            School schoolOnlyCity = school();
+            schoolOnlyCity.setAddress(null);
+            schoolOnlyCity.setState(null);
+
+            stubAuthorizedReceipt(parentUser(), receipt(), payment(PARENT_USER_ID));
+            when(schoolRepository.findById(SCHOOL_ID)).thenReturn(Mono.just(schoolOnlyCity));
+
+            StepVerifier.create(receiptService.getReceiptDetails(RECEIPT_NUMBER))
+                    .assertNext(response -> assertThat(response.schoolAddress()).isEqualTo("Lagos"))
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should format school address with only state (triggers sb.isEmpty() branch)")
+        void shouldFormatSchoolAddressWithOnlyState() {
+            School schoolOnlyState = school();
+            schoolOnlyState.setAddress(null);
+            schoolOnlyState.setCity(null);
+
+            stubAuthorizedReceipt(parentUser(), receipt(), payment(PARENT_USER_ID));
+            when(schoolRepository.findById(SCHOOL_ID)).thenReturn(Mono.just(schoolOnlyState));
+
+            StepVerifier.create(receiptService.getReceiptDetails(RECEIPT_NUMBER))
+                    .assertNext(response -> assertThat(response.schoolAddress()).isEqualTo("Lagos"))
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should format completely empty school address")
+        void shouldFormatEmptySchoolAddress() {
+            School emptySchool = school();
+            emptySchool.setAddress(null);
+            emptySchool.setCity(null);
+            emptySchool.setState(null);
+
+            stubAuthorizedReceipt(parentUser(), receipt(), payment(PARENT_USER_ID));
+            when(schoolRepository.findById(SCHOOL_ID)).thenReturn(Mono.just(emptySchool));
+
+            StepVerifier.create(receiptService.getReceiptDetails(RECEIPT_NUMBER))
+                    .assertNext(response -> assertThat(response.schoolAddress()).isEmpty())
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should use fallbacks for convertAmountToWords and Payer Name")
+        void shouldUseFallbacksForAmountInWordsAndPayerName() {
+            Receipt receiptWithNulls = receipt();
+            // Trigger convertAmountToWords() by making amountInWords null
+            receiptWithNulls.setAmountInWords(null);
+            // Trigger trimToNull() isBlank path by using spaces
+            receiptWithNulls.setPaidByName("   ");
+
+            Payment paymentWithNulls = payment(PARENT_USER_ID);
+            // Trigger the "Parent" fallback by making payerName null
+            paymentWithNulls.setPayerName(null);
+
+            stubAuthorizedReceipt(parentUser(), receiptWithNulls, paymentWithNulls);
+
+            StepVerifier.create(receiptService.getReceiptDetails(RECEIPT_NUMBER))
+                    .assertNext(response -> {
+                        // Covers convertAmountToWords() method
+                        assertThat(response.amountInWords()).isEqualTo("5,000 Naira Only");
+                        // Covers .orElse("Parent") branch
+                        assertThat(response.paidBy()).isEqualTo("Parent");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should reject receipt missing school ID (INVALID_RECEIPT_STATE)")
+        void shouldRejectReceiptMissingSchoolId() {
+            Receipt invalidReceipt = receipt();
+            invalidReceipt.setSchoolId(null);
+
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+            when(receiptRepository.findByReceiptNumber(RECEIPT_NUMBER)).thenReturn(Mono.just(invalidReceipt));
+
+            StepVerifier.create(receiptService.getReceiptDetails(RECEIPT_NUMBER))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_RECEIPT_STATE");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should reject receipt missing payment ID (INVALID_RECEIPT_STATE)")
+        void shouldRejectReceiptMissingPaymentId() {
+            Receipt invalidReceipt = receipt();
+            invalidReceipt.setPaymentId(null);
+
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+            when(receiptRepository.findByReceiptNumber(RECEIPT_NUMBER)).thenReturn(Mono.just(invalidReceipt));
+
+            StepVerifier.create(receiptService.getReceiptDetails(RECEIPT_NUMBER))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_RECEIPT_STATE");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should allow SUPER_ADMIN to access any school receipt")
+        void shouldAllowSuperAdminAccess() {
+            SchoolFeeUser superAdmin = SchoolFeeUser.builder()
+                    .userId(UUID.randomUUID())
+                    .userType("SUPER_ADMIN")
+                    .roles(Set.of("SUPER_ADMIN"))
+                    .schoolId(null) // SuperAdmins might not have a schoolId
+                    .build();
+
+            stubAuthorizedReceipt(superAdmin, receipt(), payment(PARENT_USER_ID));
+
+            StepVerifier.create(receiptService.getReceiptDetails(RECEIPT_NUMBER))
+                    .expectNextCount(1)
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should reject non-admin user with null school ID")
+        void shouldRejectUserWithNullSchoolId() {
+            SchoolFeeUser invalidUser = SchoolFeeUser.builder()
+                    .userId(PARENT_USER_ID)
+                    .userType("PARENT")
+                    .roles(Set.of("PARENT"))
+                    .schoolId(null) // Invalid state for a parent
+                    .build();
+
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(invalidUser));
+            when(receiptRepository.findByReceiptNumber(RECEIPT_NUMBER)).thenReturn(Mono.just(receipt()));
+
+            StepVerifier.create(receiptService.getReceiptDetails(RECEIPT_NUMBER))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("RECEIPT_NOT_IN_SCHOOL");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should reject null receipt number (trimToNull null-path)")
+        void shouldRejectNullReceiptNumber() {
+            // Covers the `value == null` branch in trimToNull
+            StepVerifier.create(receiptService.getReceiptDetails(null))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_RECEIPT_REQUEST");
+                    })
+                    .verify();
+        }
     }
 }

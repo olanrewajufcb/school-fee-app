@@ -18,21 +18,14 @@ public interface UserSchoolRoleRepository extends ReactiveCrudRepository<UserSch
     /**
      * Find a specific role assignment.
      */
-    @Query("""
-SELECT *
-FROM auth.user_school_roles
-WHERE user_id = :userId
-AND school_id = :schoolId
-AND role = :role
-AND is_active = true
-""")
-    Mono<UserSchoolRole> findByUserIdAndSchoolIdAndRoleAndIsActiveTrue(
-            UUID userId,
-            UUID schoolId,
-            String role
-    );
+
+    Mono<UserSchoolRole> findByUserIdAndSchoolIdAndRoleAndIsActiveTrue(UUID userId, UUID schoolId, String role);
+    Mono<UserSchoolRole> findByUserIdAndSchoolIdIsNullAndRoleAndIsActiveTrue(UUID userId, String role);
 
     Mono<UserSchoolRole> findByUserIdAndSchoolIdAndRole(UUID userId, UUID schoolId, String role);
+    Mono<UserSchoolRole> findByUserIdAndSchoolIdIsNullAndRole(UUID userId, String role);
+
+    Flux<UserSchoolRole> findByUserIdAndSchoolIdIsNull(UUID userId);
     /**
      * Find all active roles for a user across all schools.
      */

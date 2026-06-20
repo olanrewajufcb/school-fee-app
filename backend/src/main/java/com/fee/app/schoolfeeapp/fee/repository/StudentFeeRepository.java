@@ -13,6 +13,8 @@ public interface StudentFeeRepository extends ReactiveCrudRepository<StudentFee,
 
     Mono<StudentFee> findByStudentIdAndFeeStructureId(UUID studentId, UUID feeStructureId);
 
+    Mono<StudentFee> findByIdAndSchoolId(UUID id, UUID schoolId);
+
     @Query("""
         SELECT *
         FROM fee.student_fees

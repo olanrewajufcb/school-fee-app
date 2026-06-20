@@ -322,7 +322,7 @@ If coverage drops below these thresholds, CI/CD will **fail**.
 
 ## 📚 Additional Resources
 
-- [CI/CD Configuration](.github/workflows/commit-stage.yml)
+- [CI/CD Configuration](../.github/workflows/commit-stage.yml)
 - [Testcontainers Documentation](https://www.testcontainers.org/)
 - [JaCoCo Documentation](https://www.jacoco.org/jacoco/trunk/doc/)
 - [Spring Boot Testing](https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.testing)

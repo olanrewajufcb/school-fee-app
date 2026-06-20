@@ -15,8 +15,8 @@ export interface UserProfile {
     firstName: string;
     lastName: string;
     userType: 'SUPER_ADMIN' | 'SCHOOL_ADMIN' | 'ACCOUNTANT' | 'TEACHER' | 'PARENT';
-    schoolId: string;
-    schoolName: string;
+    schoolId: string | null;
+    schoolName: string | null;
     roles: string[];
     children: ChildInfo[];
     lastLogin: string;

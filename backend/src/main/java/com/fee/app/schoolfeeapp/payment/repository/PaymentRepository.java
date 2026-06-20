@@ -1,6 +1,7 @@
 package com.fee.app.schoolfeeapp.payment.repository;
 
 import com.fee.app.schoolfeeapp.payment.domain.Payment;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
@@ -12,6 +13,16 @@ import java.util.UUID;
 
 @Repository
 public interface PaymentRepository extends ReactiveCrudRepository<Payment, UUID> {
+
+    @Modifying
+    @Query("""
+        UPDATE payment.payments
+        SET status = 'FAILED', gateway_status = 'FAILED', narration = 'Payment expired/abandoned', updated_at = NOW()
+        WHERE status IN ('PENDING', 'PROCESSING')
+          AND created_at < :beforeTime
+          AND deleted_at IS NULL
+        """)
+    Mono<Integer> expireStuckPayments(Instant beforeTime);
 
     @Query("""
         SELECT *
@@ -123,4 +134,21 @@ public interface PaymentRepository extends ReactiveCrudRepository<Payment, UUID>
     """)
     Flux<Payment> findFeeCollectionReportPayments(
             UUID schoolId, UUID termId, UUID classId, String status);
+
+    @Query("""
+        SELECT * FROM payment.payments
+        WHERE school_id = :schoolId
+          AND deleted_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT :limit OFFSET :offset
+        """)
+    Flux<Payment> findBySchoolIdOrderByCreatedAtDesc(UUID schoolId, int limit, long offset);
+
+    @Query("""
+        SELECT COUNT(*)
+        FROM payment.payments
+        WHERE school_id = :schoolId
+          AND deleted_at IS NULL
+        """)
+    Mono<Long> countBySchoolId(UUID schoolId);
 }

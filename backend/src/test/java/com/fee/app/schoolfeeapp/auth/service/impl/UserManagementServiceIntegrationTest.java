@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.fee.app.schoolfeeapp.auth.dto.request.CreateParentRequest;
 import com.fee.app.schoolfeeapp.auth.dto.request.CreateStaffRequest;
+import com.fee.app.schoolfeeapp.auth.domain.StudentGuardian;
 import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianLinkRepository;
+import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
 import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianRepository;
 import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
 import com.fee.app.schoolfeeapp.auth.repository.UserSchoolRoleRepository;
@@ -36,9 +38,12 @@ import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
+import com.fee.app.schoolfeeapp.notification.service.SmsService;
 
 /**
  * Integration tests for UserManagementServiceImpl with real PostgreSQL database.
@@ -116,6 +121,9 @@ class UserManagementServiceIntegrationTest {
     @MockitoBean
     private ReactiveJwtDecoder reactiveJwtDecoder;
 
+    @MockitoBean
+    private SmsService smsService;
+
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -143,7 +151,7 @@ class UserManagementServiceIntegrationTest {
         databaseClient.sql("INSERT INTO auth.users (id, keycloak_id, school_id, email, phone, first_name, last_name, user_type, is_active) " +
                         "VALUES (:id, :keycloakId, :schoolId, :email, :phone, :firstName, :lastName, :userType, true) ON CONFLICT (id) DO NOTHING")
                 .bind("id", ADMIN_USER_ID)
-                .bind("keycloakId", UUID.randomUUID())
+                .bind("keycloakId", ADMIN_USER_ID)
                 .bind("schoolId", SCHOOL_ID)
                 .bind("email", "admin@school.edu")
                 .bind("phone", "+2348012345678")
@@ -166,7 +174,10 @@ class UserManagementServiceIntegrationTest {
                 .roles(Set.of("SCHOOL_ADMIN"))
                 .build();
 
+        reset(keycloakAdminService, jwtUtils, reactiveJwtDecoder, smsService);
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(adminUser));
+        when(smsService.send(anyString(), anyString())).thenReturn(Mono.empty());
+        when(smsService.getBalance()).thenReturn(Mono.just(2500));
     }
 
     @AfterEach
@@ -230,10 +241,6 @@ class UserManagementServiceIntegrationTest {
                     children
             );
 
-            UUID keycloakUserId = UUID.randomUUID();
-            when(keycloakAdminService.createUser(any(), eq("PARENT"), anySet()))
-                    .thenReturn(Mono.just(keycloakUserId));
-
             // Mock ObjectMapper for outbox events
             try {
                 when(objectMapper.valueToTree(any())).thenReturn(NullNode.getInstance());
@@ -243,24 +250,24 @@ class UserManagementServiceIntegrationTest {
 
             // Act & Assert
             StepVerifier.create(userManagementService.createParent(request))
-                    .assertNext(response -> {
+                    .consumeNextWith(response -> {
                         assertThat(response).isNotNull();
                         assertThat(response.firstName()).isEqualTo("John");
                         assertThat(response.lastName()).isEqualTo("Doe");
                         assertThat(response.phoneNumber()).isEqualTo("+2348012345678");
                         assertThat(response.email()).isEqualTo("john.doe@email.com");
                         assertThat(response.childrenLinked()).isEqualTo(2);
-                        assertThat(response.message()).contains("Parent account created");
+                        assertThat(response.message()).contains("Guardian added");
                     })
                     .verifyComplete();
 
-            // Verify data was actually persisted to database
-            StepVerifier.create(userRepository.findByKeycloakIdAndDeletedAtIsNull(keycloakUserId))
-                    .assertNext(user -> {
-                        assertThat(user).isNotNull();
-                        assertThat(user.getFirstName()).isEqualTo("John");
-                        assertThat(user.getLastName()).isEqualTo("Doe");
-                        assertThat(user.getUserType()).isEqualTo("PARENT");
+            // Verify guardian data was actually persisted to database
+            StepVerifier.create(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull("2348012345678", SCHOOL_ID))
+                    .consumeNextWith(guardian -> {
+                        assertThat(guardian).isNotNull();
+                        assertThat(guardian.getFirstName()).isEqualTo("John");
+                        assertThat(guardian.getLastName()).isEqualTo("Doe");
+                        assertThat(guardian.getUserId()).isNull(); // Not linked to Keycloak/User yet
                     })
                     .verifyComplete();
         }
@@ -371,7 +378,7 @@ class UserManagementServiceIntegrationTest {
 
             UUID keycloakUserId = UUID.randomUUID();
             when(keycloakAdminService.createUser(any(), eq("PARENT"), anySet()))
-                    .thenReturn(Mono.just(keycloakUserId));
+                    .thenReturn(Mono.just(new KeycloakUserResult(keycloakUserId, "tempPassword")));
 
             try {
                 when(objectMapper.valueToTree(any())).thenReturn(NullNode.getInstance());
@@ -519,7 +526,7 @@ class UserManagementServiceIntegrationTest {
 
             UUID keycloakUserId = UUID.randomUUID();
             when(keycloakAdminService.createUser(any(), eq("PARENT"), anySet()))
-                    .thenReturn(Mono.just(keycloakUserId));
+                    .thenReturn(Mono.just(new KeycloakUserResult(keycloakUserId, "tempPassword")));
 
             try {
                 when(objectMapper.valueToTree(any())).thenReturn(NullNode.getInstance());
@@ -575,7 +582,7 @@ class UserManagementServiceIntegrationTest {
 
             UUID keycloakUserId = UUID.randomUUID();
             when(keycloakAdminService.createUser(any(), eq("PARENT"), anySet()))
-                    .thenReturn(Mono.just(keycloakUserId));
+                    .thenReturn(Mono.just(new KeycloakUserResult(keycloakUserId, "tempPassword")));
 
             try {
                 when(objectMapper.valueToTree(any())).thenReturn(NullNode.getInstance());
@@ -604,6 +611,193 @@ class UserManagementServiceIntegrationTest {
                         assertThat(event.getStatus()).isEqualTo("PENDING");
                     })
                     .verifyComplete();
+        }
+    }
+
+    // ========================================================================
+    // CHECK ACCOUNT INTEGRATION TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Check Account - Service Integration Tests")
+    class CheckAccountIntegrationTests {
+        // The DB schema enforces a unique constraint on (phone, school_id),
+        // preventing duplicate guardian records for the same school.
+        // Therefore, we removed the test that attempted to insert duplicates.
+
+    }
+
+    // ========================================================================
+    // SEND OTP INTEGRATION TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Send OTP Integration Tests")
+    class SendOtpIntegrationTests {
+
+        @Test
+        @DisplayName("Should successfully send OTP for unregistered guardian")
+        void shouldSendOtpForUnregisteredGuardian() {
+            String phone = "+2348011111111";
+            String normalizedPhone = "2348011111111";
+
+            StudentGuardian guardian = StudentGuardian.builder()
+                    .schoolId(SCHOOL_ID)
+                    .firstName("Unregistered")
+                    .lastName("Parent")
+                    .phone(normalizedPhone)
+                    .email("unreg@test.com")
+                    .isActive(true)
+                    .build();
+
+            guardianRepository.save(guardian).block();
+
+            com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest request =
+                    new com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest(phone);
+
+            StepVerifier.create(userManagementService.sendOtp(request))
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should fail to send OTP if guardian is fully registered")
+        void shouldFailToSendOtpIfRegistered() {
+            String phone = "+2348022222222";
+            String normalizedPhone = "2348022222222";
+
+            com.fee.app.schoolfeeapp.auth.domain.User user = com.fee.app.schoolfeeapp.auth.domain.User.builder()
+                    .keycloakId(UUID.randomUUID())
+                    .schoolId(SCHOOL_ID)
+                    .firstName("Registered")
+                    .lastName("Parent")
+                    .phone(normalizedPhone)
+                    .email("reg@test.com")
+                    .userType("PARENT")
+                    .isActive(true)
+                    .build();
+            
+            com.fee.app.schoolfeeapp.auth.domain.User savedUser = userRepository.save(user).block();
+
+            StudentGuardian guardian = StudentGuardian.builder()
+                    .schoolId(SCHOOL_ID)
+                    .userId(savedUser.getId()) // Fully registered
+                    .firstName("Registered")
+                    .lastName("Parent")
+                    .phone(normalizedPhone)
+                    .email("reg@test.com")
+                    .isActive(true)
+                    .build();
+
+            guardianRepository.save(guardian).block();
+
+            com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest request =
+                    new com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest(phone);
+
+            StepVerifier.create(userManagementService.sendOtp(request))
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException &&
+                            ((SchoolFeeException) e).getErrorCode().equals("ACCOUNT_ALREADY_REGISTERED"))
+                    .verify();
+        }
+    }
+
+    // ========================================================================
+    // VERIFY OTP INTEGRATION TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Verify OTP Integration Tests")
+    class VerifyOtpIntegrationTests {
+
+        @Test
+        @DisplayName("Should verify OTP and update guardian with new user ID")
+        void shouldVerifyAndCreateAccount() {
+            String phone = "+2348033333333";
+            String normalizedPhone = "2348033333333";
+
+            StudentGuardian guardian = StudentGuardian.builder()
+                    .schoolId(SCHOOL_ID)
+                    .firstName("Unregistered")
+                    .lastName("Parent")
+                    .phone(normalizedPhone)
+                    .email("unreg@test.com")
+                    .isActive(true)
+                    .build();
+
+            StudentGuardian savedGuardian = guardianRepository.save(guardian).block();
+
+            // Mock Keycloak to not find existing user, and create new
+            when(keycloakAdminService.findByUsername(normalizedPhone)).thenReturn(Optional.empty());
+            when(keycloakAdminService.createUser(any(), any(), any())).thenReturn(Mono.just(new KeycloakUserResult(UUID.randomUUID(), "tempPassword")));
+
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest(phone, "000000", SCHOOL_ID);
+
+            StepVerifier.create(userManagementService.verifyOtpAndCreateAccount(request))
+                    .assertNext(res -> {
+                        assertThat(res).containsEntry("message", "Account created. Set your password to continue.");
+                    })
+                    .verifyComplete();
+
+            // Verify DB state
+            StudentGuardian updatedGuardian = guardianRepository.findById(savedGuardian.getId()).block();
+            assertThat(updatedGuardian.getUserId()).isNotNull();
+
+            com.fee.app.schoolfeeapp.auth.domain.User createdUser = userRepository.findById(updatedGuardian.getUserId()).block();
+            assertThat(createdUser).isNotNull();
+            assertThat(createdUser.getPhone()).isEqualTo(normalizedPhone);
+        }
+    }
+
+    // ========================================================================
+    // SET PASSWORD INTEGRATION TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Set Password Integration Tests")
+    class SetPasswordIntegrationTests {
+
+        @Test
+        @DisplayName("Should fetch correct user and pass keycloakId to Keycloak service")
+        void shouldSetPassword() {
+            String phone = "+2348044444444";
+            String normalizedPhone = "2348044444444";
+            UUID keycloakId = UUID.randomUUID();
+
+            com.fee.app.schoolfeeapp.auth.domain.User user = com.fee.app.schoolfeeapp.auth.domain.User.builder()
+                    .keycloakId(keycloakId)
+                    .schoolId(SCHOOL_ID)
+                    .firstName("Test")
+                    .lastName("User")
+                    .phone(normalizedPhone)
+                    .email("test@test.com")
+                    .userType("PARENT")
+                    .isActive(true)
+                    .build();
+
+            com.fee.app.schoolfeeapp.auth.domain.User savedUser = userRepository.save(user).block();
+
+            StudentGuardian guardian = StudentGuardian.builder()
+                    .schoolId(SCHOOL_ID)
+                    .userId(savedUser.getId())
+                    .firstName("Test")
+                    .lastName("User")
+                    .phone(normalizedPhone)
+                    .email("test@test.com")
+                    .isActive(true)
+                    .build();
+
+            guardianRepository.save(guardian).block();
+
+            org.mockito.Mockito.doNothing().when(keycloakAdminService).setUserPassword(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(false));
+
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest(phone, "NewPassword123!");
+
+            StepVerifier.create(userManagementService.setPassword(request))
+                    .assertNext(res -> {
+                        assertThat(res).containsEntry("message", "Password set. You can now log in.");
+                    })
+                    .verifyComplete();
+
+            org.mockito.Mockito.verify(keycloakAdminService).setUserPassword(keycloakId.toString(), "NewPassword123!", false);
         }
     }
 }

@@ -3,6 +3,7 @@ package com.fee.app.schoolfeeapp.receipt.controller;
 import com.fee.app.schoolfeeapp.common.dto.ApiResponse;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.receipt.dto.response.ReceiptDetailResponse;
+import com.fee.app.schoolfeeapp.receipt.dto.response.ShareReceiptResponse;
 import com.fee.app.schoolfeeapp.receipt.service.ReceiptService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -117,5 +118,148 @@ class ReceiptControllerTest {
                 Instant.parse("2026-06-05T10:02:00Z"),
                 false,
                 false);
+    }
+
+    @Mock
+    private com.fee.app.schoolfeeapp.receipt.dto.request.ShareReceiptRequest shareRequest;
+
+    @Test
+    @DisplayName("Should share receipt successfully")
+    void shouldShareReceiptSuccessfully() {
+        // Arrange
+        com.fee.app.schoolfeeapp.receipt.dto.response.ShareReceiptResponse serviceResponse =
+                new ShareReceiptResponse("Success", Instant.now(), "Receipt sent");
+
+        when(receiptService.shareReceipt(RECEIPT_NUMBER, shareRequest))
+                .thenReturn(Mono.just(serviceResponse));
+
+        // Act & Assert
+        StepVerifier.create(receiptController.shareReceipt(RECEIPT_NUMBER, shareRequest))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    var body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(receiptService).shareReceipt(RECEIPT_NUMBER, shareRequest);
+    }
+
+    @Test
+    @DisplayName("Should propagate share receipt error")
+    void shouldPropagateShareReceiptError() {
+        // Arrange
+        SchoolFeeException expectedError = new SchoolFeeException(
+                "CHANNEL_UNAVAILABLE",
+                "SMS gateway is currently down");
+
+        when(receiptService.shareReceipt(RECEIPT_NUMBER, shareRequest))
+                .thenReturn(Mono.error(expectedError));
+
+        // Act & Assert
+        StepVerifier.create(receiptController.shareReceipt(RECEIPT_NUMBER, shareRequest))
+                .expectErrorSatisfies(error -> assertThat(error).isSameAs(expectedError))
+                .verify();
+
+        verify(receiptService).shareReceipt(RECEIPT_NUMBER, shareRequest);
+    }
+
+    @Test
+    @DisplayName("Should handle null/blank receipt number in PDF download")
+    void shouldHandleBlankReceiptNumber() {
+        // Arrange: Pass a blank string which triggers the 'if' block
+        String blankReceipt = "   ";
+        // Ensure the service returns something to allow the controller to reach the header builder
+        byte[] pdfBytes = "%PDF-test".getBytes(StandardCharsets.US_ASCII);
+        DataBuffer dataBuffer = new DefaultDataBufferFactory().wrap(pdfBytes);
+        when(receiptService.downloadReceiptPdf(blankReceipt)).thenReturn(Mono.just(dataBuffer));
+
+        // Act & Assert
+        StepVerifier.create(receiptController.downloadReceiptPdf(blankReceipt))
+                .assertNext(response -> {
+                    String disposition = response.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION);
+                    // This verifies the "unknown" branch was taken
+                    assertThat(disposition).contains("receipt-unknown.pdf");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should use sanitized string for valid receipt number")
+    void shouldHandleValidReceiptNumber() {
+        // This triggers the 'false' branch of the if
+        String validReceipt = "RCP-123";
+        byte[] pdfBytes = "%PDF-test".getBytes(StandardCharsets.US_ASCII);
+        DataBuffer dataBuffer = new DefaultDataBufferFactory().wrap(pdfBytes);
+        when(receiptService.downloadReceiptPdf(validReceipt)).thenReturn(Mono.just(dataBuffer));
+
+        StepVerifier.create(receiptController.downloadReceiptPdf(validReceipt))
+                .assertNext(response -> {
+                    String disposition = response.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION);
+                    assertThat(disposition).contains("receipt-RCP-123.pdf");
+                })
+                .verifyComplete();
+    }
+    @Test
+    @DisplayName("Should trigger isBlank() path specifically")
+    void shouldTriggerIsBlankPath() {
+        // Ensure value is not null, but is blank
+        String blankValue = "  ";
+        byte[] pdfBytes = "%PDF-test".getBytes(StandardCharsets.US_ASCII);
+        DataBuffer dataBuffer = new DefaultDataBufferFactory().wrap(blankValue.getBytes()); // This is just for mocking
+
+        // Ensure the service is mocked for the blank value
+        when(receiptService.downloadReceiptPdf(blankValue)).thenReturn(Mono.just(dataBuffer));
+
+        StepVerifier.create(receiptController.downloadReceiptPdf(blankValue))
+                .assertNext(response -> {
+                    assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION))
+                            .contains("receipt-unknown.pdf");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("safeFilename: Should return unknown when value is null")
+    void safeFilename_NullValue() {
+        // Triggers: value == null (Short-circuits, .isBlank() NOT called)
+        when(receiptService.downloadReceiptPdf(null)).thenReturn(Mono.just(mockBuffer()));
+
+        StepVerifier.create(receiptController.downloadReceiptPdf(null))
+                .assertNext(res -> assertThat(res.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION))
+                        .contains("receipt-unknown.pdf"))
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("safeFilename: Should return unknown when value is blank")
+    void safeFilename_BlankValue() {
+        // Triggers: value != null, isBlank() == true
+        String blank = "   ";
+        when(receiptService.downloadReceiptPdf(blank)).thenReturn(Mono.just(mockBuffer()));
+
+        StepVerifier.create(receiptController.downloadReceiptPdf(blank))
+                .assertNext(res -> assertThat(res.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION))
+                        .contains("receipt-unknown.pdf"))
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("safeFilename: Should sanitize valid value")
+    void safeFilename_ValidValue() {
+        // Triggers: value != null, isBlank() == false
+        String valid = "RCP-123";
+        when(receiptService.downloadReceiptPdf(valid)).thenReturn(Mono.just(mockBuffer()));
+
+        StepVerifier.create(receiptController.downloadReceiptPdf(valid))
+                .assertNext(res -> assertThat(res.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION))
+                        .contains("receipt-RCP-123.pdf"))
+                .verifyComplete();
+    }
+
+    private DataBuffer mockBuffer() {
+        return new DefaultDataBufferFactory().wrap("test".getBytes());
     }
 }

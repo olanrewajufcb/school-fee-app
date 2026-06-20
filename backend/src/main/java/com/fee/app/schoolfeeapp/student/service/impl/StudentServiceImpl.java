@@ -8,6 +8,8 @@ import com.fee.app.schoolfeeapp.auth.util.JwtUtils;
 import com.fee.app.schoolfeeapp.common.dto.PageResponse;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.common.utils.PhoneNumberNormalizer;
+import com.fee.app.schoolfeeapp.fee.service.FeeService;
+import com.fee.app.schoolfeeapp.fee.dto.response.StudentFeeResponse;
 import com.fee.app.schoolfeeapp.school.domain.AcademicSession;
 import com.fee.app.schoolfeeapp.school.domain.ClassEntity;
 import com.fee.app.schoolfeeapp.school.repository.AcademicSessionRepository;
@@ -49,6 +51,7 @@ class StudentServiceImpl implements StudentService {
     private final SchoolStudentGuardianLinkRepository guardianLinkRepository;
     private final JwtUtils jwtUtils;
     private final TransactionalOperator transactionalOperator;
+    private final FeeService feeService;
 
     // ========================================================================
     // ENROLL STUDENT
@@ -381,7 +384,7 @@ class StudentServiceImpl implements StudentService {
 
                     UUID userId = parentUser.getUserId();
 
-                    return guardianRepository.findByUserIdAndDeletedAtIsNull(userId)
+                    return guardianRepository.findByKeycloakId(userId)
                             .flatMapMany(guardian ->
                                     guardianLinkRepository
                                             .findByGuardianIdAndDeletedAtIsNull(guardian.getId()))
@@ -756,6 +759,7 @@ class StudentServiceImpl implements StudentService {
                                 guardianRepository.findByIdAndDeletedAtIsNull(link.getGuardianId())
                                         .map(guardian -> new StudentDetailResponse.ParentInfo(
                                                 guardian.getUserId(),
+                                                guardian.getId(),
                                                 guardianFullName(guardian),
                                                 guardian.getPhone(),
                                                 link.getRelationship(),
@@ -772,29 +776,60 @@ class StudentServiceImpl implements StudentService {
                                 null // Phase 2: class teacher name
                         )));
 
-        // Phase 2: Fetch actual fee data
-        StudentDetailResponse.FeeSummary feeSummary =
-                new StudentDetailResponse.FeeSummary(
-                        BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                        "PENDING", null);
+        Mono<List<StudentFeeResponse>> feesMono = feeService.getStudentFees(student.getId())
+                .onErrorResume(e -> {
+                    log.error("Failed to fetch student fees for studentId={}", student.getId(), e);
+                    return Mono.just(List.of());
+                });
 
-        return Mono.zip(parentsMono, classMono)
-                .map(tuple -> new StudentDetailResponse(
-                        student.getId(),
-                        student.getAdmissionNumber(),
-                        student.getFirstName(),
-                        student.getLastName(),
-                        student.getMiddleName(),
-                        student.getGender(),
-                        student.getDateOfBirth(),
-                        tuple.getT2().orElse(null),
-                        student.getEnrollmentDate(),
-                        student.getEnrollmentStatus(),
-                        tuple.getT1(),
-                        feeSummary,
-                        student.getMedicalNotes(),
-                        student.getProfilePhotoUrl()
-                ));
+        return Mono.zip(parentsMono, classMono, feesMono)
+                .map(tuple -> {
+                    List<StudentDetailResponse.ParentInfo> parents = tuple.getT1();
+                    Optional<StudentDetailResponse.CurrentClass> currentClass = tuple.getT2();
+                    List<StudentFeeResponse> fees = tuple.getT3();
+
+                    StudentFeeResponse currentFee = fees.stream()
+                            .filter(StudentFeeResponse::isCurrentTerm)
+                            .findFirst()
+                            .orElse(null);
+
+                    StudentFeeResponse upcomingFee = fees.stream()
+                            .filter(StudentFeeResponse::isUpcomingTerm)
+                            .findFirst()
+                            .orElse(null);
+
+                    return new StudentDetailResponse(
+                            student.getId(),
+                            student.getAdmissionNumber(),
+                            student.getFirstName(),
+                            student.getLastName(),
+                            student.getMiddleName(),
+                            student.getGender(),
+                            student.getDateOfBirth(),
+                            currentClass.orElse(null),
+                            student.getEnrollmentDate(),
+                            student.getEnrollmentStatus(),
+                            parents,
+                            mapToFeeSummary(currentFee),
+                            mapToFeeSummary(upcomingFee),
+                            student.getMedicalNotes(),
+                            student.getProfilePhotoUrl()
+                    );
+                });
+    }
+
+    private StudentDetailResponse.FeeSummary mapToFeeSummary(StudentFeeResponse response) {
+        if (response == null) {
+            return null;
+        }
+        return new StudentDetailResponse.FeeSummary(
+                response.termName(),
+                response.totalAmount(),
+                response.amountPaid(),
+                response.balance(),
+                response.status(),
+                response.dueDate()
+        );
     }
 
     private MyChildrenResponse toMyChildrenResponse(

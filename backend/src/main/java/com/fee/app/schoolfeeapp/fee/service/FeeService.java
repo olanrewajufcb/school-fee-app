@@ -14,4 +14,5 @@ public interface FeeService {
     Mono<FeeAssignmentResponse> assignFeesToStudents(UUID structureId);
     Mono<List<StudentFeeResponse>> getStudentFees(UUID studentId);
     Mono<FeeDashboardResponse> getFeeDashboard(String termId);
+    Mono<List<UUID>> getOutstandingFeeIds(String termId, String filter);
 }

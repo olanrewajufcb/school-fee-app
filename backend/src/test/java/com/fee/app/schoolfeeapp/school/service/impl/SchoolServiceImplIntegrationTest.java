@@ -18,6 +18,8 @@ import com.fee.app.schoolfeeapp.school.dto.request.UpdateSessionRequest;
 import com.fee.app.schoolfeeapp.school.dto.request.UpdateSchoolRequest;
 import com.fee.app.schoolfeeapp.school.dto.response.AcademicSessionResponse;
 import com.fee.app.schoolfeeapp.school.dto.response.SchoolSummaryResponse;
+import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
+import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianLinkRepository;
 import com.fee.app.schoolfeeapp.school.repository.AcademicSessionRepository;
 import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
 import com.fee.app.schoolfeeapp.school.repository.TermRepository;
@@ -180,7 +182,7 @@ class SchoolServiceImplIntegrationTest {
             // Arrange
             CreateSchoolRequest request = validCreateSchoolRequest("GIS");
             when(keycloakAdminService.createStaffUser(any(CreateStaffRequest.class), any(UUID.class), eq(request.name())))
-                    .thenReturn(Mono.just(ADMIN_KEYCLOAK_ID));
+                    .thenReturn(Mono.just(new KeycloakUserResult(ADMIN_KEYCLOAK_ID, "tempPassword")));
 
             // Act & Assert
             StepVerifier.create(schoolService.createSchool(request))
@@ -311,7 +313,7 @@ class SchoolServiceImplIntegrationTest {
                             List.of("Michaelmas", "Lent"),
                             "09-01"));
             when(keycloakAdminService.createStaffUser(any(CreateStaffRequest.class), any(UUID.class), eq(request.name())))
-                    .thenReturn(Mono.just(ADMIN_KEYCLOAK_ID));
+                    .thenReturn(Mono.just(new KeycloakUserResult(ADMIN_KEYCLOAK_ID, "tempPassword")));
 
             // Act & Assert
             StepVerifier.create(schoolService.createSchool(request))
@@ -1832,7 +1834,7 @@ class SchoolServiceImplIntegrationTest {
             // Arrange
             CreateSchoolRequest request = validCreateSchoolRequest("OBS");
             when(keycloakAdminService.createStaffUser(any(CreateStaffRequest.class), any(UUID.class), eq(request.name())))
-                    .thenReturn(Mono.just(ADMIN_KEYCLOAK_ID));
+                    .thenReturn(Mono.just(new KeycloakUserResult(ADMIN_KEYCLOAK_ID, "tempPassword")));
 
             // Act
             StepVerifier.create(schoolService.createSchool(request))

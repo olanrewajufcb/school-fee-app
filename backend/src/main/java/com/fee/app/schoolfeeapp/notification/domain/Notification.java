@@ -42,7 +42,7 @@ public class Notification {
     @Column("rendered_body")
     private String renderedBody;
 
-    private String status = "QUEUED";
+    private String status;
 
     @Column("provider_id")
     private UUID providerId;
@@ -57,10 +57,10 @@ public class Notification {
     private BigDecimal providerCost;
 
     @Column("retry_count")
-    private Integer retryCount = 0;
+    private Integer retryCount;
 
     @Column("max_retries")
-    private Integer maxRetries = 3;
+    private Integer maxRetries;
 
     @Column("next_retry_at")
     private Instant nextRetryAt;
@@ -76,6 +76,9 @@ public class Notification {
 
     @Column("context_id")
     private UUID contextId;
+
+    @Column("idempotency_key")
+    private String idempotencyKey;
 
     @Column("created_at")
     private Instant createdAt;

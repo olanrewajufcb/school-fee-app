@@ -146,7 +146,7 @@ class GradeLevelControllerIntegrationTest {
                     .get()
                     .uri("/api/v1/schools/current/grade-levels")
                     .exchange()
-                    .expectStatus().isBadRequest()
+                    .expectStatus().isNotFound()
                     .expectBody()
                     .jsonPath("$.success").isEqualTo(false)
                     .jsonPath("$.errors[0].code").isEqualTo("SCHOOL_NOT_FOUND");

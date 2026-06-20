@@ -79,6 +79,29 @@ public class ResultController {
                 .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
     }
 
+    @GetMapping("/classes/{classId}/subjects")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'TEACHER')")
+    public Mono<ResponseEntity<ApiResponse<List<SubjectLookupResponse>>>> getSubjectsForClass(
+            @PathVariable UUID classId) {
+        return resultService.getSubjectsForClass(classId)
+                .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
+    }
+
+    @GetMapping("/ca-components")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'TEACHER')")
+    public Mono<ResponseEntity<ApiResponse<List<CaComponentLookupResponse>>>> getCaComponents() {
+        return resultService.getCaComponents()
+                .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
+    }
+
+    @GetMapping("/terms/{termId}/exams")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'TEACHER')")
+    public Mono<ResponseEntity<ApiResponse<List<ExamLookupResponse>>>> getExamsForTerm(
+            @PathVariable UUID termId) {
+        return resultService.getExamsForTerm(termId)
+                .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
+    }
+
     @GetMapping("/my-children/current")
     @PreAuthorize("hasRole('PARENT')")
     public Mono<ResponseEntity<ApiResponse<List<MyChildResultResponse>>>> getMyChildrenResults() {

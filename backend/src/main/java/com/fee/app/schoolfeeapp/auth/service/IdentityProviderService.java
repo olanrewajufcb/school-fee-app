@@ -1,14 +1,15 @@
 package com.fee.app.schoolfeeapp.auth.service;
 
 import com.fee.app.schoolfeeapp.auth.dto.request.CreateStaffRequest;
+import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
 import org.keycloak.representations.idm.UserRepresentation;
 import reactor.core.publisher.Mono;
 
 import java.util.*;
 
 public interface IdentityProviderService {
-    Mono<UUID> createUser(UserRepresentation user, String userType, Set<String> roles);
-    Mono<UUID> createStaffUser(CreateStaffRequest request, UUID schoolId, String schoolName);
+    Mono<KeycloakUserResult> createUser(UserRepresentation user, String userType, Set<String> roles);
+    Mono<KeycloakUserResult> createStaffUser(CreateStaffRequest request, UUID schoolId, String schoolName);
     void assignRealmRoles(String userId, Set<String> roleNames);
     void removeRealmRoles(String userId, Set<String> roleNames);
     Set<String> getUserRoles(String userId);

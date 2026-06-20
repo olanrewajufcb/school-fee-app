@@ -61,7 +61,7 @@ export function useAuth() {
             }));
           }
         })
-        .catch((error) => {
+        .catch(() => {
           if (!mounted) return;
           setState(prev => ({
             ...prev,

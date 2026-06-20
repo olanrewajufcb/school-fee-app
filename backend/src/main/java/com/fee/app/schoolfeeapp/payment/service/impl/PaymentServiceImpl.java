@@ -1,6 +1,8 @@
 package com.fee.app.schoolfeeapp.payment.service.impl;
 
 
+import com.fee.app.schoolfeeapp.auth.domain.User;
+import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
 import com.fee.app.schoolfeeapp.auth.util.JwtUtils;
 import com.fee.app.schoolfeeapp.common.dto.PageResponse;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
@@ -8,6 +10,7 @@ import com.fee.app.schoolfeeapp.fee.domain.LedgerEntry;
 import com.fee.app.schoolfeeapp.fee.domain.StudentFee;
 import com.fee.app.schoolfeeapp.fee.repository.LedgerEntryRepository;
 import com.fee.app.schoolfeeapp.fee.repository.StudentFeeRepository;
+import com.fee.app.schoolfeeapp.fee.repository.FeeStructureRepository;
 import com.fee.app.schoolfeeapp.payment.domain.Payment;
 import com.fee.app.schoolfeeapp.payment.domain.PaymentAllocation;
 import com.fee.app.schoolfeeapp.payment.domain.Receipt;
@@ -55,14 +58,25 @@ class PaymentServiceImpl implements PaymentService {
     private final JwtUtils jwtUtils;
     private final TransactionalOperator transactionalOperator;
     private final PaymentGatewaySelector gatewaySelector;
+    private final UserRepository userRepository;
+    private final FeeStructureRepository feeStructureRepository;
 
 
     // ========================================================================
     // INITIATE PAYMENT
     // ========================================================================
+    private Mono<UUID> resolveLocalUserId(UUID keycloakUserId) {
+        return userRepository.findByKeycloakIdAndDeletedAtIsNull(keycloakUserId)
+                .map(User::getId)
+                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                        "USER_NOT_FOUND",
+                        "User not found in the database")));
+    }
+
     @Override
     public Mono<InitiatePaymentResponse> initiatePayment(InitiatePaymentRequest request) {
-        return Mono.fromCallable(() -> validateAndNormalizeInitiatePaymentRequest(request))
+        return expireStuckPayments()
+                .then(Mono.defer(() -> Mono.fromCallable(() -> validateAndNormalizeInitiatePaymentRequest(request))))
                 .flatMap(normalizedRequest -> jwtUtils.getCurrentUser()
                 .flatMap(parentUser -> {
                     if (!parentUser.isParent()) {
@@ -71,29 +85,29 @@ class PaymentServiceImpl implements PaymentService {
                     }
 
                     UUID schoolId = parentUser.getSchoolId();
-                    UUID userId = parentUser.getUserId();
-
+                    UUID keycloakUserId = parentUser.getUserId();
                     PaymentGateway gateway = gatewaySelector.select(normalizedRequest.paymentMethod());
 
-                    return gateway.isAvailable(schoolId)
-                            .flatMap(available -> {
-                                if (!Boolean.TRUE.equals(available)) {
-                                    return Mono.error(new SchoolFeeException(
-                                            "PAYMENT_GATEWAY_UNAVAILABLE",
-                                            "Payment gateway is not available for your school"));
-                                }
+                    return resolveLocalUserId(keycloakUserId)
+                            .flatMap(localUserId -> gateway.isAvailable(schoolId)
+                                    .flatMap(available -> {
+                                        if (!Boolean.TRUE.equals(available)) {
+                                            return Mono.error(new SchoolFeeException(
+                                                    "PAYMENT_GATEWAY_UNAVAILABLE",
+                                                    "Payment gateway is not available for your school"));
+                                        }
 
-                                return createPendingPaymentAttempt(normalizedRequest, schoolId, userId)
-                                        .flatMap(savedPayment -> initiateGatewayPayment(
-                                                gateway, normalizedRequest, savedPayment));
-                            });
+                                        return createPendingPaymentAttempt(normalizedRequest, schoolId, localUserId, keycloakUserId)
+                                                .flatMap(savedPayment -> initiateGatewayPayment(
+                                                        gateway, normalizedRequest, savedPayment));
+                                    }));
                 }));
     }
 
     private Mono<Payment> createPendingPaymentAttempt(
-            InitiatePaymentRequest request, UUID schoolId, UUID userId) {
+            InitiatePaymentRequest request, UUID schoolId, UUID localUserId, UUID keycloakUserId) {
         return transactionalOperator.transactional(
-                loadPayableFees(request.studentFeeIds(), schoolId, userId)
+                loadPayableFees(request.studentFeeIds(), schoolId, keycloakUserId)
                         .flatMap(payableFees -> {
                             BigDecimal totalAvailable = payableFees.stream()
                                     .map(PayableStudentFee::availableAmount)
@@ -106,8 +120,18 @@ class PaymentServiceImpl implements PaymentService {
                                         "amount"));
                             }
 
+                            BigDecimal minAmount = BigDecimal.valueOf(1000);
+                            if (request.amount().compareTo(minAmount) < 0) {
+                                if (request.amount().compareTo(totalAvailable) != 0) {
+                                    return Mono.error(new SchoolFeeException(
+                                            "INVALID_PAYMENT_AMOUNT",
+                                            "Minimum payment amount is ₦1,000",
+                                            "amount"));
+                                }
+                            }
+
                             StudentFee firstFee = payableFees.getFirst().fee();
-                            Payment payment = buildPayment(request, schoolId, userId, firstFee);
+                            Payment payment = buildPayment(request, schoolId, localUserId, firstFee);
 
                             return paymentRepository.save(payment)
                                     .flatMap(saved -> saveAllocations(
@@ -136,6 +160,7 @@ class PaymentServiceImpl implements PaymentService {
                                     request.paymentMethod(),
                                     request.amount(),
                                     gatewayResponse.message(),
+                                    gatewayResponse.authorizationUrl(),
                                     gatewayResponse.gatewayTransactionRef(),
                                     gatewayResponse.expiresInSeconds()));
                 })
@@ -200,7 +225,82 @@ class PaymentServiceImpl implements PaymentService {
                                     || Objects.equals(payment.getPaidBy(), userId))
                             .switchIfEmpty(Mono.error(new SchoolFeeException(
                                     "ACCESS_DENIED", "You can only view your own payments")))
+                            .flatMap(payment -> {
+                                if ("PENDING".equals(payment.getStatus()) || "PROCESSING".equals(payment.getStatus())) {
+                                    return verifyAndUpdatePayment(payment);
+                                }
+                                return Mono.just(payment);
+                            })
                             .flatMap(this::buildPaymentStatusResponse);
+                });
+    }
+
+    private Mono<Void> expireStuckPayments() {
+        Instant beforeTime = Instant.now().minus(java.time.Duration.ofMinutes(15));
+        Mono<Integer> updateMono = paymentRepository.expireStuckPayments(beforeTime);
+        if (updateMono == null) {
+            return Mono.empty();
+        }
+        return updateMono.then();
+    }
+
+    private Mono<Payment> verifyAndUpdatePayment(Payment payment) {
+        if (payment.getGatewayTransactionRef() == null || payment.getGatewayTransactionRef().isBlank()) {
+            // No gateway transaction reference yet. If it is older than 15 minutes, expire it.
+            if (payment.getCreatedAt().isBefore(Instant.now().minus(java.time.Duration.ofMinutes(15)))) {
+                payment.setStatus("FAILED");
+                payment.setGatewayStatus("FAILED");
+                payment.setNarration("Payment expired/abandoned");
+                payment.setUpdatedAt(Instant.now());
+                Mono<Payment> saveMono = paymentRepository.save(payment);
+                return saveMono != null ? saveMono : Mono.just(payment);
+            }
+            return Mono.just(payment);
+        }
+
+        PaymentGateway gateway = gatewaySelector.select(payment.getPaymentMethod());
+        return gateway.verifyPayment(payment.getGatewayTransactionRef())
+                .flatMap(status -> {
+                    if (status.isSuccess()) {
+                        GatewayCallbackData callbackData = GatewayCallbackData.builder()
+                                .gatewayTransactionRef(payment.getGatewayTransactionRef())
+                                .gatewayReceiptNumber(status.gatewayReceiptNumber())
+                                .amount(status.amount())
+                                .phoneNumber(status.phoneNumber())
+                                .isSuccess(true)
+                                .resultDescription(status.resultDescription())
+                                .build();
+                        Mono<Void> callbackMono = processGatewayCallback(callbackData);
+                        if (callbackMono == null) {
+                            return Mono.just(payment);
+                        }
+                        Mono<Payment> findMono = paymentRepository.findById(payment.getId());
+                        return callbackMono.then(findMono != null ? findMono : Mono.just(payment));
+                    } else {
+                        // If it has expired on gateway/creation, mark as failed
+                        if (payment.getCreatedAt().isBefore(Instant.now().minus(java.time.Duration.ofMinutes(15)))) {
+                            payment.setStatus("FAILED");
+                            payment.setGatewayStatus("FAILED");
+                            payment.setNarration("Verification failed/abandoned: " + status.resultDescription());
+                            payment.setUpdatedAt(Instant.now());
+                            Mono<Payment> saveMono = paymentRepository.save(payment);
+                            return saveMono != null ? saveMono : Mono.just(payment);
+                        }
+                        return Mono.just(payment);
+                    }
+                })
+                .onErrorResume(error -> {
+                    log.warn("Failed to verify payment via gateway: reference={}. Error: {}",
+                            payment.getGatewayTransactionRef(), error.getMessage());
+                    if (payment.getCreatedAt().isBefore(Instant.now().minus(java.time.Duration.ofMinutes(15)))) {
+                        payment.setStatus("FAILED");
+                        payment.setGatewayStatus("FAILED");
+                        payment.setNarration("Verification failed (network/server error)");
+                        payment.setUpdatedAt(Instant.now());
+                        Mono<Payment> saveMono = paymentRepository.save(payment);
+                        return saveMono != null ? saveMono : Mono.just(payment);
+                    }
+                    return Mono.just(payment);
                 });
     }
 
@@ -232,10 +332,21 @@ class PaymentServiceImpl implements PaymentService {
                                 limit)));
                     }
 
+                    if (user.isParent()) {
+                        return resolveLocalUserId(userId)
+                                .flatMap(localUserId -> pagePaymentHistory(
+                                        paymentRepository.findByPaidByAndSchoolIdOrderByCreatedAtDesc(
+                                                localUserId, schoolId, limit, offset),
+                                        paymentRepository.countByPaidByAndSchoolId(localUserId, schoolId),
+                                        pageable.getPageNumber(),
+                                        limit));
+                    }
+
+                    // School staff (Admin, Accountant, etc.) sees school-wide payment history
                     return Mono.defer(() -> pagePaymentHistory(
-                            paymentRepository.findByPaidByAndSchoolIdOrderByCreatedAtDesc(
-                                    userId, schoolId, limit, offset),
-                            paymentRepository.countByPaidByAndSchoolId(userId, schoolId),
+                            paymentRepository.findBySchoolIdOrderByCreatedAtDesc(
+                                    schoolId, limit, offset),
+                            paymentRepository.countBySchoolId(schoolId),
                             pageable.getPageNumber(),
                             limit));
                 });
@@ -257,59 +368,60 @@ class PaymentServiceImpl implements PaymentService {
                     }
 
                     UUID schoolId = accountant.getSchoolId();
-                    UUID userId = accountant.getUserId();
+                    UUID keycloakUserId = accountant.getUserId();
 
-                    return transactionalOperator.transactional(
-                            studentFeeRepository.findByIdAndSchoolIdForUpdate(
-                                            normalizedRequest.studentFeeId(), schoolId)
-                            .switchIfEmpty(Mono.error(new SchoolFeeException(
-                                    "FEE_NOT_FOUND", "Student fee not found")))
-                            .flatMap(fee -> toPayableStudentFee(fee)
-                                    .flatMap(payableFee -> {
-                                        if (normalizedRequest.amount().compareTo(
-                                                payableFee.availableAmount()) > 0) {
-                                            return Mono.error(new SchoolFeeException(
-                                                    "OVERPAYMENT",
-                                                    "Amount " + normalizedRequest.amount()
-                                                            + " exceeds available balance "
-                                                            + payableFee.availableAmount(),
-                                                    "amount"));
-                                        }
+                    return resolveLocalUserId(keycloakUserId)
+                            .flatMap(localUserId -> transactionalOperator.transactional(
+                                    studentFeeRepository.findByIdAndSchoolIdForUpdate(
+                                                    normalizedRequest.studentFeeId(), schoolId)
+                                    .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                            "FEE_NOT_FOUND", "Student fee not found")))
+                                    .flatMap(fee -> toPayableStudentFee(fee)
+                                            .flatMap(payableFee -> {
+                                                if (normalizedRequest.amount().compareTo(
+                                                        payableFee.availableAmount()) > 0) {
+                                                    return Mono.error(new SchoolFeeException(
+                                                            "OVERPAYMENT",
+                                                            "Amount " + normalizedRequest.amount()
+                                                                    + " exceeds available balance "
+                                                                    + payableFee.availableAmount(),
+                                                            "amount"));
+                                                }
 
-                                        Payment payment = buildOfflinePayment(
-                                                normalizedRequest, schoolId, userId, fee);
+                                                Payment payment = buildOfflinePayment(
+                                                        normalizedRequest, schoolId, localUserId, fee);
 
-                                        return paymentRepository.save(payment)
-                                                .flatMap(saved -> {
-                                                    PaymentAllocation allocation =
-                                                            PaymentAllocation.builder()
-                                                                    .schoolId(schoolId)
-                                                                    .paymentId(saved.getId())
-                                                                    .studentFeeId(normalizedRequest.studentFeeId())
-                                                                    .amount(normalizedRequest.amount())
-                                                                    .createdAt(Instant.now())
-                                                                    .build();
-                                                    return allocationRepository.save(allocation)
-                                                            .flatMap(savedAllocation ->
-                                                                    createLedgerEntry(savedAllocation, saved)
-                                                                            .thenReturn(savedAllocation))
-                                                            .then(Mono.defer(() -> {
-                                                                if (normalizedRequest.generateReceipt()) {
-                                                                    return generateReceipt(saved)
-                                                                            .map(receipt ->
-                                                                                    new OfflinePaymentResponse(
-                                                                                            saved.getId(),
-                                                                                            "COMPLETED",
-                                                                                            receipt.getReceiptNumber(),
-                                                                                            normalizedRequest.receivedBy()));
-                                                                }
-                                                                return Mono.just(new OfflinePaymentResponse(
-                                                                        saved.getId(), "COMPLETED", null,
-                                                                        normalizedRequest.receivedBy()));
-                                                            }));
-                                                });
-                                    }))
-                    );
+                                                return paymentRepository.save(payment)
+                                                        .flatMap(saved -> {
+                                                            PaymentAllocation allocation =
+                                                                    PaymentAllocation.builder()
+                                                                            .schoolId(schoolId)
+                                                                            .paymentId(saved.getId())
+                                                                            .studentFeeId(normalizedRequest.studentFeeId())
+                                                                            .amount(normalizedRequest.amount())
+                                                                            .createdAt(Instant.now())
+                                                                            .build();
+                                                            return allocationRepository.save(allocation)
+                                                                    .flatMap(savedAllocation ->
+                                                                            createLedgerEntry(savedAllocation, saved)
+                                                                                    .thenReturn(savedAllocation))
+                                                                    .then(Mono.defer(() -> {
+                                                                        if (normalizedRequest.generateReceipt()) {
+                                                                            return generateReceipt(saved)
+                                                                                    .map(receipt ->
+                                                                                            new OfflinePaymentResponse(
+                                                                                                    saved.getId(),
+                                                                                                    "COMPLETED",
+                                                                                                    receipt.getReceiptNumber(),
+                                                                                                    normalizedRequest.receivedBy()));
+                                                                        }
+                                                                        return Mono.just(new OfflinePaymentResponse(
+                                                                                saved.getId(), "COMPLETED", null,
+                                                                                normalizedRequest.receivedBy()));
+                                                                    }));
+                                                        });
+                                            }))
+                            ));
                 }));
     }
 
@@ -883,14 +995,34 @@ class PaymentServiceImpl implements PaymentService {
     }
 
     private Mono<PaymentHistoryResponse> toPaymentHistoryResponse(Payment payment) {
-        return receiptRepository.findByPaymentId(payment.getId())
+        Mono<String> descMono;
+        if (payment.getNarration() != null) {
+            descMono = Mono.just(payment.getNarration());
+        } else if (payment.getStudentFeeId() == null) {
+            descMono = Mono.just("Fee payment");
+        } else {
+            var feeMono = studentFeeRepository != null ? studentFeeRepository.findById(payment.getStudentFeeId()) : null;
+            if (feeMono == null) {
+                descMono = Mono.just("Fee payment");
+            } else {
+                descMono = feeMono
+                        .flatMap(fee -> {
+                            var structMono = feeStructureRepository != null ? feeStructureRepository.findById(fee.getFeeStructureId()) : null;
+                            return structMono != null ? structMono : Mono.empty();
+                        })
+                        .map(structure -> "Payment for " + structure.getName())
+                        .defaultIfEmpty("Fee payment");
+            }
+        }
+
+        return descMono.flatMap(desc -> receiptRepository.findByPaymentId(payment.getId())
                 .map(receipt -> new PaymentHistoryResponse(
                         payment.getId(),
                         payment.getCreatedAt(),
                         payment.getAmount(),
                         payment.getPaymentMethod(),
                         payment.getStatus(),
-                        payment.getNarration() != null ? payment.getNarration() : "Fee payment",
+                        desc,
                         receipt.getReceiptNumber()))
                 .defaultIfEmpty(new PaymentHistoryResponse(
                         payment.getId(),
@@ -898,8 +1030,8 @@ class PaymentServiceImpl implements PaymentService {
                         payment.getAmount(),
                         payment.getPaymentMethod(),
                         payment.getStatus(),
-                        payment.getNarration() != null ? payment.getNarration() : "Fee payment",
-                        null));
+                        desc,
+                        null)));
     }
 
     private String trimToNull(String value) {

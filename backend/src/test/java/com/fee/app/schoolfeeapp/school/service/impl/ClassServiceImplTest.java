@@ -36,6 +36,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatNoException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -1345,6 +1346,31 @@ class ClassServiceImplTest {
                 })
                 .verify();
     }
+
+    @Test
+    @DisplayName("Should pass valid class creation request")
+    void shouldPassValidClassCreationRequest() {
+        // This request contains valid values for every field that has a validation check.
+        // By passing this, the code skips every 'if' throw block, covering the 'not taken' branch.
+        CreateClassRequest validRequest = new CreateClassRequest(
+                "Primary 1",
+                "Grade 1",
+                "A",
+                SESSION_ID,
+                TEACHER_ID,
+                35);
+
+        // This invokes the private method via reflection
+        assertThatNoException().isThrownBy(() -> invokeValidateCreateClassRequest(validRequest));
+    }
+
+    private void invokeValidateCreateClassRequest(CreateClassRequest request) throws Exception {
+        var method = ClassServiceImpl.class.getDeclaredMethod("validateCreateClassRequest", CreateClassRequest.class);
+        method.setAccessible(true);
+        method.invoke(classService, request);
+    }
+
+
 
     private CreateClassRequest validRequest() {
         return new CreateClassRequest(

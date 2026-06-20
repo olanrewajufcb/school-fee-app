@@ -11,6 +11,7 @@ import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.result.domain.*;
 import com.fee.app.schoolfeeapp.result.dto.request.CaConfigRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.ExamScoreRequest;
+import com.fee.app.schoolfeeapp.result.dto.request.GradingRuleRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.ReportCardRequest;
 import com.fee.app.schoolfeeapp.result.dto.response.MyChildResultResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.PublishResultResponse;
@@ -18,6 +19,10 @@ import com.fee.app.schoolfeeapp.result.dto.response.ReportCardJobResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.ReportCommentResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.UpdateScoreRequest;
 import com.fee.app.schoolfeeapp.result.dto.response.CaScoreRequest;
+import com.fee.app.schoolfeeapp.result.dto.response.SubjectLookupResponse;
+import com.fee.app.schoolfeeapp.result.dto.response.CaComponentLookupResponse;
+import com.fee.app.schoolfeeapp.result.dto.response.ExamLookupResponse;
+import com.fee.app.schoolfeeapp.result.dto.response.ClassResultSheetResponse;
 import com.fee.app.schoolfeeapp.result.repository.*;
 import com.fee.app.schoolfeeapp.result.service.ScoreComputationEngine;
 import com.fee.app.schoolfeeapp.school.domain.*;
@@ -458,7 +463,7 @@ class ResultServiceImplTest {
         UUID guardianId = UUID.randomUUID();
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
         mockStudentResultGraph();
-        when(guardianRepository.findByUserIdAndDeletedAtIsNull(USER_ID))
+        when(guardianRepository.findByKeycloakId(USER_ID))
                 .thenReturn(Mono.just(StudentGuardian.builder().id(guardianId).schoolId(SCHOOL_ID).build()));
         when(guardianLinkRepository.findByGuardianIdAndStudentIdAndDeletedAtIsNull(guardianId, STUDENT_ID))
                 .thenReturn(Mono.just(StudentGuardianLink.builder()
@@ -489,7 +494,7 @@ class ResultServiceImplTest {
         when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID))
                 .thenReturn(Mono.just(student()));
         when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
-        when(guardianRepository.findByUserIdAndDeletedAtIsNull(USER_ID))
+        when(guardianRepository.findByKeycloakId(USER_ID))
                 .thenReturn(Mono.just(StudentGuardian.builder().id(guardianId).schoolId(SCHOOL_ID).build()));
         when(guardianLinkRepository.findByGuardianIdAndStudentIdAndDeletedAtIsNull(guardianId, STUDENT_ID))
                 .thenReturn(Mono.just(StudentGuardianLink.builder()
@@ -514,7 +519,7 @@ class ResultServiceImplTest {
         when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID))
                 .thenReturn(Mono.just(student()));
         when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
-        when(guardianRepository.findByUserIdAndDeletedAtIsNull(USER_ID))
+        when(guardianRepository.findByKeycloakId(USER_ID))
                 .thenReturn(Mono.just(StudentGuardian.builder().id(guardianId).schoolId(SCHOOL_ID).build()));
         when(guardianLinkRepository.findByGuardianIdAndStudentIdAndDeletedAtIsNull(guardianId, STUDENT_ID))
                 .thenReturn(Mono.just(StudentGuardianLink.builder()
@@ -530,6 +535,53 @@ class ResultServiceImplTest {
                     assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("RESULTS_NOT_PUBLISHED");
                 })
                 .verify();
+    }
+
+    @Test
+    @DisplayName("Should get class result sheet with fully aggregated data")
+    void shouldGetClassResultSheetWithFullyAggregatedData() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(ClassEntity.builder().id(CLASS_ID).name("Grade 1").build()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(term()));
+        when(studentRepository.countActiveByCurrentClassId(CLASS_ID))
+                .thenReturn(Mono.just(1L));
+        when(studentRepository.findActiveBySchoolIdAndCurrentClassId(SCHOOL_ID, CLASS_ID))
+                .thenReturn(Flux.just(student()));
+
+        ClassSubject cs = ClassSubject.builder().classId(CLASS_ID).subjectId(SUBJECT_ID).isActive(true).build();
+        when(classSubjectRepository.findByClassIdAndIsActiveTrue(CLASS_ID))
+                .thenReturn(Flux.just(cs));
+        when(subjectRepository.findById(SUBJECT_ID))
+                .thenReturn(Mono.just(Subject.builder().id(SUBJECT_ID).name("Mathematics").build()));
+
+        ClassRanking rnk = ranking();
+        when(rankingRepository.findByClassIdAndTermIdOrderByClassPosition(CLASS_ID, TERM_ID))
+                .thenReturn(Flux.just(rnk));
+
+        FinalScore finalScore = finalScore();
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(finalScore));
+
+        StepVerifier.create(resultService.getClassResultSheet(CLASS_ID, TERM_ID))
+                .assertNext(response -> {
+                    assertThat(response.className()).isEqualTo("Grade 1");
+                    assertThat(response.termName()).isEqualTo("First Term");
+                    assertThat(response.classSize()).isEqualTo(1);
+                    assertThat(response.subjects()).containsExactly("Mathematics");
+                    assertThat(response.students()).hasSize(1);
+                    ClassResultSheetResponse.StudentRow row = response.students().get(0);
+                    assertThat(row.name()).isEqualTo("Test Student");
+                    assertThat(row.position()).isEqualTo(1);
+                    assertThat(row.average()).isEqualTo(78.0);
+                    assertThat(row.overallGrade()).isEqualTo("B2");
+                    assertThat(row.subjects()).hasSize(1);
+                    assertThat(row.subjects().get(0).subject()).isEqualTo("Mathematics");
+                    assertThat(row.subjects().get(0).finalScore()).isEqualTo(78.0);
+                    assertThat(row.subjects().get(0).grade()).isEqualTo("B2");
+                })
+                .verifyComplete();
     }
 
     @Test
@@ -605,6 +657,7 @@ class ResultServiceImplTest {
     @Test
     @DisplayName("Should unpublish results when currently published")
     void shouldUnpublishResultsWhenCurrentlyPublished() {
+        passThroughTransaction();
         PublishedResult published = PublishedResult.builder()
                 .schoolId(SCHOOL_ID)
                 .termId(TERM_ID)
@@ -627,6 +680,7 @@ class ResultServiceImplTest {
     @Test
     @DisplayName("Should reject unpublish when results are not published")
     void shouldRejectUnpublishWhenNotPublished() {
+        passThroughTransaction();
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
         when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
         when(publishedResultRepository.findBySchoolIdAndTermId(SCHOOL_ID, TERM_ID)).thenReturn(Mono.empty());
@@ -637,6 +691,297 @@ class ResultServiceImplTest {
                     assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("RESULTS_NOT_PUBLISHED");
                 })
                 .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject unpublish when term is not found in school")
+    void shouldRejectUnpublishWhenTermNotFoundInSchool() {
+        passThroughTransaction();
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.empty());
+
+        StepVerifier.create(resultService.unpublishResults(TERM_ID))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("TERM_NOT_FOUND");
+                })
+                .verify();
+
+        verify(publishedResultRepository, never()).findBySchoolIdAndTermId(any(), any());
+        verify(publishedResultRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("Should reject unpublish when user has no school context")
+    void shouldRejectUnpublishWhenUserHasNoSchoolContext() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(SchoolFeeUser.builder()
+                .userId(USER_ID)
+                .userType("SCHOOL_ADMIN")
+                .roles(Set.of("SCHOOL_ADMIN"))
+                .build()));
+
+        StepVerifier.create(resultService.unpublishResults(TERM_ID))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("SCHOOL_CONTEXT_REQUIRED");
+                })
+                .verify();
+
+        verifyNoInteractions(termRepository);
+        verifyNoInteractions(publishedResultRepository);
+    }
+
+    @Test
+    @DisplayName("Should verify delete is called on the correct PublishedResult entity")
+    void shouldVerifyDeleteCalledOnCorrectPublishedResultEntity() {
+        passThroughTransaction();
+        UUID publishedId = UUID.randomUUID();
+        PublishedResult published = PublishedResult.builder()
+                .id(publishedId)
+                .schoolId(SCHOOL_ID)
+                .termId(TERM_ID)
+                .publishedBy(USER_ID)
+                .publishedAt(Instant.parse("2026-06-06T10:00:00Z"))
+                .build();
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
+        when(publishedResultRepository.findBySchoolIdAndTermId(SCHOOL_ID, TERM_ID)).thenReturn(Mono.just(published));
+        when(publishedResultRepository.delete(any(PublishedResult.class))).thenReturn(Mono.empty());
+
+        StepVerifier.create(resultService.unpublishResults(TERM_ID))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("UNPUBLISHED");
+                    assertThat(response.termId()).isEqualTo(TERM_ID);
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<PublishedResult> captor = ArgumentCaptor.forClass(PublishedResult.class);
+        verify(publishedResultRepository).delete(captor.capture());
+        assertThat(captor.getValue().getId()).isEqualTo(publishedId);
+        assertThat(captor.getValue().getSchoolId()).isEqualTo(SCHOOL_ID);
+        assertThat(captor.getValue().getTermId()).isEqualTo(TERM_ID);
+    }
+
+    @Test
+    @DisplayName("Should return current grading rules when config exists")
+    void shouldReturnCurrentGradingRulesWhenConfigExists() throws Exception {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        com.fasterxml.jackson.databind.JsonNode configJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree("[{\"grade\":\"A\"},{\"grade\":\"B\"},{\"grade\":\"C\"}]");
+        GradeConfig gradeConfig = GradeConfig.builder()
+                .id(UUID.randomUUID())
+                .schoolId(SCHOOL_ID)
+                .config(configJson)
+                .isActive(true)
+                .build();
+        when(gradeConfigRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Mono.just(gradeConfig));
+
+        StepVerifier.create(resultService.getGradingRules())
+                .assertNext(response -> {
+                    assertThat(response.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(response.gradesCount()).isEqualTo(3);
+                    assertThat(response.message()).isEqualTo("Current grading rules");
+                })
+                .verifyComplete();
+
+        verify(gradeConfigRepository).findBySchoolId(SCHOOL_ID);
+    }
+
+    @Test
+    @DisplayName("Should return default response when no grading rules configured")
+    void shouldReturnDefaultResponseWhenNoGradingRulesConfigured() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(gradeConfigRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Mono.empty());
+
+        StepVerifier.create(resultService.getGradingRules())
+                .assertNext(response -> {
+                    assertThat(response.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(response.gradesCount()).isZero();
+                    assertThat(response.message()).isEqualTo("No grading rules configured");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should reject get grading rules when user has no school context")
+    void shouldRejectGetGradingRulesWhenUserHasNoSchoolContext() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(SchoolFeeUser.builder()
+                .userId(USER_ID)
+                .userType("SCHOOL_ADMIN")
+                .roles(Set.of("SCHOOL_ADMIN"))
+                .build()));
+
+        StepVerifier.create(resultService.getGradingRules())
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("SCHOOL_CONTEXT_REQUIRED");
+                })
+                .verify();
+
+        verifyNoInteractions(gradeConfigRepository);
+    }
+
+    @Test
+    @DisplayName("Should handle null config in GradeConfig gracefully")
+    void shouldHandleNullConfigInGradeConfigGracefully() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        GradeConfig gradeConfig = GradeConfig.builder()
+                .id(UUID.randomUUID())
+                .schoolId(SCHOOL_ID)
+                .config(null)
+                .isActive(true)
+                .build();
+        when(gradeConfigRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Mono.just(gradeConfig));
+
+        StepVerifier.create(resultService.getGradingRules())
+                .assertNext(response -> {
+                    assertThat(response.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(response.gradesCount()).isZero();
+                    assertThat(response.message()).isEqualTo("Current grading rules");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should configure grading rules when no previous config exists")
+    void shouldConfigureGradingRulesWhenNoPreviousConfigExists() throws Exception {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        com.fasterxml.jackson.databind.JsonNode configJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree("[{\"grade\":\"A\",\"min\":70,\"max\":100},{\"grade\":\"B\",\"min\":60,\"max\":69}]");
+        GradingRuleRequest request = new GradingRuleRequest(configJson);
+        when(gradeConfigRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Mono.empty());
+        when(gradeConfigRepository.save(any(GradeConfig.class)))
+                .thenAnswer(invocation -> {
+                    GradeConfig saved = invocation.getArgument(0);
+                    saved.setId(UUID.randomUUID());
+                    return Mono.just(saved);
+                });
+
+        StepVerifier.create(resultService.configureGradingRules(request))
+                .assertNext(response -> {
+                    assertThat(response.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(response.gradesCount()).isEqualTo(2);
+                    assertThat(response.message()).isEqualTo("Grading rules updated");
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<GradeConfig> captor = ArgumentCaptor.forClass(GradeConfig.class);
+        verify(gradeConfigRepository).save(captor.capture());
+        GradeConfig saved = captor.getValue();
+        assertThat(saved.getSchoolId()).isEqualTo(SCHOOL_ID);
+        assertThat(saved.getConfig()).isEqualTo(configJson);
+        assertThat(saved.isActive()).isTrue();
+        assertThat(saved.getCreatedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Should update grading rules when config already exists")
+    void shouldUpdateGradingRulesWhenConfigAlreadyExists() throws Exception {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        com.fasterxml.jackson.databind.JsonNode newConfigJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree("[{\"grade\":\"A\",\"min\":80,\"max\":100}]");
+        GradingRuleRequest request = new GradingRuleRequest(newConfigJson);
+
+        UUID existingId = UUID.randomUUID();
+        GradeConfig existing = GradeConfig.builder()
+                .id(existingId)
+                .schoolId(SCHOOL_ID)
+                .config(new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree("[{\"grade\":\"A\"},{\"grade\":\"B\"}]"))
+                .isActive(true)
+                .createdAt(Instant.parse("2026-01-01T00:00:00Z"))
+                .build();
+        when(gradeConfigRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Mono.just(existing));
+        when(gradeConfigRepository.save(any(GradeConfig.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(resultService.configureGradingRules(request))
+                .assertNext(response -> {
+                    assertThat(response.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(response.gradesCount()).isEqualTo(1);
+                    assertThat(response.message()).isEqualTo("Grading rules updated");
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<GradeConfig> captor = ArgumentCaptor.forClass(GradeConfig.class);
+        verify(gradeConfigRepository).save(captor.capture());
+        GradeConfig saved = captor.getValue();
+        assertThat(saved.getId()).isEqualTo(existingId);
+        assertThat(saved.getConfig()).isEqualTo(newConfigJson);
+        assertThat(saved.getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Should reject configure grading rules when user has no school context")
+    void shouldRejectConfigureGradingRulesWhenUserHasNoSchoolContext() throws Exception {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(SchoolFeeUser.builder()
+                .userId(USER_ID)
+                .userType("SCHOOL_ADMIN")
+                .roles(Set.of("SCHOOL_ADMIN"))
+                .build()));
+        GradingRuleRequest request = new GradingRuleRequest(
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree("[{\"grade\":\"A\"}]"));
+
+        StepVerifier.create(resultService.configureGradingRules(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("SCHOOL_CONTEXT_REQUIRED");
+                })
+                .verify();
+
+        verifyNoInteractions(gradeConfigRepository);
+    }
+
+    @Test
+    @DisplayName("Should configure grading rules with empty config array")
+    void shouldConfigureGradingRulesWithEmptyConfigArray() throws Exception {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        com.fasterxml.jackson.databind.JsonNode emptyConfig = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree("[]");
+        GradingRuleRequest request = new GradingRuleRequest(emptyConfig);
+        when(gradeConfigRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Mono.empty());
+        when(gradeConfigRepository.save(any(GradeConfig.class)))
+                .thenAnswer(invocation -> {
+                    GradeConfig saved = invocation.getArgument(0);
+                    saved.setId(UUID.randomUUID());
+                    return Mono.just(saved);
+                });
+
+        StepVerifier.create(resultService.configureGradingRules(request))
+                .assertNext(response -> {
+                    assertThat(response.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(response.gradesCount()).isZero();
+                    assertThat(response.message()).isEqualTo("Grading rules updated");
+                })
+                .verifyComplete();
+
+        verify(gradeConfigRepository).save(any(GradeConfig.class));
+    }
+
+    @Test
+    @DisplayName("Should use saved entity config for response, not request config")
+    void shouldUseSavedEntityConfigForResponseNotRequestConfig() throws Exception {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.JsonNode requestConfig = mapper.readTree("[{\"grade\":\"A\"},{\"grade\":\"B\"}]");
+        GradingRuleRequest request = new GradingRuleRequest(requestConfig);
+
+        // Simulate repo returning saved entity with potentially different config
+        GradeConfig savedEntity = GradeConfig.builder()
+                .id(UUID.randomUUID())
+                .schoolId(SCHOOL_ID)
+                .config(mapper.readTree("[{\"grade\":\"A\"},{\"grade\":\"B\"},{\"grade\":\"C\"}]"))
+                .isActive(true)
+                .build();
+        when(gradeConfigRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Mono.empty());
+        when(gradeConfigRepository.save(any(GradeConfig.class))).thenReturn(Mono.just(savedEntity));
+
+        StepVerifier.create(resultService.configureGradingRules(request))
+                .assertNext(response -> {
+                    // Response should use saved.getConfig().size() (3), not request.config().size() (2)
+                    assertThat(response.gradesCount()).isEqualTo(3);
+                })
+                .verifyComplete();
     }
 
     @Test
@@ -687,7 +1032,7 @@ class ResultServiceImplTest {
         UUID guardianId = UUID.randomUUID();
         UUID anotherStudentId = UUID.randomUUID();
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
-        when(guardianRepository.findByUserIdAndDeletedAtIsNull(USER_ID))
+        when(guardianRepository.findByKeycloakId(USER_ID))
                 .thenReturn(Mono.just(StudentGuardian.builder().id(guardianId).schoolId(SCHOOL_ID).build()));
         when(guardianLinkRepository.findByGuardianIdAndDeletedAtIsNull(guardianId))
                 .thenReturn(Flux.just(
@@ -695,12 +1040,80 @@ class ResultServiceImplTest {
                         StudentGuardianLinkProjection.builder().guardianId(guardianId).studentId(STUDENT_ID).canViewResults(true).build(),
                         StudentGuardianLinkProjection.builder().guardianId(guardianId).studentId(anotherStudentId).canViewResults(false).build(),
                         StudentGuardianLinkProjection.builder().guardianId(guardianId).studentId(anotherStudentId).canViewResults(true).build()));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(any(), any()))
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(resultService.getMyChildrenResults())
                 .assertNext(results -> {
                     assertThat(results).hasSize(2);
                     assertThat(results).extracting(MyChildResultResponse::studentId)
                             .containsExactlyInAnyOrder(STUDENT_ID, anotherStudentId);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should get my children results with fully populated data including termId, summary, and top subjects")
+    void shouldGetMyChildrenResultsWithFullyPopulatedData() {
+        UUID guardianId = UUID.randomUUID();
+        Student child = student(); // STUDENT_ID, CLASS_ID
+        Term activeTerm = term(); // TERM_ID
+        ClassEntity childClass = ClassEntity.builder().id(CLASS_ID).name("Grade 1").build();
+        FinalScore score = finalScore(); // STUDENT_ID, TERM_ID, SUBJECT_ID, score 78
+        ClassRanking rnk = ranking(); // STUDENT_ID, TERM_ID, CLASS_ID, overallGrade B2
+        Subject math = Subject.builder().id(SUBJECT_ID).name("Mathematics").build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        when(guardianRepository.findByKeycloakId(USER_ID))
+                .thenReturn(Mono.just(StudentGuardian.builder().id(guardianId).schoolId(SCHOOL_ID).build()));
+        when(guardianLinkRepository.findByGuardianIdAndDeletedAtIsNull(guardianId))
+                .thenReturn(Flux.just(StudentGuardianLinkProjection.builder().guardianId(guardianId).studentId(STUDENT_ID).canViewResults(true).build()));
+
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(child));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(childClass));
+        when(termRepository.findCurrentTermsBySchoolId(SCHOOL_ID))
+                .thenReturn(Flux.just(activeTerm));
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(score));
+        when(rankingRepository.findByStudentIdAndTermIdAndSchoolId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(rnk));
+        ReportComment commentWithAttendance = ReportComment.builder()
+                .studentId(STUDENT_ID)
+                .termId(TERM_ID)
+                .schoolId(SCHOOL_ID)
+                .attendanceDaysOpen(40)
+                .attendanceDaysPresent(38)
+                .build();
+        when(commentRepository.findByStudentIdAndTermIdAndSchoolId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(commentWithAttendance));
+        when(subjectRepository.findById(SUBJECT_ID))
+                .thenReturn(Mono.just(math));
+
+        StepVerifier.create(resultService.getMyChildrenResults())
+                .assertNext(results -> {
+                    assertThat(results).hasSize(1);
+                    MyChildResultResponse res = results.get(0);
+                    assertThat(res.studentId()).isEqualTo(STUDENT_ID);
+                    assertThat(res.termId()).isEqualTo(TERM_ID);
+                    assertThat(res.firstName()).isEqualTo("Test");
+                    assertThat(res.lastName()).isEqualTo("Student");
+                    assertThat(res.className()).isEqualTo("Grade 1");
+                    assertThat(res.termName()).isEqualTo("First Term");
+                    assertThat(res.summary()).isNotNull();
+                    assertThat(res.summary().average()).isEqualTo(78.0);
+                    assertThat(res.summary().totalSubjects()).isEqualTo(1);
+                    assertThat(res.summary().grade()).isEqualTo("B2");
+                    assertThat(res.topSubjects()).hasSize(1);
+                    assertThat(res.topSubjects().get(0).name()).isEqualTo("Mathematics");
+                    assertThat(res.topSubjects().get(0).score()).isEqualTo(78.0);
+                    assertThat(res.topSubjects().get(0).grade()).isEqualTo("B2");
+                    assertThat(res.attendance()).isNotNull();
+                    assertThat(res.attendance().daysOpen()).isEqualTo(40);
+                    assertThat(res.attendance().daysPresent()).isEqualTo(38);
+                    assertThat(res.attendance().daysAbsent()).isEqualTo(2);
+                    assertThat(res.attendance().attendanceRate()).isEqualTo(95.0);
                 })
                 .verifyComplete();
     }
@@ -1115,5 +1528,96 @@ class ResultServiceImplTest {
                 .isActive(true)
                 .createdAt(Instant.parse("2026-06-06T10:00:00Z"))
                 .build();
+    }
+
+    @Test
+    @DisplayName("Should lookup subjects for class successfully")
+    void shouldLookupSubjectsForClassSuccessfully() {
+        UUID classId = UUID.randomUUID();
+        ClassSubject classSubject = ClassSubject.builder()
+                .classId(classId)
+                .subjectId(SUBJECT_ID)
+                .schoolId(SCHOOL_ID)
+                .isActive(true)
+                .build();
+        Subject subject = Subject.builder()
+                .id(SUBJECT_ID)
+                .schoolId(SCHOOL_ID)
+                .name("Mathematics")
+                .code("MTH101")
+                .isActive(true)
+                .build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(classRepository.findByIdAndSchoolId(classId, SCHOOL_ID))
+                .thenReturn(Mono.just(ClassEntity.builder().id(classId).schoolId(SCHOOL_ID).build()));
+        when(classSubjectRepository.findByClassIdAndIsActiveTrue(classId))
+                .thenReturn(Flux.just(classSubject));
+        when(subjectRepository.findByIdAndSchoolIdAndIsActiveTrue(SUBJECT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(subject));
+
+        StepVerifier.create(resultService.getSubjectsForClass(classId))
+                .assertNext(results -> {
+                    assertThat(results).hasSize(1);
+                    SubjectLookupResponse res = results.get(0);
+                    assertThat(res.id()).isEqualTo(SUBJECT_ID);
+                    assertThat(res.name()).isEqualTo("Mathematics");
+                    assertThat(res.code()).isEqualTo("MTH101");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should lookup CA components successfully")
+    void shouldLookupCaComponentsSuccessfully() {
+        CaComponent caComponent = CaComponent.builder()
+                .id(COMPONENT_ID)
+                .schoolId(SCHOOL_ID)
+                .name("First CA")
+                .maxScore(20)
+                .isActive(true)
+                .build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(caComponentRepository.findBySchoolIdAndIsActiveTrue(SCHOOL_ID))
+                .thenReturn(Flux.just(caComponent));
+
+        StepVerifier.create(resultService.getCaComponents())
+                .assertNext(results -> {
+                    assertThat(results).hasSize(1);
+                    CaComponentLookupResponse res = results.get(0);
+                    assertThat(res.id()).isEqualTo(COMPONENT_ID);
+                    assertThat(res.name()).isEqualTo("First CA");
+                    assertThat(res.maxScore()).isEqualTo(20);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should lookup exams for term successfully")
+    void shouldLookupExamsForTermSuccessfully() {
+        Exam exam = Exam.builder()
+                .id(EXAM_ID)
+                .schoolId(SCHOOL_ID)
+                .termId(TERM_ID)
+                .name("Mid Term Exam")
+                .maxScore(40)
+                .build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(term()));
+        when(examRepository.findByTermId(TERM_ID))
+                .thenReturn(Flux.just(exam));
+
+        StepVerifier.create(resultService.getExamsForTerm(TERM_ID))
+                .assertNext(results -> {
+                    assertThat(results).hasSize(1);
+                    ExamLookupResponse res = results.get(0);
+                    assertThat(res.id()).isEqualTo(EXAM_ID);
+                    assertThat(res.name()).isEqualTo("Mid Term Exam");
+                    assertThat(res.maxScore()).isEqualTo(40);
+                })
+                .verifyComplete();
     }
 }

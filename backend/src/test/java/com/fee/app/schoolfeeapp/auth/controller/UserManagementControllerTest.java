@@ -843,4 +843,166 @@ class UserManagementControllerTest {
                     .verify();
         }
     }
+
+    // ========================================================================
+    // CHECK ACCOUNT TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Check Account")
+    class CheckAccountTests {
+
+        @Test
+        @DisplayName("Should return 400 Bad Request for invalid phone number")
+        void shouldReturnBadRequestForInvalidPhone() {
+            com.fee.app.schoolfeeapp.auth.dto.request.CheckAccountRequest request =
+                    new com.fee.app.schoolfeeapp.auth.dto.request.CheckAccountRequest("invalid");
+
+            when(userManagementService.checkAccount(any()))
+                    .thenReturn(Mono.error(new SchoolFeeException("INVALID_PHONE_NUMBER", "Invalid phone format")));
+
+            Mono<ResponseEntity<ApiResponse<com.fee.app.schoolfeeapp.auth.dto.response.CheckAccountResponse>>> result =
+                    userManagementController.checkAccount(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException &&
+                            ((SchoolFeeException) e).getErrorCode().equals("INVALID_PHONE_NUMBER"))
+                    .verify();
+        }
+    }
+
+    // ========================================================================
+    // SEND OTP TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Send OTP")
+    class SendOtpTests {
+
+        @Test
+        @DisplayName("Should return 400 Bad Request for GUARDIAN_NOT_FOUND")
+        void shouldReturnBadRequestForGuardianNotFound() {
+            com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest request =
+                    new com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest("+2348011111111");
+
+            when(userManagementService.sendOtp(any()))
+                    .thenReturn(Mono.error(new SchoolFeeException("GUARDIAN_NOT_FOUND", "No account found")));
+
+            Mono<ResponseEntity<ApiResponse<java.util.Map<String, String>>>> result =
+                    userManagementController.sendOtp(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException &&
+                            ((SchoolFeeException) e).getErrorCode().equals("GUARDIAN_NOT_FOUND"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return 400 Bad Request for ACCOUNT_ALREADY_REGISTERED")
+        void shouldReturnBadRequestForAccountAlreadyRegistered() {
+            com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest request =
+                    new com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest("+2348011111111");
+
+            when(userManagementService.sendOtp(any()))
+                    .thenReturn(Mono.error(new SchoolFeeException("ACCOUNT_ALREADY_REGISTERED", "Account is already registered")));
+
+            Mono<ResponseEntity<ApiResponse<java.util.Map<String, String>>>> result =
+                    userManagementController.sendOtp(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException &&
+                            ((SchoolFeeException) e).getErrorCode().equals("ACCOUNT_ALREADY_REGISTERED"))
+                    .verify();
+        }
+    }
+
+    // ========================================================================
+    // VERIFY OTP TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Verify OTP")
+    class VerifyOtpTests {
+
+        @Test
+        @DisplayName("Should return 400 Bad Request for ACCOUNT_ALREADY_REGISTERED")
+        void shouldReturnBadRequestForAccountAlreadyRegistered() {
+            com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest request =
+                    new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348011111111", "000000", null);
+
+            when(userManagementService.verifyOtpAndCreateAccount(any()))
+                    .thenReturn(Mono.error(new SchoolFeeException("ACCOUNT_ALREADY_REGISTERED", "Account is already registered")));
+
+            Mono<ResponseEntity<ApiResponse<java.util.Map<String, String>>>> result =
+                    userManagementController.verifyOtp(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException &&
+                            ((SchoolFeeException) e).getErrorCode().equals("ACCOUNT_ALREADY_REGISTERED"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return 400 Bad Request for MULTIPLE_ACCOUNTS_FOUND")
+        void shouldReturnBadRequestForMultipleAccountsFound() {
+            com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest request =
+                    new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348011111111", "000000", null);
+
+            when(userManagementService.verifyOtpAndCreateAccount(any()))
+                    .thenReturn(Mono.error(new SchoolFeeException("MULTIPLE_ACCOUNTS_FOUND", "Multiple accounts found")));
+
+            Mono<ResponseEntity<ApiResponse<java.util.Map<String, String>>>> result =
+                    userManagementController.verifyOtp(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException &&
+                            ((SchoolFeeException) e).getErrorCode().equals("MULTIPLE_ACCOUNTS_FOUND"))
+                    .verify();
+        }
+    }
+
+    // ========================================================================
+    // SET PASSWORD TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Set Password")
+    class SetPasswordTests {
+
+        @Test
+        @DisplayName("Should return 400 Bad Request for GUARDIAN_NOT_FOUND")
+        void shouldReturnBadRequestForGuardianNotFound() {
+            com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest request =
+                    new com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest("+2348011111111", "NewPassword123!");
+
+            when(userManagementService.setPassword(any()))
+                    .thenReturn(Mono.error(new SchoolFeeException("GUARDIAN_NOT_FOUND", "No account found.")));
+
+            Mono<ResponseEntity<ApiResponse<java.util.Map<String, String>>>> result =
+                    userManagementController.setPassword(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException &&
+                            ((SchoolFeeException) e).getErrorCode().equals("GUARDIAN_NOT_FOUND"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return 400 Bad Request for ACCOUNT_NOT_READY")
+        void shouldReturnBadRequestForAccountNotReady() {
+            com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest request =
+                    new com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest("+2348011111111", "NewPassword123!");
+
+            when(userManagementService.setPassword(any()))
+                    .thenReturn(Mono.error(new SchoolFeeException("ACCOUNT_NOT_READY", "Account not ready.")));
+
+            Mono<ResponseEntity<ApiResponse<java.util.Map<String, String>>>> result =
+                    userManagementController.setPassword(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException &&
+                            ((SchoolFeeException) e).getErrorCode().equals("ACCOUNT_NOT_READY"))
+                    .verify();
+        }
+    }
 }

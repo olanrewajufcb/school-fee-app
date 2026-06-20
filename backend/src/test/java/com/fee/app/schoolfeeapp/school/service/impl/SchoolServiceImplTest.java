@@ -1,5 +1,8 @@
 package com.fee.app.schoolfeeapp.school.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fee.app.schoolfeeapp.auth.service.IdentityProviderService;
 import com.fee.app.schoolfeeapp.auth.util.JwtUtils;
 import com.fee.app.schoolfeeapp.auth.util.SchoolFeeUser;
@@ -11,6 +14,7 @@ import com.fee.app.schoolfeeapp.school.domain.AcademicSession;
 import com.fee.app.schoolfeeapp.school.domain.School;
 import com.fee.app.schoolfeeapp.school.domain.Term;
 import com.fee.app.schoolfeeapp.school.dto.request.CloseSessionRequest;
+import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
 import com.fee.app.schoolfeeapp.school.dto.request.CreateAcademicSessionRequest;
 import com.fee.app.schoolfeeapp.school.dto.request.CreateSchoolRequest;
 import com.fee.app.schoolfeeapp.school.dto.request.UpdateSessionRequest;
@@ -22,6 +26,12 @@ import com.fee.app.schoolfeeapp.school.dto.response.SchoolSummaryResponse;
 import com.fee.app.schoolfeeapp.school.repository.AcademicSessionRepository;
 import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
 import com.fee.app.schoolfeeapp.school.repository.TermRepository;
+import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
+import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
+import com.fee.app.schoolfeeapp.fee.repository.FeeReportingRepository;
+import com.fee.app.schoolfeeapp.fee.repository.FeeReportingRepository.DashboardSummaryStats;
+import static org.mockito.Mockito.lenient;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -36,6 +46,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -47,6 +58,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -82,6 +94,18 @@ class SchoolServiceImplTest {
     @Mock
     private OutboxEventRepository outboxEventRepository;
 
+    @Mock
+    private StudentRepository studentRepository;
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private FeeReportingRepository feeReportingRepository;
+
+    @Spy
+    private ObjectMapper objectMapper;
+
     private SchoolServiceImpl schoolService;
 
     private static final UUID ADMIN_KEYCLOAK_ID = UUID.fromString("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
@@ -102,7 +126,15 @@ class SchoolServiceImplTest {
                 keycloakAdminService,
                 jwtUtils,
                 transactionalOperator,
-                outboxEventRepository);
+                outboxEventRepository,
+                studentRepository,
+                userRepository,
+                feeReportingRepository);
+
+        lenient().when(studentRepository.countBySchoolIdAndDeletedAtIsNull(any())).thenReturn(Mono.just(0L));
+        lenient().when(userRepository.countBySchoolIdWithFilters(any(), any(), any(), any())).thenReturn(Mono.just(0L));
+        lenient().when(feeReportingRepository.getDashboardSummary(any(), any()))
+                .thenReturn(Mono.just(new DashboardSummaryStats(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0, 0, 0)));
     }
 
     @Test
@@ -1538,6 +1570,40 @@ class SchoolServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should list schools with dynamic student counts, active users, and collection rate")
+    void shouldListSchoolsWithDynamicStats() {
+        Pageable pageable = PageRequest.of(0, 10);
+        School activeSchool = schoolSummarySchool(SCHOOL_ID, "Grace International School", "GIS", true);
+
+        when(schoolRepository.findByActiveStatus(true, 10, 0L)).thenReturn(Flux.just(activeSchool));
+        when(schoolRepository.countByActiveStatus(true)).thenReturn(Mono.just(1L));
+        when(termRepository.findCurrentTermsBySchoolId(SCHOOL_ID)).thenReturn(Flux.just(currentTerm()));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Mono.just(currentSession()));
+        
+        when(studentRepository.countBySchoolIdAndDeletedAtIsNull(SCHOOL_ID)).thenReturn(Mono.just(15L));
+        when(userRepository.countBySchoolIdWithFilters(SCHOOL_ID, null, true, null)).thenReturn(Mono.just(5L));
+        
+        DashboardSummaryStats stats = new DashboardSummaryStats(
+                BigDecimal.valueOf(1000), // expected
+                BigDecimal.valueOf(750),  // collected
+                BigDecimal.valueOf(250),  // outstanding
+                5, 3, 7
+        );
+        when(feeReportingRepository.getDashboardSummary(SCHOOL_ID, TERM_ID)).thenReturn(Mono.just(stats));
+
+        StepVerifier.create(schoolService.listSchools("ACTIVE", pageable))
+                .assertNext(response -> {
+                    assertThat(response.content()).hasSize(1);
+                    SchoolSummaryResponse summary = response.content().getFirst();
+                    assertThat(summary.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(summary.studentCount()).isEqualTo(15);
+                    assertThat(summary.activeUsers()).isEqualTo(5);
+                    assertThat(summary.collectionRate()).isEqualTo(75.0);
+                })
+                .verifyComplete();
+    }
+
+    @Test
     @DisplayName("Should list inactive schools when status is inactive")
     void shouldListInactiveSchoolsWhenStatusIsInactive() {
         Pageable pageable = PageRequest.of(0, 10);
@@ -1642,7 +1708,7 @@ class SchoolServiceImplTest {
         when(termRepository.saveAll(ArgumentMatchers.<Iterable<Term>>any()))
                 .thenAnswer(invocation -> Flux.fromIterable(invocation.getArgument(0)));
         when(keycloakAdminService.createStaffUser(any(), any(UUID.class), eq(request.name())))
-                .thenReturn(Mono.just(ADMIN_KEYCLOAK_ID));
+                .thenReturn(Mono.just(new KeycloakUserResult(ADMIN_KEYCLOAK_ID, "tempPassword")));
         when(outboxEventRepository.save(any(OutboxEvent.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         when(transactionalOperator.transactional(any(Mono.class)))
@@ -1810,7 +1876,7 @@ class SchoolServiceImplTest {
             when(termRepository.saveAll(ArgumentMatchers.<Iterable<Term>>any()))
                     .thenAnswer(invocation -> Flux.fromIterable(invocation.getArgument(0)));
             when(keycloakAdminService.createStaffUser(any(), any(UUID.class), eq(request.name())))
-                    .thenReturn(Mono.just(ADMIN_KEYCLOAK_ID));
+                    .thenReturn(Mono.just(new KeycloakUserResult(ADMIN_KEYCLOAK_ID, "tempPassword")));
             when(outboxEventRepository.save(any(OutboxEvent.class)))
                     .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
             when(transactionalOperator.transactional(any(Mono.class)))
@@ -2076,6 +2142,58 @@ class SchoolServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should use default terms per year when config is missing or invalid")
+    void shouldUseDefaultTermsPerYearWhenConfigIsMissing() {
+        // Branch 1: config is null
+        CreateSchoolRequest request1 = validRequestWithTermConfig(null);
+        // You can use reflection to access the private method,
+        // or just trigger the creation logic and verify terms generated
+        assertThat(invokeResolveTermsPerYear(request1)).isEqualTo(3);
+
+        // Branch 2: termsPerYear <= 0
+        CreateSchoolRequest request2 = validRequestWithTermConfig(
+                new CreateSchoolRequest.TermConfig(0, null, null));
+        assertThat(invokeResolveTermsPerYear(request2)).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("Should resolve term names with various edge cases")
+    void shouldResolveTermNamesEdgeCases() {
+        // Branch: names is null, triggers default names
+        CreateSchoolRequest request1 = validRequestWithTermConfig(
+                new CreateSchoolRequest.TermConfig(3, null, null));
+        assertThat(invokeResolveTermNames(request1, 3)).hasSize(3).contains("First Term");
+
+        // Branch: names contains blanks, triggers filter
+        CreateSchoolRequest request2 = validRequestWithTermConfig(
+                new CreateSchoolRequest.TermConfig(2, List.of("Term1", "  "), null));
+        assertThat(invokeResolveTermNames(request2, 2)).hasSize(2).contains("Term 2");
+
+        // Branch: names.size < termsPerYear, triggers for-loop
+        CreateSchoolRequest request3 = validRequestWithTermConfig(
+                new CreateSchoolRequest.TermConfig(4, List.of("T1"), null));
+        List<String> names = invokeResolveTermNames(request3, 4);
+        assertThat(names).contains("Term 2", "Term 3", "Term 4");
+    }
+    @SuppressWarnings("unchecked")
+    private int invokeResolveTermsPerYear(CreateSchoolRequest request) {
+        try {
+            var method = SchoolServiceImpl.class.getDeclaredMethod("resolveTermsPerYear", CreateSchoolRequest.class);
+            method.setAccessible(true);
+            return (int) method.invoke(schoolService, request);
+        } catch (Exception e) { throw new RuntimeException(e); }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> invokeResolveTermNames(CreateSchoolRequest request, int termsPerYear) {
+        try {
+            var method = SchoolServiceImpl.class.getDeclaredMethod("resolveTermNames", CreateSchoolRequest.class, int.class);
+            method.setAccessible(true);
+            return (List<String>) method.invoke(schoolService, request, termsPerYear);
+        } catch (Exception e) { throw new RuntimeException(e); }
+    }
+
+    @Test
     @DisplayName("Should map stale current term update to conflict error")
     void shouldMapStaleCurrentTermUpdateToConflictError() {
         Term targetTerm = term(TERM_ID, SESSION_ID, "Second Term", 2, false);
@@ -2100,6 +2218,73 @@ class SchoolServiceImplTest {
                     assertThat(exception.getCause()).isInstanceOf(OptimisticLockingFailureException.class);
                 })
                 .verify();
+    }
+    @Test
+    @DisplayName("Should reject null create session request")
+    void shouldRejectNullCreateSessionRequest() {
+        StepVerifier.create(schoolService.createSession(null))
+                .expectErrorMatches(error -> error instanceof SchoolFeeException &&
+                        ((SchoolFeeException) error).getErrorCode().equals("INVALID_SESSION_CONFIG"))
+                .verify();
+    }
+    @Test
+    @DisplayName("Should reject session with blank name")
+    void shouldRejectSessionWithBlankName() {
+        CreateAcademicSessionRequest request = new CreateAcademicSessionRequest(
+                "   ", // Blank name
+                LocalDate.now(),
+                LocalDate.now().plusMonths(1),
+                List.of(firstTermRequest()),
+                false);
+
+        StepVerifier.create(schoolService.createSession(request))
+                .expectErrorMatches(error -> error instanceof SchoolFeeException &&
+                        ((SchoolFeeException) error).getField().equals("name"))
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should validate term update date business rules")
+    void shouldValidateTermUpdateDates() throws Exception {
+        Term term = currentTerm();
+        LocalDate sessionStart = LocalDate.of(2026, 9, 8);
+        LocalDate sessionEnd = LocalDate.of(2027, 9, 7);
+
+        // 1. Test startDate == null
+        assertThatThrownBy(() -> invokeValidateTermUpdateDates(term, null, LocalDate.now(), sessionStart, sessionEnd))
+                .isInstanceOf(SchoolFeeException.class)
+                .hasMessage("Term start date is required");
+
+        // 2. Test endDate == null
+        assertThatThrownBy(() -> invokeValidateTermUpdateDates(term, LocalDate.now(), null, sessionStart, sessionEnd))
+                .isInstanceOf(SchoolFeeException.class)
+                .hasMessage("Term end date is required");
+
+        // 3. Test endDate is before startDate
+        assertThatThrownBy(() -> invokeValidateTermUpdateDates(term, LocalDate.of(2026, 12, 1), LocalDate.of(2026, 11, 1), sessionStart, sessionEnd))
+                .isInstanceOf(SchoolFeeException.class)
+                .hasMessage("Term end date must be on or after start date");
+
+        // 4. Test date range violation (startDate too early)
+        assertThatThrownBy(() -> invokeValidateTermUpdateDates(term, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 1), sessionStart, sessionEnd))
+                .isInstanceOf(SchoolFeeException.class)
+                .hasMessage("Term dates must fall within the academic session date range");
+
+        // 5. Test date range violation (endDate too late)
+        assertThatThrownBy(() -> invokeValidateTermUpdateDates(term, LocalDate.of(2026, 9, 10), LocalDate.of(2027, 10, 1), sessionStart, sessionEnd))
+                .isInstanceOf(SchoolFeeException.class)
+                .hasMessage("Term dates must fall within the academic session date range");
+    }
+
+    private void invokeValidateTermUpdateDates(Term term, LocalDate start, LocalDate end, LocalDate sStart, LocalDate sEnd) throws Exception {
+        var method = SchoolServiceImpl.class.getDeclaredMethod("validateTermUpdateDates",
+                Term.class, LocalDate.class, LocalDate.class, LocalDate.class, LocalDate.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(schoolService, term, start, end, sStart, sEnd);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            throw (Exception) e.getCause(); // Unwrap the SchoolFeeException
+        }
     }
 
     @Test
@@ -2128,6 +2313,34 @@ class SchoolServiceImplTest {
 
         verify(termRepository).save(term);
         assertThat(term.getIsCurrent()).isTrue();
+    }
+    @Test
+    @DisplayName("Should test all branches of jsonNodeToMap helper")
+    void shouldTestJsonNodeToMapBranches() throws Exception {
+        // 1. Test null node branch
+        assertThat(invokeJsonNodeToMap(null)).isEmpty();
+
+        // 2. Test node.isNull() branch
+        assertThat(invokeJsonNodeToMap(objectMapper.nullNode())).isEmpty();
+
+        // 3. Test successful conversion
+        ObjectNode validNode = objectMapper.createObjectNode().put("key", "value");
+        Map<String, Object> map = invokeJsonNodeToMap(validNode);
+        assertThat(map).containsEntry("key", "value");
+
+        // 4. Test catch block branch (trigger exception)
+        // We pass an ArrayNode to a method expecting a Map.class,
+        // which will cause objectMapper.convertValue to throw an IllegalArgumentException.
+        JsonNode arrayNode = objectMapper.createArrayNode().add("not-a-map");
+        Map<String, Object> resultFromError = invokeJsonNodeToMap(arrayNode);
+        assertThat(resultFromError).isEmpty();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> invokeJsonNodeToMap(JsonNode node) throws Exception {
+        var method = SchoolServiceImpl.class.getDeclaredMethod("jsonNodeToMap", JsonNode.class);
+        method.setAccessible(true);
+        return (Map<String, Object>) method.invoke(schoolService, node);
     }
 
     private CreateSchoolRequest validRequestWithTermConfig(CreateSchoolRequest.TermConfig termConfig) {

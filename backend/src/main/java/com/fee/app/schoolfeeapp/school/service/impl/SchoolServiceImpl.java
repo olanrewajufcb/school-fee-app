@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fee.app.schoolfeeapp.auth.dto.request.CreateStaffRequest;
+import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
 import com.fee.app.schoolfeeapp.auth.service.IdentityProviderService;
 import com.fee.app.schoolfeeapp.auth.util.JwtUtils;
 import com.fee.app.schoolfeeapp.common.domain.OutboxEvent;
@@ -29,6 +30,12 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
+import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
+import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
+import com.fee.app.schoolfeeapp.fee.repository.FeeReportingRepository;
+import com.fee.app.schoolfeeapp.fee.repository.FeeReportingRepository.DashboardSummaryStats;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -79,6 +86,9 @@ class SchoolServiceImpl implements SchoolService {
     private final JwtUtils jwtUtils;
     private final TransactionalOperator transactionalOperator;
     private final OutboxEventRepository outboxEventRepository;
+    private final StudentRepository studentRepository;
+    private final UserRepository userRepository;
+    private final FeeReportingRepository feeReportingRepository;
     private final ObjectMapper objectMapper = JsonMapper.builder()
             .findAndAddModules()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
@@ -149,7 +159,7 @@ class SchoolServiceImpl implements SchoolService {
             CreateSchoolRequest request,
             SchoolCreationResult result) {
         return createSchoolAdminInKeycloak(request.adminUser(), result.school())
-                .map(result::withKeycloakId)
+                .map(keycloakResult -> result.withKeycloakResult(keycloakResult, request.adminUser().email()))
                 .onErrorResume(error -> {
                     log.error("Failed to create Keycloak admin. " +
                                     "School created but admin needs manual setup. " +
@@ -240,6 +250,8 @@ class SchoolServiceImpl implements SchoolService {
         payload.put("schoolCode", result.school().getCode());
         payload.put("adminKeycloakId", result.adminKeycloakId() != null
                 ? result.adminKeycloakId().toString() : null);
+        payload.put("adminTemporaryPassword", result.adminTemporaryPassword());
+        payload.put("adminEmail", result.adminEmail());
         payload.put("sessionId", result.session().getId().toString());
         payload.put("termIds", result.terms().stream()
                 .map(t -> t.getId().toString())
@@ -444,7 +456,7 @@ class SchoolServiceImpl implements SchoolService {
         return value == null || value.isBlank();
     }
 
-    private Mono<UUID> createSchoolAdminInKeycloak(
+    private Mono<KeycloakUserResult> createSchoolAdminInKeycloak(
             CreateSchoolRequest.AdminUser adminUser, School school) {
 
         return keycloakAdminService.createStaffUser(
@@ -459,9 +471,9 @@ class SchoolServiceImpl implements SchoolService {
                 school.getId(),
                 school.getName()
         )
-                .doOnSuccess(keycloakId ->
+                .doOnSuccess(keycloakResult ->
                         log.info("School admin created in Keycloak: keycloakId={}, email={}",
-                                keycloakId, adminUser.email()))
+                                keycloakResult.userId(), adminUser.email()))
                 .doOnError(error ->
                         log.error("Failed to create school admin in Keycloak: email={}",
                                 adminUser.email(), error));
@@ -564,14 +576,16 @@ class SchoolServiceImpl implements SchoolService {
             School school,
             AcademicSession session,
             List<Term> terms,
-            UUID adminKeycloakId
+            UUID adminKeycloakId,
+            String adminTemporaryPassword,
+            String adminEmail
     ) {
         SchoolCreationResult(School school, AcademicSession session, List<Term> terms) {
-            this(school, session, terms, null);
+            this(school, session, terms, null, null, null);
         }
 
-        SchoolCreationResult withKeycloakId(UUID keycloakId) {
-            return new SchoolCreationResult(school, session, terms, keycloakId);
+        SchoolCreationResult withKeycloakResult(KeycloakUserResult result, String email) {
+            return new SchoolCreationResult(school, session, terms, result.userId(), result.temporaryPassword(), email);
         }
     }
 
@@ -933,31 +947,79 @@ class SchoolServiceImpl implements SchoolService {
     // RESPONSE BUILDERS
     // ========================================================================
 
-    private Mono<SchoolSummaryResponse> toSchoolSummary(School school) {
-    return findCurrentTermName(school.getId())
-        .map(
-            currentTerm ->
-                new SchoolSummaryResponse(
-                    school.getId(),
-                    school.getName(),
-                    school.getCode(),
-                    school.getCity(),
-                    school.getState(),
-                    0,
-                    0,
-                    Boolean.TRUE.equals(school.getIsActive()) ? "ACTIVE" : "INACTIVE",
-                    currentTerm.orElse(null),
-                    0.0,
-                    school.getCreatedAt()));
-    }
+    private record TermInfo(Term term, String formattedName) {}
 
-    private Mono<Optional<String>> findCurrentTermName(UUID schoolId) {
+    private Mono<Optional<TermInfo>> findCurrentTermInfo(UUID schoolId) {
         return termRepository.findCurrentTermsBySchoolId(schoolId)
                 .next()
                 .flatMap(term -> sessionRepository.findById(term.getSessionId())
-                        .map(session -> term.getName() + " " + session.getName()))
+                        .map(session -> new TermInfo(term, term.getName() + " " + session.getName())))
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty());
+    }
+
+    private double calculateCollectionRate(BigDecimal collected, BigDecimal expected) {
+        if (expected == null || expected.compareTo(BigDecimal.ZERO) <= 0) {
+            return 0.0;
+        }
+        return Optional.ofNullable(collected).orElse(BigDecimal.ZERO)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(expected, 2, RoundingMode.HALF_UP)
+                .doubleValue();
+    }
+
+    private Mono<SchoolSummaryResponse> toSchoolSummary(School school) {
+        UUID schoolId = school.getId();
+
+        Mono<Long> studentCountMono = studentRepository.countBySchoolIdAndDeletedAtIsNull(schoolId)
+                .defaultIfEmpty(0L);
+
+        Mono<Long> activeUsersMono = userRepository.countBySchoolIdWithFilters(schoolId, null, true, null)
+                .defaultIfEmpty(0L);
+
+        Mono<Optional<TermInfo>> termInfoMono = findCurrentTermInfo(schoolId);
+
+        return Mono.zip(studentCountMono, activeUsersMono, termInfoMono)
+                .flatMap(tuple -> {
+                    long studentCount = tuple.getT1();
+                    long activeUsers = tuple.getT2();
+                    Optional<TermInfo> termInfoOpt = tuple.getT3();
+
+                    if (termInfoOpt.isPresent()) {
+                        TermInfo termInfo = termInfoOpt.get();
+                        return feeReportingRepository.getDashboardSummary(schoolId, termInfo.term().getId())
+                                .map(stats -> {
+                                    double collectionRate = calculateCollectionRate(stats.totalCollected(), stats.totalExpected());
+                                    return new SchoolSummaryResponse(
+                                            schoolId,
+                                            school.getName(),
+                                            school.getCode(),
+                                            school.getCity(),
+                                            school.getState(),
+                                            (int) studentCount,
+                                            (int) activeUsers,
+                                            Boolean.TRUE.equals(school.getIsActive()) ? "ACTIVE" : "INACTIVE",
+                                            termInfo.formattedName(),
+                                            collectionRate,
+                                            school.getCreatedAt()
+                                    );
+                                });
+                    } else {
+                        return Mono.just(new SchoolSummaryResponse(
+                                schoolId,
+                                school.getName(),
+                                school.getCode(),
+                                school.getCity(),
+                                school.getState(),
+                                (int) studentCount,
+                                (int) activeUsers,
+                                Boolean.TRUE.equals(school.getIsActive()) ? "ACTIVE" : "INACTIVE",
+                                null,
+                                0.0,
+                                school.getCreatedAt()
+                        ));
+                    }
+                });
     }
 
 

@@ -3,6 +3,11 @@ import keycloak, { initKeycloak, login, logout, hasRole } from '@/lib/keycloak';
 import api from '@/lib/api';
 import type { UserProfile, AuthContextType } from '@/types/auth';
 
+interface ApiResponse<T> {
+    success: boolean;
+    data: T;
+}
+
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -66,8 +71,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const fetchUserProfile = async () => {
         try {
             setIsLoading(true);
-            const response = await api.get<UserProfile>('/api/v1/auth/me');
-            setUser(response.data);
+            const response = await api.get<ApiResponse<UserProfile>>('/api/v1/auth/me');
+            setUser(response.data.data);
             setError(null);
         } catch (err) {
             console.error('Failed to fetch user profile:', err);

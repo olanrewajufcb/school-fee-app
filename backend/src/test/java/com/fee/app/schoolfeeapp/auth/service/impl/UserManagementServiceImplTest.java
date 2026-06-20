@@ -4,12 +4,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.fee.app.schoolfeeapp.auth.domain.StudentGuardian;
 import com.fee.app.schoolfeeapp.auth.domain.StudentGuardianLink;
+import com.fee.app.schoolfeeapp.auth.domain.StudentGuardianLinkProjection;
 import com.fee.app.schoolfeeapp.auth.domain.User;
 import com.fee.app.schoolfeeapp.auth.domain.UserSchoolRole;
 import com.fee.app.schoolfeeapp.auth.dto.request.CreateParentRequest;
 import com.fee.app.schoolfeeapp.auth.dto.request.CreateStaffRequest;
 import com.fee.app.schoolfeeapp.auth.dto.response.CreateParentResponse;
 import com.fee.app.schoolfeeapp.auth.dto.response.CreateStaffResponse;
+import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
 import com.fee.app.schoolfeeapp.auth.dto.response.UserSummaryResponse;
 import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianLinkRepository;
 import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianRepository;
@@ -21,6 +23,9 @@ import com.fee.app.schoolfeeapp.common.domain.OutboxEvent;
 import com.fee.app.schoolfeeapp.common.dto.PageResponse;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.common.repository.OutboxEventRepository;
+import com.fee.app.schoolfeeapp.notification.service.SmsService;
+import com.fee.app.schoolfeeapp.school.domain.School;
+import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
 import com.fee.app.schoolfeeapp.student.domain.Student;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +74,9 @@ class UserManagementServiceImplTest {
     private StudentRepository studentRepository;
 
     @Mock
+    private SchoolRepository schoolRepository;
+
+    @Mock
     private KeycloakAdminServiceImpl keycloakAdminService;
 
     @Mock
@@ -82,6 +90,9 @@ class UserManagementServiceImplTest {
 
     @Mock
     private ObjectMapper objectMapper;
+
+    @Mock
+    private SmsService smsService;
 
     @InjectMocks
     private UserManagementServiceImpl userManagementService;
@@ -143,8 +154,6 @@ class UserManagementServiceImplTest {
             UUID studentId1 = children.get(0).studentId();
             UUID studentId2 = children.get(1).studentId();
             UUID guardianId = UUID.randomUUID();
-            UUID keycloakUserId = UUID.randomUUID();
-            UUID userId = UUID.randomUUID();
 
             Student student1 = Student.builder().id(studentId1).schoolId(SCHOOL_ID).build();
             Student student2 = Student.builder().id(studentId2).schoolId(SCHOOL_ID).build();
@@ -158,18 +167,6 @@ class UserManagementServiceImplTest {
                     .email("john.doe@email.com")
                     .build();
 
-            User user = User.builder()
-                    .id(userId)
-                    .keycloakId(keycloakUserId)
-                    .schoolId(SCHOOL_ID)
-                    .email("john.doe@email.com")
-                    .phone("2348012345678")
-                    .firstName("John")
-                    .lastName("Doe")
-                    .userType("PARENT")
-                    .isActive(true)
-                    .build();
-
             // Mock JWT
             when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(adminUser));
 
@@ -181,21 +178,6 @@ class UserManagementServiceImplTest {
             when(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull(any(), eq(SCHOOL_ID)))
                     .thenReturn(Mono.empty());
             when(guardianRepository.save(any(StudentGuardian.class))).thenReturn(Mono.just(guardian));
-
-            // Mock Keycloak user creation
-            when(keycloakAdminService.createUser(any(), eq("PARENT"), anySet()))
-                    .thenReturn(Mono.just(keycloakUserId));
-
-            // Mock user creation
-            when(userRepository.save(any(User.class))).thenReturn(Mono.just(user));
-
-            // Mock role creation
-            when(roleRepository.save(any(UserSchoolRole.class)))
-                    .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-
-            // Mock guardian linking
-            when(guardianRepository.updateUserId(any(UUID.class), any(UUID.class)))
-                    .thenReturn(Mono.just(guardian));
 
             // Mock guardian-student links
             when(guardianLinkRepository.save(any(StudentGuardianLink.class)))
@@ -212,7 +194,7 @@ class UserManagementServiceImplTest {
 
             StepVerifier.create(result)
                     .assertNext(response -> {
-                        assertThat(response.userId()).isEqualTo(userId);
+                        assertThat(response.userId()).isNull();
                         assertThat(response.guardianId()).isEqualTo(guardianId);
                         assertThat(response.phoneNumber()).isEqualTo("+2348012345678");
                         assertThat(response.email()).isEqualTo("john.doe@email.com");
@@ -220,17 +202,13 @@ class UserManagementServiceImplTest {
                         assertThat(response.lastName()).isEqualTo("Doe");
                         assertThat(response.userType()).isEqualTo("PARENT");
                         assertThat(response.childrenLinked()).isEqualTo(2);
-                        assertThat(response.message()).contains("Parent account created");
+                        assertThat(response.message()).contains("Guardian added");
                     })
                     .verifyComplete();
 
             // Verify all steps were executed
             verify(studentRepository, times(2)).findById(any(UUID.class));
             verify(guardianRepository).save(any(StudentGuardian.class));
-            verify(keycloakAdminService).createUser(any(), eq("PARENT"), anySet());
-            verify(userRepository).save(any(User.class));
-            verify(roleRepository).save(any(UserSchoolRole.class));
-            verify(guardianRepository).updateUserId(any(UUID.class), any(UUID.class));
             verify(guardianLinkRepository, times(2)).save(any(StudentGuardianLink.class));
             verify(outboxEventRepository).save(any(OutboxEvent.class));
         }
@@ -241,8 +219,6 @@ class UserManagementServiceImplTest {
             UUID studentId1 = children.get(0).studentId();
             UUID studentId2 = children.get(1).studentId();
             UUID guardianId = UUID.randomUUID();
-            UUID keycloakUserId = UUID.randomUUID();
-            UUID userId = UUID.randomUUID();
 
             Student student1 = Student.builder().id(studentId1).schoolId(SCHOOL_ID).build();
             Student student2 = Student.builder().id(studentId2).schoolId(SCHOOL_ID).build();
@@ -252,24 +228,10 @@ class UserManagementServiceImplTest {
                     .phone("2348012345678")
                     .build();
 
-            User user = User.builder()
-                    .id(userId)
-                    .keycloakId(keycloakUserId)
-                    .schoolId(SCHOOL_ID)
-                    .userType("PARENT")
-                    .isActive(true)
-                    .build();
-
             when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(adminUser));
             when(studentRepository.findById(studentId1)).thenReturn(Mono.just(student1));
             when(studentRepository.findById(studentId2)).thenReturn(Mono.just(student2));
             when(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull("2348012345678", SCHOOL_ID))
-                    .thenReturn(Mono.just(existingGuardian));
-            when(keycloakAdminService.createUser(any(), eq("PARENT"), anySet()))
-                    .thenReturn(Mono.just(keycloakUserId));
-            when(userRepository.save(any(User.class))).thenReturn(Mono.just(user));
-            when(roleRepository.save(any(UserSchoolRole.class))).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-            when(guardianRepository.updateUserId(any(UUID.class), any(UUID.class)))
                     .thenReturn(Mono.just(existingGuardian));
             when(guardianLinkRepository.save(any(StudentGuardianLink.class)))
                     .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
@@ -311,7 +273,6 @@ class UserManagementServiceImplTest {
                     .verify();
 
             verify(studentRepository).findById(invalidStudentId);
-            verify(keycloakAdminService, never()).createUser(any(), any(), any());
             verify(guardianRepository, never()).findByPhoneAndSchoolIdAndDeletedAtIsNull(any(), any());
         }
 
@@ -325,178 +286,21 @@ class UserManagementServiceImplTest {
 
             // Create a request with only this one student to avoid issues with unmocked second student
             CreateParentRequest singleChildRequest = new CreateParentRequest(
-                    "John", "Doe", "+2348012345678", "john@email.com",
-                    List.of(new CreateParentRequest.ChildLink(studentId, "FATHER", true))
-            );
-
-            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(adminUser));
-
-            Mono<CreateParentResponse> result = userManagementService.createParent(singleChildRequest);
-
-            StepVerifier.create(result)
-                    .expectError(Throwable.class)
-                    .verify();
-
-            verify(keycloakAdminService, never()).createUser(any(), any(), any());
-            verify(guardianRepository, never()).findByPhoneAndSchoolIdAndDeletedAtIsNull(anyString(), any());
-        }
-
-        @Test
-        @DisplayName("Should handle duplicate parent role gracefully")
-        void shouldHandleDuplicateParentRole() {
-            UUID studentId1 = children.get(0).studentId();
-            UUID studentId2 = children.get(1).studentId();
-            UUID guardianId = UUID.randomUUID();
-            UUID keycloakUserId = UUID.randomUUID();
-            UUID userId = UUID.randomUUID();
-
-            Student student1 = Student.builder().id(studentId1).schoolId(SCHOOL_ID).build();
-            Student student2 = Student.builder().id(studentId2).schoolId(SCHOOL_ID).build();
-            StudentGuardian guardian = StudentGuardian.builder().id(guardianId).schoolId(SCHOOL_ID).build();
-            User user = User.builder().id(userId).keycloakId(keycloakUserId).schoolId(SCHOOL_ID).userType("PARENT").isActive(true).build();
-
-            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(adminUser));
-            when(studentRepository.findById(studentId1)).thenReturn(Mono.just(student1));
-            when(studentRepository.findById(studentId2)).thenReturn(Mono.just(student2));
-            when(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull(anyString(), eq(SCHOOL_ID)))
-                    .thenReturn(Mono.empty());
-            when(guardianRepository.save(any(StudentGuardian.class))).thenReturn(Mono.just(guardian));
-            when(keycloakAdminService.createUser(any(), eq("PARENT"), anySet())).thenReturn(Mono.just(keycloakUserId));
-            when(userRepository.save(any(User.class))).thenReturn(Mono.just(user));
-            when(roleRepository.save(any(UserSchoolRole.class)))
-                    .thenReturn(Mono.error(new DuplicateKeyException("duplicate role")));
-            when(guardianRepository.updateUserId(any(UUID.class), any(UUID.class))).thenReturn(Mono.just(guardian));
-            when(guardianLinkRepository.save(any(StudentGuardianLink.class))).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-            when(objectMapper.valueToTree(any())).thenReturn(NullNode.getInstance());
-            when(outboxEventRepository.save(any(OutboxEvent.class)))
-                    .thenReturn(Mono.just(OutboxEvent.builder().id(UUID.randomUUID()).build()));
-            when(transactionalOperator.transactional(any(Mono.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
-
-            Mono<CreateParentResponse> result = userManagementService.createParent(validRequest);
-
-            StepVerifier.create(result)
-                    .assertNext(response -> {
-                        assertThat(response.userId()).isEqualTo(userId);
-                    })
-                    .verifyComplete();
-
-            // Should continue despite duplicate role error
-            verify(roleRepository).save(any(UserSchoolRole.class));
-        }
-
-        @Test
-        @DisplayName("Should create Keycloak cleanup event when DB transaction fails")
-        void shouldCreateCleanupEventWhenTransactionFails() {
-            UUID studentId = children.getFirst().studentId();
-            UUID guardianId = UUID.randomUUID();
-            UUID keycloakUserId = UUID.randomUUID();
-
-            Student student = Student.builder().id(studentId).schoolId(SCHOOL_ID).build();
-            StudentGuardian guardian = StudentGuardian.builder().id(guardianId).schoolId(SCHOOL_ID).build();
-
-            // Create a single-child request to avoid validation issues with unmocked second student
-            CreateParentRequest singleChildRequest = new CreateParentRequest(
-                    "John", "Doe", "+2348012345678", "john@email.com",
+                    "+2348012345678", "john@email.com", "John", "Doe",
                     List.of(new CreateParentRequest.ChildLink(studentId, "FATHER", true))
             );
 
             when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(adminUser));
             when(studentRepository.findById(studentId)).thenReturn(Mono.just(student));
-            when(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull(any(), eq(SCHOOL_ID)))
-                    .thenReturn(Mono.empty());
-            when(guardianRepository.save(any(StudentGuardian.class))).thenReturn(Mono.just(guardian));
-            when(keycloakAdminService.createUser(any(), eq("PARENT"), anySet())).thenReturn(Mono.just(keycloakUserId));
-            when(userRepository.save(any(User.class))).thenReturn(Mono.error(new RuntimeException("DB error")));
-            when(objectMapper.valueToTree(any())).thenReturn(NullNode.getInstance());
-            when(outboxEventRepository.save(any(OutboxEvent.class)))
-                    .thenReturn(Mono.just(OutboxEvent.builder().id(UUID.randomUUID()).build()));
-            when(transactionalOperator.transactional(any(Mono.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             Mono<CreateParentResponse> result = userManagementService.createParent(singleChildRequest);
 
             StepVerifier.create(result)
-                    .expectError(RuntimeException.class)
+                    .expectError(SchoolFeeException.class)
                     .verify();
 
-            // Cleanup event should be created
-            ArgumentCaptor<OutboxEvent> eventCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
-            verify(outboxEventRepository, atLeastOnce()).save(eventCaptor.capture());
-
-            OutboxEvent cleanupEvent = eventCaptor.getAllValues().stream()
-                    .filter(e -> "KEYCLOAK_CLEANUP".equals(e.getEventType()))
-                    .findFirst()
-                    .orElse(null);
-
-            assertThat(cleanupEvent).isNotNull();
-            assertThat(cleanupEvent.getAggregateId()).isEqualTo(keycloakUserId);
+            verify(guardianRepository, never()).findByPhoneAndSchoolIdAndDeletedAtIsNull(anyString(), any());
         }
-    }
-
-    @Test
-    @DisplayName("Should create Keycloak cleanup event when DB transaction fails")
-    void shouldCreateCleanupEventWhenTransactionFails() {
-        // Arrange
-        UUID studentId = UUID.randomUUID();
-        UUID guardianId = UUID.randomUUID();
-        UUID keycloakUserId = UUID.randomUUID();
-        UUID cleanupEventId = UUID.randomUUID();
-
-        Student student = Student.builder().id(studentId).schoolId(SCHOOL_ID).build();
-        StudentGuardian guardian = StudentGuardian.builder()
-                .id(guardianId).schoolId(SCHOOL_ID).build();
-
-        CreateParentRequest request = new CreateParentRequest(
-                "John", "Doe", "+2348012345678", "john@email.com",
-                List.of(new CreateParentRequest.ChildLink(studentId, "FATHER", true))
-        );
-
-        // All successful steps before the DB transaction
-        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(adminUser));
-        when(studentRepository.findById(studentId)).thenReturn(Mono.just(student));
-        when(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull(any(), eq(SCHOOL_ID)))
-                .thenReturn(Mono.just(guardian)); // Guardian already exists
-        when(keycloakAdminService.createUser(any(), eq("PARENT"), anySet()))
-                .thenReturn(Mono.just(keycloakUserId));
-
-        // DB operations — user save FAILS
-        when(userRepository.save(any(User.class)))
-                .thenReturn(Mono.error(new RuntimeException("DB connection pool exhausted")));
-
-        // Outbox save for cleanup event SUCCEEDS
-        OutboxEvent savedCleanupEvent = OutboxEvent.builder()
-                .id(cleanupEventId)
-                .eventType("KEYCLOAK_CLEANUP")
-                .aggregateId(keycloakUserId)
-                .build();
-        when(outboxEventRepository.save(any(OutboxEvent.class)))
-                .thenReturn(Mono.just(savedCleanupEvent));
-
-        // TransactionalOperator pass-through
-        when(transactionalOperator.transactional(any(Mono.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
-
-        // ObjectMapper for JSON payload
-        when(objectMapper.valueToTree(any())).thenReturn(NullNode.getInstance());
-
-        // Act
-        Mono<CreateParentResponse> result = userManagementService.createParent(request);
-
-        // Assert
-        StepVerifier.create(result)
-                .expectErrorMatches(error ->
-                        error instanceof RuntimeException &&
-                                "DB connection pool exhausted".equals(error.getMessage()))
-                .verify();
-
-        // Verify: outbox event repository was called with a KEYCLOAK_CLEANUP event
-        ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
-        verify(outboxEventRepository, times(1)).save(captor.capture());
-
-        OutboxEvent capturedEvent = captor.getValue();
-        assertThat(capturedEvent.getEventType()).isEqualTo("KEYCLOAK_CLEANUP");
-        assertThat(capturedEvent.getAggregateId()).isEqualTo(keycloakUserId);
     }
 
     
@@ -531,6 +335,9 @@ class UserManagementServiceImplTest {
                     "SCHOOL_ADMIN",
                     Set.of("SCHOOL_ADMIN", "ACCOUNTANT")
             );
+
+            lenient().when(userRepository.findByKeycloakIdAndDeletedAtIsNull(any()))
+                    .thenReturn(Mono.just(User.builder().id(ADMIN_USER_ID).build()));
         }
 
         @Test
@@ -771,6 +578,384 @@ class UserManagementServiceImplTest {
                         assertThat(pageResponse.totalPages()).isEqualTo(3); // ceil(25/10) = 3
                     })
                     .verifyComplete();
+        }
+    }
+
+    // ========================================================================
+    // CHECK ACCOUNT TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Check Account")
+    class CheckAccountTests {
+
+        @Test
+        @DisplayName("Should return 400 Bad Request (SchoolFeeException) for invalid phone number")
+        void shouldReturnBadRequestForInvalidPhoneNumber() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.CheckAccountRequest("invalid_phone");
+
+            Mono<com.fee.app.schoolfeeapp.auth.dto.response.CheckAccountResponse> result = userManagementService.checkAccount(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(throwable -> throwable instanceof SchoolFeeException && 
+                            ((SchoolFeeException) throwable).getErrorCode().equals("INVALID_PHONE_NUMBER"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should deduplicate guardians in the same school and return single match")
+        void shouldDeduplicateGuardiansInSameSchool() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.CheckAccountRequest("+2348012345678");
+
+            UUID guardianId1 = UUID.randomUUID();
+            UUID guardianId2 = UUID.randomUUID();
+
+            StudentGuardian g1 = StudentGuardian.builder().id(guardianId1).schoolId(SCHOOL_ID).firstName("John").lastName("Doe").build();
+            StudentGuardian g2 = StudentGuardian.builder().id(guardianId2).schoolId(SCHOOL_ID).firstName("John").lastName("Doe").build();
+
+            School school = School.builder().id(SCHOOL_ID).name(SCHOOL_NAME).build();
+
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.just(g1, g2));
+            when(schoolRepository.findById(SCHOOL_ID)).thenReturn(Mono.just(school));
+            when(guardianLinkRepository.findByGuardianIdAndDeletedAtIsNull(any()))
+                    .thenReturn(Flux.just(mock(StudentGuardianLinkProjection.class), mock(StudentGuardianLinkProjection.class)));
+
+            Mono<com.fee.app.schoolfeeapp.auth.dto.response.CheckAccountResponse> result = userManagementService.checkAccount(request);
+
+            StepVerifier.create(result)
+                    .assertNext(response -> {
+                        assertThat(response.found()).isTrue();
+                        assertThat(response.schoolName()).isEqualTo(SCHOOL_NAME);
+                        assertThat(response.guardianName()).isEqualTo("John Doe");
+                        assertThat(response.childrenCount()).isEqualTo(2);
+                        assertThat(response.options()).isNull();
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should return multiple options with school names when in multiple schools")
+        void shouldReturnMultipleOptionsWithSchoolNames() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.CheckAccountRequest("+2348012345678");
+
+            UUID schoolId2 = UUID.randomUUID();
+
+            StudentGuardian g1 = StudentGuardian.builder().id(UUID.randomUUID()).schoolId(SCHOOL_ID).firstName("John").lastName("Doe").build();
+            StudentGuardian g2 = StudentGuardian.builder().id(UUID.randomUUID()).schoolId(schoolId2).firstName("John").lastName("Doe").build();
+
+            School school1 = School.builder().id(SCHOOL_ID).name(SCHOOL_NAME).build();
+            School school2 = School.builder().id(schoolId2).name("Second School").build();
+
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.just(g1, g2));
+            when(schoolRepository.findById(SCHOOL_ID)).thenReturn(Mono.just(school1));
+            when(schoolRepository.findById(schoolId2)).thenReturn(Mono.just(school2));
+
+            Mono<com.fee.app.schoolfeeapp.auth.dto.response.CheckAccountResponse> result = userManagementService.checkAccount(request);
+
+            StepVerifier.create(result)
+                    .assertNext(response -> {
+                        assertThat(response.found()).isTrue();
+                        assertThat(response.options()).hasSize(2);
+                        assertThat(response.options()).extracting("schoolName")
+                                .containsExactlyInAnyOrder(SCHOOL_NAME, "Second School");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should return zero children count when no links exist")
+        void shouldReturnZeroChildrenCount() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.CheckAccountRequest("+2348012345678");
+
+            StudentGuardian g1 = StudentGuardian.builder().id(UUID.randomUUID()).schoolId(SCHOOL_ID).firstName("John").lastName("Doe").build();
+            School school = School.builder().id(SCHOOL_ID).name(SCHOOL_NAME).build();
+
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.just(g1));
+            when(schoolRepository.findById(SCHOOL_ID)).thenReturn(Mono.just(school));
+            when(guardianLinkRepository.findByGuardianIdAndDeletedAtIsNull(g1.getId()))
+                    .thenReturn(Flux.empty());
+
+            Mono<com.fee.app.schoolfeeapp.auth.dto.response.CheckAccountResponse> result = userManagementService.checkAccount(request);
+
+            StepVerifier.create(result)
+                    .assertNext(response -> {
+                        assertThat(response.found()).isTrue();
+                        assertThat(response.childrenCount()).isZero();
+                    })
+                    .verifyComplete();
+        }
+    }
+
+    // ========================================================================
+    // SEND OTP TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Send OTP")
+    class SendOtpTests {
+
+        @Test
+        @DisplayName("Should successfully send OTP when an unregistered guardian exists")
+        void shouldSendOtpForValidUnregisteredGuardian() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest("+2348012345678");
+
+            StudentGuardian guardian = StudentGuardian.builder().id(UUID.randomUUID()).schoolId(SCHOOL_ID).userId(null).build();
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678")).thenReturn(Flux.just(guardian));
+            when(smsService.send(anyString(), anyString())).thenReturn(Mono.empty());
+
+            Mono<Void> result = userManagementService.sendOtp(request);
+
+            StepVerifier.create(result).verifyComplete();
+
+            verify(smsService).send(eq("2348012345678"), contains("verification code is:"));
+        }
+
+        @Test
+        @DisplayName("Should return 400 when phone number is invalid")
+        void shouldReturn400ForInvalidPhone() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest("invalid");
+
+            Mono<Void> result = userManagementService.sendOtp(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("INVALID_PHONE_NUMBER"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return 400 when guardian is not found")
+        void shouldReturn400WhenGuardianNotFound() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest("+2348012345678");
+
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678")).thenReturn(Flux.empty());
+
+            Mono<Void> result = userManagementService.sendOtp(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("GUARDIAN_NOT_FOUND"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return 400 when account is already registered")
+        void shouldReturn400WhenAccountAlreadyRegistered() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest("+2348012345678");
+
+            StudentGuardian guardian = StudentGuardian.builder().id(UUID.randomUUID()).schoolId(SCHOOL_ID).userId(UUID.randomUUID()).build();
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678")).thenReturn(Flux.just(guardian));
+
+            Mono<Void> result = userManagementService.sendOtp(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("ACCOUNT_ALREADY_REGISTERED"))
+                    .verify();
+        }
+    }
+
+    // ========================================================================
+    // VERIFY OTP TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Verify OTP")
+    class VerifyOtpTests {
+
+        @BeforeEach
+        void setup() {
+            lenient().when(transactionalOperator.transactional(any(Mono.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+        }
+
+        @Test
+        @DisplayName("Should create local user and Keycloak user if new")
+        void shouldCreateAccountIfNew() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348012345678", "000000", SCHOOL_ID);
+
+            StudentGuardian guardian = StudentGuardian.builder()
+                    .id(UUID.randomUUID())
+                    .schoolId(SCHOOL_ID)
+                    .userId(null)
+                    .firstName("John")
+                    .lastName("Doe")
+                    .phone("2348012345678")
+                    .email("john@test.com")
+                    .build();
+
+            when(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull("2348012345678", SCHOOL_ID))
+                    .thenReturn(Mono.just(guardian));
+            
+            when(keycloakAdminService.findByUsername("2348012345678")).thenReturn(Optional.empty());
+            
+            UUID kcId = UUID.randomUUID();
+            when(keycloakAdminService.createUser(any(), anyString(), any())).thenReturn(Mono.just(new KeycloakUserResult(kcId, "tempPassword")));
+
+            User savedUser = User.builder().id(UUID.randomUUID()).build();
+            when(userRepository.save(any(User.class))).thenReturn(Mono.just(savedUser));
+            when(guardianRepository.save(any(StudentGuardian.class))).thenReturn(Mono.just(guardian));
+            when(roleRepository.save(any(UserSchoolRole.class))).thenReturn(Mono.just(UserSchoolRole.builder().id(UUID.randomUUID()).build()));
+
+            Mono<java.util.Map<String, String>> result = userManagementService.verifyOtpAndCreateAccount(request);
+
+            StepVerifier.create(result)
+                    .assertNext(res -> {
+                        assertThat(res).containsEntry("message", "Account created. Set your password to continue.");
+                        assertThat(res).containsEntry("phoneNumber", "2348012345678");
+                    })
+                    .verifyComplete();
+            
+            verify(keycloakAdminService).createUser(any(), eq("PARENT"), eq(Set.of("PARENT")));
+        }
+
+        @Test
+        @DisplayName("Should link to existing Keycloak user if present")
+        void shouldLinkExistingKeycloakUser() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348012345678", "000000", SCHOOL_ID);
+
+            StudentGuardian guardian = StudentGuardian.builder()
+                    .id(UUID.randomUUID())
+                    .schoolId(SCHOOL_ID)
+                    .userId(null)
+                    .firstName("John")
+                    .lastName("Doe")
+                    .phone("2348012345678")
+                    .email("john@test.com")
+                    .build();
+
+            when(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull("2348012345678", SCHOOL_ID))
+                    .thenReturn(Mono.just(guardian));
+            
+            org.keycloak.representations.idm.UserRepresentation kcUser = new org.keycloak.representations.idm.UserRepresentation();
+            kcUser.setId(UUID.randomUUID().toString());
+            kcUser.setAttributes(new java.util.HashMap<>());
+            
+            when(keycloakAdminService.findByUsername("2348012345678")).thenReturn(Optional.of(kcUser));
+
+            User savedUser = User.builder().id(UUID.randomUUID()).build();
+            when(userRepository.save(any(User.class))).thenReturn(Mono.just(savedUser));
+            when(guardianRepository.save(any(StudentGuardian.class))).thenReturn(Mono.just(guardian));
+            when(roleRepository.save(any(UserSchoolRole.class))).thenReturn(Mono.just(UserSchoolRole.builder().id(UUID.randomUUID()).build()));
+
+            Mono<java.util.Map<String, String>> result = userManagementService.verifyOtpAndCreateAccount(request);
+
+            StepVerifier.create(result)
+                    .assertNext(res -> {
+                        assertThat(res).containsEntry("message", "Account created. Set your password to continue.");
+                    })
+                    .verifyComplete();
+            
+            verify(keycloakAdminService).updateUserAttributes(eq(kcUser.getId()), any());
+            verify(keycloakAdminService, never()).createUser(any(), anyString(), any());
+        }
+
+        @Test
+        @DisplayName("Should return 400 when ACCOUNT_ALREADY_REGISTERED")
+        void shouldReturn400IfAlreadyRegistered() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348012345678", "000000", SCHOOL_ID);
+
+            StudentGuardian guardian = StudentGuardian.builder()
+                    .id(UUID.randomUUID())
+                    .schoolId(SCHOOL_ID)
+                    .userId(UUID.randomUUID())
+                    .build();
+
+            when(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull("2348012345678", SCHOOL_ID))
+                    .thenReturn(Mono.just(guardian));
+
+            Mono<java.util.Map<String, String>> result = userManagementService.verifyOtpAndCreateAccount(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("ACCOUNT_ALREADY_REGISTERED"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return 400 MULTIPLE_ACCOUNTS_FOUND if schoolId is missing and multiple guardians exist")
+        void shouldReturn400IfMultipleAccountsFound() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348012345678", "000000", null);
+
+            StudentGuardian g1 = StudentGuardian.builder().id(UUID.randomUUID()).build();
+            StudentGuardian g2 = StudentGuardian.builder().id(UUID.randomUUID()).build();
+            
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.just(g1, g2));
+
+            Mono<java.util.Map<String, String>> result = userManagementService.verifyOtpAndCreateAccount(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("MULTIPLE_ACCOUNTS_FOUND"))
+                    .verify();
+        }
+    }
+
+    // ========================================================================
+    // SET PASSWORD TESTS
+    // ========================================================================
+
+    @Nested
+    @DisplayName("Set Password")
+    class SetPasswordTests {
+
+        @Test
+        @DisplayName("Should successfully set password")
+        void shouldSetPassword() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest("+2348012345678", "NewPassword123!");
+
+            UUID userId = UUID.randomUUID();
+            UUID kcId = UUID.randomUUID();
+            
+            StudentGuardian guardian = StudentGuardian.builder().userId(userId).build();
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.just(guardian));
+
+            User user = User.builder().id(userId).keycloakId(kcId).build();
+            when(userRepository.findById(userId)).thenReturn(Mono.just(user));
+            
+            doNothing().when(keycloakAdminService).setUserPassword(anyString(), anyString(), eq(false));
+
+            Mono<java.util.Map<String, String>> result = userManagementService.setPassword(request);
+
+            StepVerifier.create(result)
+                    .assertNext(res -> {
+                        assertThat(res).containsEntry("message", "Password set. You can now log in.");
+                        assertThat(res).containsEntry("phoneNumber", "2348012345678");
+                    })
+                    .verifyComplete();
+            
+            verify(keycloakAdminService).setUserPassword(kcId.toString(), "NewPassword123!", false);
+        }
+
+        @Test
+        @DisplayName("Should return 400 GUARDIAN_NOT_FOUND when phone is not recognized")
+        void shouldReturn400IfGuardianNotFound() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest("+2348012345678", "NewPassword123!");
+
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.empty());
+
+            Mono<java.util.Map<String, String>> result = userManagementService.setPassword(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("GUARDIAN_NOT_FOUND"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return 400 ACCOUNT_NOT_READY when guardian exists but has no user ID")
+        void shouldReturn400IfAccountNotReady() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest("+2348012345678", "NewPassword123!");
+
+            StudentGuardian guardian = StudentGuardian.builder().userId(null).build();
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.just(guardian));
+
+            Mono<java.util.Map<String, String>> result = userManagementService.setPassword(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("ACCOUNT_NOT_READY"))
+                    .verify();
         }
     }
 }
