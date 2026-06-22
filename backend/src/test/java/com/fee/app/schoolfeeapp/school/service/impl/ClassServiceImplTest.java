@@ -17,6 +17,8 @@ import com.fee.app.schoolfeeapp.school.repository.AcademicSessionRepository;
 import com.fee.app.schoolfeeapp.school.repository.ClassRepository;
 import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
+import com.fee.app.schoolfeeapp.student.repository.SchoolStudentGuardianLinkRepository;
+import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianRepository;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
@@ -64,6 +66,12 @@ class ClassServiceImplTest {
     @Mock
     private TransactionalOperator transactionalOperator;
 
+    @Mock
+    private SchoolStudentGuardianLinkRepository guardianLinkRepository;
+
+    @Mock
+    private StudentGuardianRepository guardianRepository;
+
     private ClassServiceImpl classService;
 
     private static final UUID SCHOOL_ID = UUID.fromString("b2c3d4e5-f6a7-8901-bcde-f12345678901");
@@ -86,7 +94,11 @@ class ClassServiceImplTest {
                 sessionRepository,
                 schoolRepository,
                 jwtUtils,
-                transactionalOperator);
+                transactionalOperator,
+                guardianLinkRepository,
+                guardianRepository);
+        org.mockito.Mockito.lenient().when(guardianLinkRepository.findActivePrimaryByStudentId(any()))
+                .thenReturn(Flux.empty());
     }
 
     @Test

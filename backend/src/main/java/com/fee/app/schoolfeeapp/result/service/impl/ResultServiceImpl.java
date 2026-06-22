@@ -3,18 +3,19 @@ package com.fee.app.schoolfeeapp.result.service.impl;
 
 import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianLinkRepository;
 import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianRepository;
+import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
+import com.fee.app.schoolfeeapp.auth.domain.User;
 import com.fee.app.schoolfeeapp.auth.util.JwtUtils;
 import com.fee.app.schoolfeeapp.auth.util.SchoolFeeUser;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
+import com.fee.app.schoolfeeapp.notification.service.SmsService;
 import com.fee.app.schoolfeeapp.result.domain.*;
-import com.fee.app.schoolfeeapp.result.dto.request.CaConfigRequest;
-import com.fee.app.schoolfeeapp.result.dto.request.ExamScoreRequest;
-import com.fee.app.schoolfeeapp.result.dto.request.GradingRuleRequest;
-import com.fee.app.schoolfeeapp.result.dto.request.ReportCardRequest;
+import com.fee.app.schoolfeeapp.result.dto.request.*;
 import com.fee.app.schoolfeeapp.result.dto.response.*;
 import com.fee.app.schoolfeeapp.result.repository.*;
 import com.fee.app.schoolfeeapp.result.service.ResultService;
 import com.fee.app.schoolfeeapp.result.service.ScoreComputationEngine;
+import com.fee.app.schoolfeeapp.result.utils.ResultPdfGenerator;
 import com.fee.app.schoolfeeapp.school.domain.AcademicSession;
 import com.fee.app.schoolfeeapp.school.domain.ClassEntity;
 import com.fee.app.schoolfeeapp.school.domain.Term;
@@ -26,6 +27,8 @@ import com.fee.app.schoolfeeapp.student.domain.Student;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
@@ -47,6 +50,16 @@ class ResultServiceImpl implements ResultService {
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
     private static final String REPORT_JOB_PROCESSING = "PROCESSING";
     private static final String REPORT_JOB_COMPLETED = "COMPLETED";
+    private static final List<GradeBand> DEFAULT_GRADE_BANDS = List.of(
+            new GradeBand("A1", 75, 100),
+            new GradeBand("B2", 70, 74),
+            new GradeBand("B3", 65, 69),
+            new GradeBand("C4", 60, 64),
+            new GradeBand("C5", 55, 59),
+            new GradeBand("C6", 50, 54),
+            new GradeBand("D7", 45, 49),
+            new GradeBand("E8", 40, 44),
+            new GradeBand("F9", 0, 39));
 
     private final CaComponentRepository caComponentRepository;
     private final CaScoreRepository caScoreRepository;
@@ -67,10 +80,14 @@ class ResultServiceImpl implements ResultService {
     private final AcademicSessionRepository academicSessionRepository;
     private final StudentGuardianRepository guardianRepository;
     private final StudentGuardianLinkRepository guardianLinkRepository;
+    private final UserRepository userRepository;
     private final JwtUtils jwtUtils;
     private final TransactionalOperator transactionalOperator;
     private final ScoreComputationEngine computationEngine;
+    private final ResultPdfGenerator resultPdfGenerator;
+    private final SmsService smsService;
     private final Map<UUID, ReportCardJobState> reportCardJobs = new ConcurrentHashMap<>();
+
 
     // ========================================================================
     // CA CONFIGURATION
@@ -135,19 +152,20 @@ class ResultServiceImpl implements ResultService {
                 .flatMap(validatedRequest -> jwtUtils.getCurrentUser()
                         .flatMap(user -> {
                             UUID schoolId = requireSchoolId(user);
-                            Mono<CaScoreResponse> transaction = verifyCaScoreContext(validatedRequest, schoolId)
-                                    .then(verifyNotPublished(schoolId, validatedRequest.termId()))
-                                    .thenMany(Flux.fromIterable(validatedRequest.scores())
-                                            .concatMap(scoreReq -> caScoreRepository.insert(
-                                                    toCaScoreEntity(validatedRequest, scoreReq, schoolId, user.getUserId()))))
-                                    .collectList()
-                                    .map(scores -> new CaScoreResponse(
-                                            UUID.randomUUID(),
-                                            validatedRequest.classId().toString(),
-                                            validatedRequest.subjectId().toString(),
-                                            validatedRequest.caComponentId().toString(),
-                                            scores.size(),
-                                            "CA scores recorded"));
+                            Mono<CaScoreResponse> transaction = resolveLocalUserId(user.getUserId())
+                                    .flatMap(localUserId -> verifyCaScoreContext(validatedRequest, schoolId)
+                                            .then(verifyNotPublished(schoolId, validatedRequest.termId()))
+                                            .thenMany(Flux.fromIterable(validatedRequest.scores())
+                                                    .concatMap(scoreReq -> caScoreRepository.insert(
+                                                            toCaScoreEntity(validatedRequest, scoreReq, schoolId, localUserId))))
+                                            .collectList()
+                                            .map(scores -> new CaScoreResponse(
+                                                    UUID.randomUUID(),
+                                                    validatedRequest.classId().toString(),
+                                                    validatedRequest.subjectId().toString(),
+                                                    validatedRequest.caComponentId().toString(),
+                                                    scores.size(),
+                                                    "CA scores recorded")));
 
                             return transactionalOperator.transactional(transaction)
                                     .onErrorMap(DuplicateKeyException.class, this::duplicateScoreException);
@@ -160,30 +178,31 @@ class ResultServiceImpl implements ResultService {
                 .flatMap(validatedRequest -> jwtUtils.getCurrentUser()
                         .flatMap(user -> {
                             UUID schoolId = requireSchoolId(user);
-                            Mono<ExamScoreResponse> transaction = verifyExamScoreContext(validatedRequest, schoolId)
-                                    .then(verifyNotPublished(schoolId, validatedRequest.termId()))
-                                    .thenMany(Flux.fromIterable(validatedRequest.scores())
-                                            .concatMap(scoreReq -> scoreRepository.insert(
-                                                    toExamScoreEntity(validatedRequest, scoreReq, schoolId, user.getUserId()))))
-                                    .collectList()
-                                    .flatMap(scores -> computeFinalScores(
-                                                    validatedRequest.classId(),
-                                                    validatedRequest.termId(),
-                                                    validatedRequest.subjectId())
-                                            .then(autoComputeRankings(
-                                                    validatedRequest.classId(),
-                                                    validatedRequest.termId(),
-                                                    schoolId))
-                                            .thenReturn(new ExamScoreResponse(
-                                                    UUID.randomUUID(),
-                                                    validatedRequest.classId().toString(),
-                                                    validatedRequest.subjectId().toString(),
-                                                    scores.size(),
-                                                    scores.size(),
-                                                    null,
-                                                    null,
-                                                    null,
-                                                    "Exam scores recorded. Final scores computed.")));
+                            Mono<ExamScoreResponse> transaction = resolveLocalUserId(user.getUserId())
+                                    .flatMap(localUserId -> verifyExamScoreContext(validatedRequest, schoolId)
+                                            .then(verifyNotPublished(schoolId, validatedRequest.termId()))
+                                            .thenMany(Flux.fromIterable(validatedRequest.scores())
+                                                    .concatMap(scoreReq -> scoreRepository.insert(
+                                                            toExamScoreEntity(validatedRequest, scoreReq, schoolId, localUserId))))
+                                            .collectList()
+                                            .flatMap(scores -> computeFinalScores(
+                                                            validatedRequest.classId(),
+                                                            validatedRequest.termId(),
+                                                            validatedRequest.subjectId())
+                                                    .then(autoComputeRankings(
+                                                            validatedRequest.classId(),
+                                                            validatedRequest.termId(),
+                                                            schoolId))
+                                                    .thenReturn(new ExamScoreResponse(
+                                                            UUID.randomUUID(),
+                                                            validatedRequest.classId().toString(),
+                                                            validatedRequest.subjectId().toString(),
+                                                            scores.size(),
+                                                            scores.size(),
+                                                            null,
+                                                            null,
+                                                            null,
+                                                            "Exam scores recorded. Final scores computed."))));
 
                             return transactionalOperator.transactional(transaction)
                                     .onErrorMap(DuplicateKeyException.class, this::duplicateScoreException);
@@ -196,17 +215,18 @@ class ResultServiceImpl implements ResultService {
                 .flatMap(validatedRequest -> jwtUtils.getCurrentUser()
                         .flatMap(user -> {
                             UUID schoolId = requireSchoolId(user);
-                            Mono<UpdateScoreResponse> transaction = scoreRepository.findByIdAndSchoolIdForUpdate(scoreId, schoolId)
-                                    .switchIfEmpty(Mono.error(new SchoolFeeException("SCORE_NOT_FOUND", "Score not found", "scoreId")))
-                                    .flatMap(score -> verifyNotPublished(schoolId, score.getTermId())
-                                            .then(Mono.defer(() -> doUpdateScore(score, validatedRequest, schoolId, user))));
+                            Mono<UpdateScoreResponse> transaction = resolveLocalUserId(user.getUserId())
+                                    .flatMap(localUserId -> scoreRepository.findByIdAndSchoolIdForUpdate(scoreId, schoolId)
+                                            .switchIfEmpty(Mono.error(new SchoolFeeException("SCORE_NOT_FOUND", "Score not found", "scoreId")))
+                                            .flatMap(score -> verifyNotPublished(schoolId, score.getTermId())
+                                                    .then(Mono.defer(() -> doUpdateScore(score, validatedRequest, schoolId, localUserId)))));
 
                             return transactionalOperator.transactional(transaction);
                         }));
     }
 
     private Mono<UpdateScoreResponse> doUpdateScore(
-            ResultScore score, UpdateScoreRequest request, UUID schoolId, SchoolFeeUser user) {
+            ResultScore score, UpdateScoreRequest request, UUID schoolId, UUID localUserId) {
         if (request.score().compareTo(BigDecimal.valueOf(score.getMaxScore())) > 0) {
             return Mono.error(new SchoolFeeException(
                     "INVALID_SCORE",
@@ -222,7 +242,7 @@ class ResultServiceImpl implements ResultService {
         return scoreRepository.save(score)
                 .flatMap(saved -> auditScoreChange("EXAM_SCORE", saved.getId(), saved.getStudentId(),
                         saved.getSubjectId(), saved.getTermId(), oldScore, request.score(),
-                        schoolId, user.getUserId(), request.reason(), updatedAt))
+                        schoolId, localUserId, request.reason(), updatedAt))
                 .then(computeFinalScores(score.getClassId(), score.getTermId(), score.getSubjectId()))
                 .then(autoComputeRankings(score.getClassId(), score.getTermId(), schoolId))
                 .thenReturn(new UpdateScoreResponse(score.getId(), request.score(), oldScore, updatedAt));
@@ -280,6 +300,28 @@ class ResultServiceImpl implements ResultService {
                             .concatMap(studentId -> buildMyChildResult(studentId, schoolId));
                 })
                 .collectList();
+    }
+
+    @Override
+    public Mono<List<PublishedTermResultResponse>> getPublishedStudentResults(UUID studentId) {
+        return jwtUtils.getCurrentUser()
+                .flatMap(user -> {
+                    UUID schoolId = requireSchoolId(user);
+                    if (!user.isParent()) {
+                        return Mono.error(new SchoolFeeException(
+                                "ACCESS_DENIED",
+                                "Only parents can view a child's published result history"));
+                    }
+                    return verifyParentAccess(user.getUserId(), studentId)
+                            .thenMany(publishedResultRepository.findBySchoolIdOrderByPublishedAtDesc(schoolId))
+                            .concatMap(published -> termRepository
+                                    .findByIdAndSchoolId(published.getTermId(), schoolId)
+                                    .flatMap(term -> buildPublishedTermSummary(
+                                            studentId,
+                                            term,
+                                            schoolId)))
+                            .collectList();
+                });
     }
 
     // ========================================================================
@@ -398,9 +440,10 @@ class ResultServiceImpl implements ResultService {
         return jwtUtils.getCurrentUser()
                 .flatMap(user -> {
                     UUID schoolId = requireSchoolId(user);
-                    return validateCommentContext(studentId, termId, schoolId)
-                            .then(Mono.defer(() ->
-                                    saveComment(studentId, termId, schoolId, comment, true, user.getUserId())));
+                    return resolveLocalUserId(user.getUserId())
+                            .flatMap(localUserId -> validateCommentContext(studentId, termId, schoolId)
+                                    .then(Mono.defer(() ->
+                                            saveComment(studentId, termId, schoolId, comment, true, localUserId))));
                 });
     }
 
@@ -409,9 +452,10 @@ class ResultServiceImpl implements ResultService {
         return jwtUtils.getCurrentUser()
                 .flatMap(user -> {
                     UUID schoolId = requireSchoolId(user);
-                    return validateCommentContext(studentId, termId, schoolId)
-                            .then(Mono.defer(() ->
-                                    saveComment(studentId, termId, schoolId, comment, false, user.getUserId())));
+                    return resolveLocalUserId(user.getUserId())
+                            .flatMap(localUserId -> validateCommentContext(studentId, termId, schoolId)
+                                    .then(Mono.defer(() ->
+                                            saveComment(studentId, termId, schoolId, comment, false, localUserId))));
                 });
     }
 
@@ -424,15 +468,16 @@ class ResultServiceImpl implements ResultService {
         return jwtUtils.getCurrentUser()
                 .flatMap(user -> {
                     UUID schoolId = requireSchoolId(user);
-                    return termRepository.findByIdAndSchoolId(termId, schoolId)
-                            .switchIfEmpty(Mono.error(new SchoolFeeException(
-                                    "TERM_NOT_FOUND",
-                                    "Term not found",
-                                    "termId")))
-                            .then(Mono.defer(() -> publishResultsForTerm(termId, schoolId, user.getUserId())))
-                            .onErrorResume(DuplicateKeyException.class, ex -> Mono.error(new SchoolFeeException(
-                                    "RESULTS_ALREADY_PUBLISHED",
-                                    "Results are already published for this term")));
+                    return resolveLocalUserId(user.getUserId())
+                            .flatMap(localUserId -> termRepository.findByIdAndSchoolId(termId, schoolId)
+                                    .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                            "TERM_NOT_FOUND",
+                                            "Term not found",
+                                            "termId")))
+                                    .then(Mono.defer(() -> publishResultsForTerm(termId, schoolId, localUserId)))
+                                    .onErrorResume(DuplicateKeyException.class, ex -> Mono.error(new SchoolFeeException(
+                                            "RESULTS_ALREADY_PUBLISHED",
+                                            "Results are already published for this term"))));
                 });
     }
 
@@ -441,17 +486,18 @@ class ResultServiceImpl implements ResultService {
         return jwtUtils.getCurrentUser()
                 .flatMap(user -> {
                     UUID schoolId = requireSchoolId(user);
-                    Mono<PublishResultResponse> transaction = termRepository.findByIdAndSchoolId(termId, schoolId)
-                            .switchIfEmpty(Mono.error(new SchoolFeeException(
-                                    "TERM_NOT_FOUND",
-                                    "Term not found",
-                                    "termId")))
-                            .then(Mono.defer(() -> publishedResultRepository.findBySchoolIdAndTermId(schoolId, termId)
+                    Mono<PublishResultResponse> transaction = resolveLocalUserId(user.getUserId())
+                            .flatMap(localUserId -> termRepository.findByIdAndSchoolId(termId, schoolId)
                                     .switchIfEmpty(Mono.error(new SchoolFeeException(
-                                            "RESULTS_NOT_PUBLISHED",
-                                            "Results have not been published yet.")))
-                                    .flatMap(published -> publishedResultRepository.delete(published))
-                                    .thenReturn(toUnpublishResponse(termId, user.getUserId()))));
+                                            "TERM_NOT_FOUND",
+                                            "Term not found",
+                                            "termId")))
+                                    .then(Mono.defer(() -> publishedResultRepository.findBySchoolIdAndTermId(schoolId, termId)
+                                            .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                                    "RESULTS_NOT_PUBLISHED",
+                                                    "Results have not been published yet.")))
+                                            .flatMap(published -> publishedResultRepository.delete(published))
+                                            .thenReturn(toUnpublishResponse(termId, localUserId)))));
                     return transactionalOperator.transactional(transaction);
                 });
     }
@@ -482,7 +528,8 @@ class ResultServiceImpl implements ResultService {
                             }))
                             .map(saved -> new GradingRuleResponse(schoolId,
                                     saved.getConfig() != null ? saved.getConfig().size() : 0,
-                                    "Grading rules updated"));
+                                    "Grading rules updated",
+                                    saved.getConfig()));
                 });
     }
 
@@ -494,9 +541,11 @@ class ResultServiceImpl implements ResultService {
                     return gradeConfigRepository.findBySchoolId(schoolId)
                             .map(config -> new GradingRuleResponse(schoolId,
                                     config.getConfig() != null ? config.getConfig().size() : 0,
-                                    "Current grading rules"))
+                                    "Current grading rules",
+                                    config.getConfig()))
                             .defaultIfEmpty(new GradingRuleResponse(schoolId, 0,
-                                    "No grading rules configured"));
+                                    "No grading rules configured",
+                                    null));
                 });
     }
 
@@ -520,7 +569,13 @@ class ResultServiceImpl implements ResultService {
                 .flatMap(user -> {
                     UUID schoolId = requireSchoolId(user);
                     return caComponentRepository.findBySchoolIdAndIsActiveTrue(schoolId)
-                            .map(comp -> new CaComponentLookupResponse(comp.getId(), comp.getName(), comp.getMaxScore()))
+                            .map(comp -> new CaComponentLookupResponse(
+                                    comp.getId(),
+                                    comp.getName(),
+                                    comp.getMaxScore(),
+                                    comp.getWeightPercentage() != null ? comp.getWeightPercentage().doubleValue() : 0.0,
+                                    comp.getSortOrder()
+                            ))
                             .collectList();
                 });
     }
@@ -534,9 +589,41 @@ class ResultServiceImpl implements ResultService {
                             .switchIfEmpty(Mono.error(new SchoolFeeException("TERM_NOT_FOUND", "Term not found", "termId")))
                             .thenMany(examRepository.findByTermId(termId))
                             .filter(exam -> exam.getSchoolId().equals(schoolId))
-                            .map(exam -> new ExamLookupResponse(exam.getId(), exam.getName(), exam.getMaxScore()))
-                            .collectList();
+                            .collectList()
+                            .flatMap(exams -> {
+                                if (exams.isEmpty()) {
+                                    return getCaConfig()
+                                            .flatMap(caConfig -> resolveLocalUserId(user.getUserId())
+                                                    .flatMap(localUserId -> {
+                                                        double examWeight = caConfig.examWeightPercentage() != null ? caConfig.examWeightPercentage() : 60.0;
+                                                        Exam defaultExam = Exam.builder()
+                                                                .id(null) // Let database generate id (forces INSERT in R2DBC)
+                                                                .schoolId(schoolId)
+                                                                .termId(termId)
+                                                                .name("End of Term Exam")
+                                                                .examType("END_OF_TERM")
+                                                                .maxScore((int) examWeight)
+                                                                .weightPercentage(BigDecimal.valueOf(examWeight))
+                                                                .isPublished(false)
+                                                                .createdBy(localUserId)
+                                                                .createdAt(Instant.now())
+                                                                .updatedAt(Instant.now())
+                                                                .build();
+                                                        return examRepository.save(defaultExam)
+                                                                .map(saved -> List.of(new ExamLookupResponse(saved.getId(), saved.getName(), saved.getMaxScore())));
+                                                    }));
+                                }
+                                return Mono.just(exams.stream()
+                                        .map(exam -> new ExamLookupResponse(exam.getId(), exam.getName(), exam.getMaxScore()))
+                                        .collect(Collectors.toList()));
+                            });
                 });
+    }
+
+    private Mono<UUID> resolveLocalUserId(UUID keycloakUserId) {
+        return userRepository.findByKeycloakIdAndDeletedAtIsNull(keycloakUserId)
+                .map(User::getId)
+                .switchIfEmpty(Mono.error(new SchoolFeeException("USER_NOT_FOUND", "Local user record not found", "userId")));
     }
 
     // ========================================================================
@@ -733,10 +820,17 @@ class ResultServiceImpl implements ResultService {
                 .findByStudentIdAndTermIdAndSchoolId(student.getId(), term.getId(), schoolId)
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty());
+        Mono<Optional<GradeConfig>> gradeConfigMono = gradeConfigRepository
+                .findBySchoolIdAndIsActiveTrue(schoolId)
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty());
 
-        return Mono.zip(classMono, classSizeMono, sessionMono, finalScoresMono, rankingMono, commentMono)
-                .flatMap(tuple -> Flux.fromIterable(tuple.getT4())
-                        .concatMap(finalScore -> buildSubjectResult(finalScore, schoolId))
+        return Mono.zip(classMono, classSizeMono, sessionMono, finalScoresMono, rankingMono, commentMono, gradeConfigMono)
+                .flatMap(tuple -> {
+                    List<GradeBand> gradeBands = resolveGradeBands(
+                            tuple.getT7().map(GradeConfig::getConfig).orElse(null));
+                    return Flux.fromIterable(tuple.getT4())
+                        .concatMap(finalScore -> buildSubjectResult(finalScore, schoolId, gradeBands))
                         .collectList()
                         .map(subjects -> {
                             Optional<ClassRanking> ranking = tuple.getT5();
@@ -759,10 +853,14 @@ class ResultServiceImpl implements ResultService {
                                     buildAttendanceInfo(comment),
                                     comment.map(ReportComment::getTeacherComment).orElse(null),
                                     comment.map(ReportComment::getPrincipalComment).orElse(null));
-                        }));
+                        });
+                });
     }
 
-    private Mono<StudentResultResponse.SubjectResult> buildSubjectResult(FinalScore finalScore, UUID schoolId) {
+    private Mono<StudentResultResponse.SubjectResult> buildSubjectResult(
+            FinalScore finalScore,
+            UUID schoolId,
+            List<GradeBand> gradeBands) {
         Mono<Subject> subjectMono = subjectRepository.findById(finalScore.getSubjectId())
                 .defaultIfEmpty(Subject.builder().id(finalScore.getSubjectId()).name("Unknown Subject").build());
         Mono<List<StudentResultResponse.CaBreakdown>> caScoresMono = caScoreRepository
@@ -794,7 +892,7 @@ class ResultServiceImpl implements ResultService {
                         nullToZero(finalScore.getFinalScore()),
                         100,
                         nullToZero(finalScore.getFinalScore()),
-                        finalScore.getGrade(),
+                        resolveStoredOrComputedGrade(finalScore, gradeBands),
                         finalScore.getRemark(),
                         finalScore.getPoints(),
                         finalScore.getSubjectPosition() == null ? 0 : finalScore.getSubjectPosition(),
@@ -825,8 +923,19 @@ class ResultServiceImpl implements ResultService {
         // Fetch rankings
         Mono<List<ClassRanking>> rankingsListMono = rankingRepository.findByClassIdAndTermIdOrderByClassPosition(classId, termId)
                 .collectList();
+        Mono<Optional<GradeConfig>> gradeConfigMono = gradeConfigRepository
+                .findBySchoolIdAndIsActiveTrue(schoolId)
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty());
 
-        return Mono.zip(classMono, termMono, classSizeMono, subjectsListMono, studentsListMono, rankingsListMono)
+        return Mono.zip(
+                        classMono,
+                        termMono,
+                        classSizeMono,
+                        subjectsListMono,
+                        studentsListMono,
+                        rankingsListMono,
+                        gradeConfigMono)
                 .flatMap(tuple -> {
                     ClassEntity classEntity = tuple.getT1();
                     Term term = tuple.getT2();
@@ -834,6 +943,8 @@ class ResultServiceImpl implements ResultService {
                     List<Subject> subjects = tuple.getT4();
                     List<Student> students = tuple.getT5();
                     List<ClassRanking> rankings = tuple.getT6();
+                    List<GradeBand> gradeBands = resolveGradeBands(
+                            tuple.getT7().map(GradeConfig::getConfig).orElse(null));
 
                     List<String> subjectNames = subjects.stream().map(Subject::getName).toList();
 
@@ -848,6 +959,10 @@ class ResultServiceImpl implements ResultService {
                                  int position = ranking == null ? 0 : ranking.getClassPosition();
                                  double average = ranking == null ? 0.0 : (ranking.getAveragePercentage() == null ? 0.0 : ranking.getAveragePercentage().doubleValue());
                                  String overallGrade = ranking == null ? null : ranking.getOverallGrade();
+                                 if (overallGrade == null || overallGrade.isBlank()) {
+                                     overallGrade = resolveGrade(gradeBands, average);
+                                 }
+                                 String resolvedOverallGrade = overallGrade;
 
                                 // Fetch final scores for this student and term
                                 return finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(student.getId(), termId, schoolId)
@@ -872,7 +987,7 @@ class ResultServiceImpl implements ResultService {
                                                         return new ClassResultSheetResponse.SubjectScore(
                                                                 subject.getName(),
                                                                 finalScore.getFinalScore() == null ? 0.0 : finalScore.getFinalScore().doubleValue(),
-                                                                finalScore.getGrade(),
+                                                                resolveStoredOrComputedGrade(finalScore, gradeBands),
                                                                 finalScore.getSubjectPosition() == null ? 0 : finalScore.getSubjectPosition()
                                                         );
                                                     })
@@ -884,7 +999,7 @@ class ResultServiceImpl implements ResultService {
                                                     fullName(student),
                                                     position,
                                                     average,
-                                                    overallGrade,
+                                                    resolvedOverallGrade,
                                                     subjectScores
                                             );
                                         });
@@ -927,6 +1042,42 @@ class ResultServiceImpl implements ResultService {
                 });
     }
 
+    private String resolveStoredOrComputedGrade(FinalScore finalScore, List<GradeBand> gradeBands) {
+        if (finalScore.getGrade() != null && !finalScore.getGrade().isBlank()) {
+            return finalScore.getGrade();
+        }
+        return finalScore.getFinalScore() == null
+                ? null
+                : resolveGrade(gradeBands, finalScore.getFinalScore().doubleValue());
+    }
+
+    private String resolveGrade(List<GradeBand> gradeBands, double score) {
+        return gradeBands.stream()
+                .filter(band -> score >= band.minScore() && score <= band.maxScore())
+                .map(GradeBand::grade)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private List<GradeBand> resolveGradeBands(com.fasterxml.jackson.databind.JsonNode config) {
+        if (config != null && config.path("grades").isArray()) {
+            List<GradeBand> configured = new ArrayList<>();
+            config.path("grades").forEach(node -> {
+                String grade = node.path("grade").asText();
+                if (!grade.isBlank() && node.has("minScore") && node.has("maxScore")) {
+                    configured.add(new GradeBand(
+                            grade,
+                            node.path("minScore").asDouble(),
+                            node.path("maxScore").asDouble()));
+                }
+            });
+            if (!configured.isEmpty()) {
+                return configured;
+            }
+        }
+        return DEFAULT_GRADE_BANDS;
+    }
+
     private Mono<MyChildResultResponse> buildMyChildResult(UUID studentId, UUID schoolId) {
         return studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, schoolId)
                 .flatMap(student -> {
@@ -960,21 +1111,38 @@ class ResultServiceImpl implements ResultService {
                                 UUID termId = term.getId();
                                 String termName = term.getName();
 
-                                Mono<List<FinalScore>> finalScoresMono = finalScoreRepository
-                                        .findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(studentId, termId, schoolId)
-                                        .collectList();
+                                return publishedResultRepository
+                                        .findBySchoolIdAndTermId(schoolId, termId)
+                                        .map(ignored -> true)
+                                        .defaultIfEmpty(false)
+                                        .flatMap(isPublished -> {
+                                            if (!isPublished) {
+                                                return Mono.just(new MyChildResultResponse(
+                                                        studentId,
+                                                        termId,
+                                                        student.getFirstName(),
+                                                        student.getLastName(),
+                                                        className,
+                                                        termName,
+                                                        null,
+                                                        List.of(),
+                                                        null));
+                                            }
+                                            Mono<List<FinalScore>> finalScoresMono = finalScoreRepository
+                                                    .findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(studentId, termId, schoolId)
+                                                    .collectList();
 
-                                Mono<Optional<ClassRanking>> rankingMono = rankingRepository
-                                        .findByStudentIdAndTermIdAndSchoolId(studentId, termId, schoolId)
-                                        .map(Optional::of)
-                                        .defaultIfEmpty(Optional.empty());
+                                            Mono<Optional<ClassRanking>> rankingMono = rankingRepository
+                                                    .findByStudentIdAndTermIdAndSchoolId(studentId, termId, schoolId)
+                                                    .map(Optional::of)
+                                                    .defaultIfEmpty(Optional.empty());
 
-                                Mono<Optional<ReportComment>> commentMono = commentRepository
-                                        .findByStudentIdAndTermIdAndSchoolId(studentId, termId, schoolId)
-                                        .map(Optional::of)
-                                        .defaultIfEmpty(Optional.empty());
+                                            Mono<Optional<ReportComment>> commentMono = commentRepository
+                                                    .findByStudentIdAndTermIdAndSchoolId(studentId, termId, schoolId)
+                                                    .map(Optional::of)
+                                                    .defaultIfEmpty(Optional.empty());
 
-                                return Mono.zip(finalScoresMono, rankingMono, commentMono)
+                                            return Mono.zip(finalScoresMono, rankingMono, commentMono)
                                         .flatMap(scoresRankingComment -> {
                                             List<FinalScore> finalScores = scoresRankingComment.getT1();
                                             Optional<ClassRanking> optRanking = scoresRankingComment.getT2();
@@ -990,7 +1158,18 @@ class ResultServiceImpl implements ResultService {
                                                 double average = totalScore.divide(BigDecimal.valueOf(subjectsTaken), 2, RoundingMode.HALF_UP).doubleValue();
                                                 String overallGrade = optRanking.map(ClassRanking::getOverallGrade).orElse(null);
 
-                                                summary = new MyChildResultResponse.ResultSummary(average, subjectsTaken, overallGrade);
+                                                int classPosition = optRanking
+                                                        .map(ClassRanking::getClassPosition)
+                                                        .orElse(0);
+                                                int outOf = optRanking
+                                                        .map(ClassRanking::getOutOf)
+                                                        .orElse(0);
+                                                summary = new MyChildResultResponse.ResultSummary(
+                                                        average,
+                                                        subjectsTaken,
+                                                        overallGrade,
+                                                        classPosition,
+                                                        outOf);
                                             } else {
                                                 summary = null;
                                             }
@@ -1053,9 +1232,56 @@ class ResultServiceImpl implements ResultService {
                                                         );
                                                     });
                                         });
+                                        });
                             });
                 })
                 .defaultIfEmpty(new MyChildResultResponse(studentId, null, null, null, null, null, null, List.of(), null));
+    }
+
+    private Mono<PublishedTermResultResponse> buildPublishedTermSummary(
+            UUID studentId,
+            Term term,
+            UUID schoolId) {
+        Mono<List<FinalScore>> scoresMono = finalScoreRepository
+                .findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(
+                        studentId,
+                        term.getId(),
+                        schoolId)
+                .collectList();
+        Mono<Optional<ClassRanking>> rankingMono = rankingRepository
+                .findByStudentIdAndTermIdAndSchoolId(studentId, term.getId(), schoolId)
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty());
+        Mono<String> sessionNameMono = term.getSessionId() == null
+                ? Mono.just("")
+                : academicSessionRepository.findByIdAndDeletedAtIsNull(term.getSessionId())
+                        .map(AcademicSession::getName)
+                        .defaultIfEmpty("");
+
+        return Mono.zip(scoresMono, rankingMono, sessionNameMono)
+                .map(tuple -> {
+                    List<FinalScore> scores = tuple.getT1();
+                    Optional<ClassRanking> ranking = tuple.getT2();
+                    double average = scores.isEmpty()
+                            ? 0
+                            : scores.stream()
+                                    .map(FinalScore::getFinalScore)
+                                    .filter(Objects::nonNull)
+                                    .reduce(BigDecimal.ZERO, BigDecimal::add)
+                                    .divide(BigDecimal.valueOf(scores.size()), 2, RoundingMode.HALF_UP)
+                                    .doubleValue();
+                    String grade = ranking.map(ClassRanking::getOverallGrade)
+                            .filter(value -> !value.isBlank())
+                            .orElseGet(() -> resolveGrade(DEFAULT_GRADE_BANDS, average));
+                    return new PublishedTermResultResponse(
+                            term.getId(),
+                            term.getName(),
+                            tuple.getT3(),
+                            average,
+                            grade,
+                            ranking.map(ClassRanking::getClassPosition).orElse(0),
+                            ranking.map(ClassRanking::getOutOf).orElse(0));
+                });
     }
 
     private CaScoreRequest validateCaScoreRequest(CaScoreRequest request) {
@@ -1539,6 +1765,9 @@ class ResultServiceImpl implements ResultService {
     private record ScoreValue(UUID studentId, BigDecimal score) {
     }
 
+    private record GradeBand(String grade, double minScore, double maxScore) {
+    }
+
     private record ReportCardJobState(
             UUID schoolId,
             String status,
@@ -1548,5 +1777,138 @@ class ResultServiceImpl implements ResultService {
             Instant completedAt,
             String message
     ) {
+    }
+
+
+    @Override
+    public Mono<DataBuffer> downloadStudentResultPdf(UUID studentId, UUID termId) {
+        return jwtUtils.getCurrentUser()
+                .flatMap(user -> getStudentResult(studentId, termId)
+                .map(result -> {
+                    byte[] pdfBytes = resultPdfGenerator.generateStudentResultPdf(
+                            result,
+                            user.getSchoolName());
+                    return new DefaultDataBufferFactory().wrap(pdfBytes);
+                }));
+    }
+
+    @Override
+    public Mono<ShareResultResponse> shareStudentResult(
+            UUID studentId, UUID termId, ShareResultRequest request) {
+
+        return getStudentResult(studentId, termId)
+                .flatMap(result -> {
+                    String studentName = result.student() == null
+                            ? "Student"
+                            : result.student().fullName();
+                    String termName = result.term() == null
+                            ? "Published"
+                            : result.term().name() + " " + result.term().sessionName();
+                    String average = result.summary() == null
+                            ? "N/A"
+                            : result.summary().average().stripTrailingZeros().toPlainString() + "%";
+                    String grade = result.summary() == null
+                            ? "N/A"
+                            : Objects.toString(result.summary().overallGrade(), "N/A");
+                    String position = result.ranking() == null
+                            ? "N/A"
+                            : result.ranking().classPosition() + " of " + result.ranking().outOf();
+                    String shareUrl = "https://schoolfee.app/dashboard?section=results&studentId="
+                            + studentId + "&termId=" + termId;
+
+                    String shareText = String.format(
+                            "%s - %s Results%nAverage: %s | Grade: %s | Position: %s%nView full report: %s",
+                            studentName, termName, average, grade, position, shareUrl);
+
+                    if ("SMS".equalsIgnoreCase(request.channel())) {
+                        return smsService.send(request.recipient(), shareText)
+                                .thenReturn(new ShareResultResponse("SMS", Instant.now(),
+                                        "Result sent to " + request.recipient(),
+                                        shareText,
+                                        shareUrl));
+                    } else if ("WHATSAPP".equalsIgnoreCase(request.channel())) {
+                        return Mono.just(new ShareResultResponse("WHATSAPP", Instant.now(),
+                                "WhatsApp message prepared",
+                                shareText,
+                                shareUrl));
+                    } else {
+                        return Mono.just(new ShareResultResponse("EMAIL", Instant.now(),
+                                "Email sharing is not configured yet",
+                                shareText,
+                                shareUrl));
+                    }
+                });
+    }
+
+    /**
+     * Build result data for PDF generation or sharing.
+     */
+    private Mono<StudentResultData> buildStudentResultData(UUID studentId, UUID termId) {
+        return studentRepository.findById(studentId)
+                .zipWith(termRepository.findById(termId))
+                .flatMap(tuple -> {
+                    Student student = tuple.getT1();
+                    Term term = tuple.getT2();
+
+                    return finalScoreRepository.findByStudentIdAndTermIdOrderBySubjectId(studentId, termId)
+                            .flatMap(fs -> subjectRepository.findById(fs.getSubjectId())
+                                    .map(subject -> new SubjectResultData(
+                                            subject.getName(),
+                                            fs.getCaTotal(),
+                                            fs.getCaMaxTotal(),
+                                            fs.getExamScore(),
+                                            fs.getExamMaxScore(),
+                                            fs.getFinalScore(),
+                                            fs.getGrade(),
+                                            fs.getRemark(),
+                                            fs.getSubjectPosition())))
+                            .collectList()
+                            .flatMap(subjects -> {
+                                // Get ranking
+                                return rankingRepository.findByStudentIdAndTermId(studentId, termId)
+                                        .map(ranking -> new StudentResultData(
+                                                student.getFirstName() + " " + student.getLastName(),
+                                                student.getAdmissionNumber(),
+                                                null, // Phase 2: className
+                                                term.getName(),
+                                                subjects,
+                                                calculateAverage(subjects),
+                                                calculateOverallGrade(subjects),
+                                                ranking.getClassPosition() + " of " + ranking.getOutOf(),
+                                                ranking.getSubjectsPassed() + "/" + ranking.getSubjectsTaken(),
+                                                null, // Phase 2: teacher comment
+                                                null  // Phase 2: principal comment
+                                        ))
+                                        .defaultIfEmpty(new StudentResultData(
+                                                student.getFirstName() + " " + student.getLastName(),
+                                                student.getAdmissionNumber(),
+                                                null, term.getName(), subjects,
+                                                calculateAverage(subjects),
+                                                calculateOverallGrade(subjects),
+                                                "N/A", "N/A", null, null));
+                            });
+                });
+    }
+
+
+
+    private String calculateAverage(List<SubjectResultData> subjects) {
+        if (subjects.isEmpty()) return "N/A";
+        BigDecimal total = subjects.stream()
+                .map(SubjectResultData::finalScore)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long count = subjects.stream()
+                .map(SubjectResultData::finalScore)
+                .filter(Objects::nonNull)
+                .count();
+        return count > 0
+                ? total.divide(BigDecimal.valueOf(count), 1, RoundingMode.HALF_UP) + "%"
+                : "N/A";
+    }
+
+    private String calculateOverallGrade(List<SubjectResultData> subjects) {
+        // Phase 2: Use grading config to determine overall grade
+        return "N/A";
     }
 }

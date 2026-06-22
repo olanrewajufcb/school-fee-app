@@ -1,6 +1,7 @@
 package com.fee.app.schoolfeeapp.result.repository;
 
 import com.fee.app.schoolfeeapp.result.domain.CaScore;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
@@ -41,7 +42,7 @@ public interface CaScoreRepository extends ReactiveCrudRepository<CaScore, UUID>
             )
             RETURNING *
             """)
-    Mono<CaScore> insert(CaScore score);
+    Mono<CaScore> insert(@Param("score") CaScore score);
 
     Flux<CaScore> findByStudentIdAndSubjectIdAndTermIdAndSchoolId(
             UUID studentId, UUID subjectId, UUID termId, UUID schoolId);

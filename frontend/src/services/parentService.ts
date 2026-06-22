@@ -104,6 +104,8 @@ export interface ChildResultSummary {
     average: number;
     totalSubjects: number;
     grade: string;
+    classPosition?: number;
+    outOf?: number;
   };
   topSubjects?: Array<{ name: string; score: number; grade: string }>;
   attendance?: {
@@ -152,6 +154,24 @@ export interface StudentResult {
   attendance?: { daysOpen: number; daysPresent: number; daysAbsent: number; attendanceRate: number };
   teacherComment?: string;
   principalComment?: string;
+}
+
+export interface PublishedTermResult {
+  termId: string;
+  termName: string;
+  sessionName?: string;
+  average: number;
+  overallGrade?: string;
+  classPosition: number;
+  outOf: number;
+}
+
+export interface ShareResultResponse {
+  channel: 'SMS' | 'WHATSAPP' | 'EMAIL';
+  sentAt: string;
+  message: string;
+  shareText: string;
+  shareUrl: string;
 }
 
 export interface ReceiptDetail {
@@ -231,6 +251,34 @@ export const parentService = {
 
   async getStudentResult(studentId: string, termId: string) {
     const response = await api.get<ApiEnvelope<StudentResult>>(`/api/v1/results/students/${studentId}/term/${termId}`);
+    return unwrap(response);
+  },
+
+  async getPublishedStudentResults(studentId: string) {
+    const response = await api.get<ApiEnvelope<PublishedTermResult[]>>(
+      `/api/v1/results/students/${studentId}/published-terms`,
+    );
+    return unwrap(response);
+  },
+
+  async downloadStudentResultPdf(studentId: string, termId: string) {
+    const response = await api.get<Blob>(
+      `/api/v1/results/students/${studentId}/term/${termId}/download`,
+      { responseType: 'blob' },
+    );
+    return response.data;
+  },
+
+  async shareStudentResult(
+    studentId: string,
+    termId: string,
+    channel: 'SMS' | 'WHATSAPP' | 'EMAIL',
+    recipient: string,
+  ) {
+    const response = await api.post<ApiEnvelope<ShareResultResponse>>(
+      `/api/v1/results/students/${studentId}/term/${termId}/share`,
+      { channel, recipient },
+    );
     return unwrap(response);
   },
 

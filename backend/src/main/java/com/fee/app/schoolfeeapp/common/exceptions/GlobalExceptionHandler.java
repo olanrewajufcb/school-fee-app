@@ -4,6 +4,8 @@ package com.fee.app.schoolfeeapp.common.exceptions;
 import com.fee.app.schoolfeeapp.common.dto.ApiResponse;
 import com.fee.app.schoolfeeapp.common.dto.ErrorResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -59,6 +61,32 @@ public class GlobalExceptionHandler {
                 .build();
         
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(List.of(error)));
+    }
+
+    @ExceptionHandler(DuplicateKeyException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDuplicateKeyException(DuplicateKeyException ex) {
+        log.warn("Duplicate resource rejected: {}", ex.getMostSpecificCause().getMessage());
+
+        ErrorResponse error = ErrorResponse.builder()
+                .code("DUPLICATE_RESOURCE")
+                .message("This record has already been saved. Refresh the page to view the latest version.")
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(List.of(error)));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        log.error("Database integrity error", ex);
+
+        ErrorResponse error = ErrorResponse.builder()
+                .code("DATA_INTEGRITY_ERROR")
+                .message("We could not save this request safely. Please refresh the page and try again.")
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
                 .body(ApiResponse.error(List.of(error)));
     }
     

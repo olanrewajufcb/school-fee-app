@@ -105,4 +105,40 @@ public class EmailServiceImpl implements EmailService {
             return null;
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
+
+    @Override
+    public Mono<Void> sendAttendanceNotificationEmail(String toEmail, String schoolName, String msg) {
+        return Mono.fromCallable(() -> {
+            log.info("Sending attendance notification email to parent: {}", toEmail);
+
+            MimeMessage message = javaMailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            String sender = fromEmail;
+            if (sender == null || sender.isBlank()) {
+                sender = "noreply@schoolfee.app";
+            }
+            helper.setFrom(sender);
+            helper.setTo(toEmail);
+            helper.setSubject("Student attendance notification email - " + schoolName);
+
+            String htmlContent = String.format("""
+                <html>
+                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                    <h2>Welcome to SchoolFee and Parent Management App! %s</h2>
+                    <p>Hello,</p>
+                    <p>%s</p>                   
+                    <p>Best regards,<br/>The SchoolFee Team</p>
+                </body>
+                </html>
+                """, schoolName, msg);
+
+            helper.setText(htmlContent, true);
+            javaMailSender.send(message);
+
+            log.info("attendance notification email sent successfully to: {}", toEmail);
+            return null;
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
 }

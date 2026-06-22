@@ -21,6 +21,7 @@ import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
 import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
 import com.fee.app.schoolfeeapp.auth.domain.User;
+import com.fee.app.schoolfeeapp.student.repository.SchoolStudentGuardianLinkRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -50,6 +51,7 @@ class ReceiptServiceImpl implements ReceiptService {
     private final SmsService smsService;
     private final JwtUtils jwtUtils;
     private final UserRepository userRepository;
+    private final SchoolStudentGuardianLinkRepository guardianLinkRepository;
 
     @Override
     public Mono<ReceiptDetailResponse> getReceiptDetails(String receiptNumber) {
@@ -133,15 +135,12 @@ class ReceiptServiceImpl implements ReceiptService {
                 .flatMap(payment -> {
                     Mono<Payment> authCheck = Mono.just(payment);
                     if (user.isParent()) {
-                        authCheck = resolveLocalUserId(user.getUserId())
-                                .flatMap(localUserId -> {
-                                    if (!Objects.equals(payment.getPaidBy(), localUserId)) {
-                                        return Mono.error(new SchoolFeeException(
-                                                "ACCESS_DENIED",
-                                                "You can only view receipts for payments you made"));
-                                    }
-                                    return Mono.just(payment);
-                                });
+                        authCheck = guardianLinkRepository.findFeeAccessByGuardianUserIdAndStudentIdAndSchoolId(
+                                        user.getUserId(), receipt.getStudentId(), receipt.getSchoolId())
+                                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                        "ACCESS_DENIED",
+                                        "You do not have access to view this receipt")))
+                                .thenReturn(payment);
                     }
                     return authCheck.flatMap(p -> schoolRepository.findById(receipt.getSchoolId())
                             .switchIfEmpty(Mono.error(new SchoolFeeException(

@@ -5,164 +5,15 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="1a85b514-b835-4829-ac06-34fe4ad5f22f" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules/backend/school-fee-app.backend.main.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules/backend/school-fee-app.backend.test.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/dto/request/CheckAccountRequest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/dto/request/SendOtpRequest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/dto/request/SetPasswordRequest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/dto/response/CheckAccountResponse.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/dto/response/VerifyOtpRequest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/fee/repository/FeeReportingRepositoryTest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/channel/NotificationChannelSelectorTest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/channel/SmsChannelTest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/channel/WhatsAppChannelTest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/service/impl/AfricasTalkingSmsServiceTest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/reporting/utils/ReportPdfGeneratorTest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/DocContent.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/EndpointPath.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/JsonViewer.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/MethodBadge.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/SchemaTable.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/SettingsDropdown.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/Sidebar.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/StatusBadge.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/TopBar.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/TryItPanel.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/data/openapi.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/data/openapi.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/hooks/useMediaQuery.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/hooks/useOnlineStatus.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/hooks/useTryItRequest.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/store/useStore.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/types/openapi.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/src/utils/openapiParser.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/checksums/checksums.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/checksums/checksums.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/checksums/md5-checksums.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/checksums/md5-checksums.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/checksums/sha1-checksums.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/checksums/sha1-checksums.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/executionHistory/executionHistory.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/executionHistory/executionHistory.bin" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/executionHistory/executionHistory.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/executionHistory/executionHistory.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/fileHashes.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/fileHashes.bin" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/fileHashes.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/fileHashes.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/resourceHashesCache.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/resourceHashesCache.bin" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.gradle/buildOutputCleanup/buildOutputCleanup.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/buildOutputCleanup/buildOutputCleanup.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.gradle/file-system.probe" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/file-system.probe" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/.github/workflows/commit-stage.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/commit-stage.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/backend/Dockerfile" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/TESTING_GUIDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/backend/TESTING_GUIDE.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/build.gradle" beforeDir="false" afterPath="$PROJECT_DIR$/backend/build.gradle" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/docker-compose.test.yml" beforeDir="false" afterPath="$PROJECT_DIR$/backend/docker-compose.test.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/keycloak/import/schoolfee-realm.json" beforeDir="false" afterPath="$PROJECT_DIR$/backend/keycloak/import/schoolfee-realm.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/SchoolFeeAppApplication.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/SchoolFeeAppApplication.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/config/SecurityConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/config/SecurityConfig.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/controller/UserManagementController.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/controller/UserManagementController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/dto/response/UserGuardianResult.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/repository/StudentGuardianLinkRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/repository/StudentGuardianLinkRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/repository/StudentGuardianRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/repository/StudentGuardianRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/repository/UserSchoolRoleRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/repository/UserSchoolRoleRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/IdentityProviderService.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/IdentityProviderService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/UserManagementService.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/UserManagementService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/impl/AuthServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/impl/AuthServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/impl/GuardianInvitationServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/impl/GuardianInvitationServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/impl/KeycloakAdminServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/impl/KeycloakAdminServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/impl/UserManagementServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/impl/UserManagementServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/util/JwtUtils.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/util/JwtUtils.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/common/exceptions/GlobalExceptionHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/common/exceptions/GlobalExceptionHandler.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/common/scheduler/OutboxEventProcessor.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/common/scheduler/OutboxEventProcessor.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/controller/FeeController.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/controller/FeeController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/dto/response/StudentFeeResponse.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/dto/response/StudentFeeResponse.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/repository/FeeReportingRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/repository/FeeReportingRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/repository/StudentFeeRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/repository/StudentFeeRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/service/FeeService.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/service/FeeService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/service/impl/FeeServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/service/impl/FeeServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/controller/NotificationController.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/controller/NotificationController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/domain/Notification.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/domain/Notification.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/domain/NotificationLog.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/domain/NotificationLog.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/repository/NotificationRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/repository/NotificationRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/repository/NotificationTemplateRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/repository/NotificationTemplateRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/service/impl/AfricasTalkingSmsService.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/service/impl/AfricasTalkingSmsService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/service/impl/NotificationServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/service/impl/NotificationServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/controller/PaymentController.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/controller/PaymentController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/controller/PaystackWebhookController.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/controller/PaystackWebhookController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/dto/response/InitiatePaymentResponse.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/dto/response/InitiatePaymentResponse.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/gateway/dto/GatewayResponse.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/gateway/dto/GatewayResponse.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/gateway/service/impl/PaystackGateway.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/gateway/service/impl/PaystackGateway.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/repository/PaymentRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/repository/PaymentRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/receipt/service/impl/ReceiptServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/receipt/service/impl/ReceiptServiceImpl.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/controller/ResultController.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/controller/ResultController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/dto/response/MyChildResultResponse.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/dto/response/MyChildResultResponse.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/ResultService.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/ResultService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/ScoreComputationEngine.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/ScoreComputationEngine.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/school/controller/SchoolController.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/school/controller/SchoolController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/school/events/SchoolCreatedEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/school/events/SchoolCreatedEvent.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/school/service/impl/SchoolServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/school/service/impl/SchoolServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/dto/response/StudentDetailResponse.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/dto/response/StudentDetailResponse.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/repository/SchoolStudentGuardianLinkRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/repository/SchoolStudentGuardianLinkRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/service/impl/StudentServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/service/impl/StudentServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/resources/application.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/resources/application.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/controller/UserManagementControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/controller/UserManagementControllerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/AuthServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/AuthServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/GuardianInvitationServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/GuardianInvitationServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/KeycloakAdminServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/KeycloakAdminServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/UserManagementServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/UserManagementServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/UserManagementServiceIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/UserManagementServiceIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/common/scheduler/OutboxEventProcessorTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/common/scheduler/OutboxEventProcessorTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/fee/controller/FeeControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/fee/controller/FeeControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/fee/controller/FeeControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/fee/controller/FeeControllerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/fee/service/impl/FeeServiceImplIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/fee/service/impl/FeeServiceImplIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/fee/service/impl/FeeServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/fee/service/impl/FeeServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/controller/NotificationControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/controller/NotificationControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/controller/NotificationControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/controller/NotificationControllerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/service/impl/NotificationServiceImplIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/service/impl/NotificationServiceImplIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/service/impl/NotificationServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/service/impl/NotificationServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/controller/PaymentControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/controller/PaymentControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/controller/PaymentControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/controller/PaymentControllerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/gateway/service/impl/PaystackGatewayTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/gateway/service/impl/PaystackGatewayTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImplIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImplIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/receipt/controller/ReceiptControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/receipt/controller/ReceiptControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/receipt/controller/ReceiptControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/receipt/controller/ReceiptControllerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/receipt/service/impl/ReceiptServiceImplIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/receipt/service/impl/ReceiptServiceImplIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/receipt/service/impl/ReceiptServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/receipt/service/impl/ReceiptServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/controller/ResultControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/controller/ResultControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/controller/ResultControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/controller/ResultControllerTest.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImplIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImplIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/controller/ClassControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/controller/ClassControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/controller/GradeLevelControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/controller/GradeLevelControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/controller/SchoolControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/controller/SchoolControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/service/impl/ClassServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/service/impl/ClassServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/service/impl/SchoolServiceImplIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/service/impl/SchoolServiceImplIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/service/impl/SchoolServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/service/impl/SchoolServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/controller/StudentControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/controller/StudentControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/controller/StudentControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/controller/StudentControllerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/service/impl/StudentServiceImplIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/service/impl/StudentServiceImplIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/service/impl/StudentServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/service/impl/StudentServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/build/reports/problems/problems-report.html" beforeDir="false" afterPath="$PROJECT_DIR$/build/reports/problems/problems-report.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package-lock.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/App.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/auth/AuthProvider.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/auth/AuthProvider.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/guards/RouteGuard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/guards/RouteGuard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/parent/ParentDashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/parent/ParentDashboard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/hooks/use-mobile.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/hooks/useAuth.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/hooks/useAuth.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/lib/api.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/api.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/lib/keycloak.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/keycloak.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/lib/utils.ts" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/main.tsx" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/Dashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/Dashboard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/Fees.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/Fees.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/Notifications.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/Notifications.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/Payments.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/Payments.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/Schools.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/Schools.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/auth/LoginPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/auth/LoginPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/auth/UnAuthorizedPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/auth/UnAuthorizedPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/types/auth.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/types/auth.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/vite.config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/vite.config.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -170,7 +21,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="515" />
+    <option name="cachedIndexableFilesCount" value="557" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="ExternalProjectsData">
@@ -198,6 +49,11 @@
     </option>
   </component>
   <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="frontend" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="GitHubPullRequestSearchHistory">{
@@ -222,61 +78,61 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0" />
-      <entry key="MS500" value="1.0" />
-      <entry key="S2" value="1.0" />
-      <entry key="S5" value="1.0" />
-      <entry key="S10" value="1.0" />
-      <entry key="S30" value="1.0" />
-      <entry key="S60" value="1.0" />
-      <entry key="M2" value="1.0000000000000242" />
-      <entry key="M5" value="1.0000120700429194" />
-      <entry key="M10" value="1.0097736716829817" />
-      <entry key="M15" value="1.0913146376152194" />
-      <entry key="M30" value="1.854253510838642" />
-      <entry key="H1" value="3.6415669021415247" />
-      <entry key="H2" value="6.194930557368283" />
-      <entry key="H4" value="10.607573439163447" />
-      <entry key="D1" value="51.13679367913717" />
-      <entry key="W1" value="126.68811312049823" />
+      <entry key="MS100" value="4.701552209144184E-12" />
+      <entry key="MS500" value="0.005425605999082461" />
+      <entry key="S2" value="0.2714014748282914" />
+      <entry key="S5" value="0.6002954749316787" />
+      <entry key="S10" value="1.0652209241504704" />
+      <entry key="S30" value="5.11335634289264" />
+      <entry key="S60" value="11.6620968104484" />
+      <entry key="M2" value="20.741308656364893" />
+      <entry key="M5" value="31.195339332765414" />
+      <entry key="M10" value="36.1471890194282" />
+      <entry key="M15" value="38.20159276148806" />
+      <entry key="M30" value="41.64655884258701" />
+      <entry key="H1" value="45.75854189545098" />
+      <entry key="H2" value="49.71789756818296" />
+      <entry key="H4" value="52.96098291154337" />
+      <entry key="D1" value="100.36593788722813" />
+      <entry key="W1" value="262.1882635203241" />
     </decayedCancelled>
     <decayedSelected>
-      <entry key="MS100" value="0.0" />
-      <entry key="MS500" value="1.0458559891495796E-213" />
-      <entry key="S2" value="5.686800225128385E-54" />
-      <entry key="S5" value="5.034393856595696E-22" />
-      <entry key="S10" value="2.243745497287002E-11" />
-      <entry key="S30" value="2.820489786868248E-4" />
-      <entry key="S60" value="0.01679431387960892" />
-      <entry key="M2" value="0.12959287742623188" />
-      <entry key="M5" value="0.4416072750634831" />
-      <entry key="M10" value="0.6679202226809428" />
-      <entry key="M15" value="0.794041507621832" />
-      <entry key="M30" value="1.1851101243024216" />
-      <entry key="H1" value="1.9243134543523503" />
-      <entry key="H2" value="3.205603929367591" />
-      <entry key="H4" value="6.969946985280898" />
-      <entry key="D1" value="66.4768379671738" />
-      <entry key="W1" value="221.62962020931482" />
+      <entry key="MS100" value="1.0" />
+      <entry key="MS500" value="1.0000000000000009" />
+      <entry key="S2" value="1.0002641672541406" />
+      <entry key="S5" value="1.058819947298066" />
+      <entry key="S10" value="1.3907401533245318" />
+      <entry key="S30" value="2.4872830778778674" />
+      <entry key="S60" value="3.1056346047686967" />
+      <entry key="M2" value="3.511291362192022" />
+      <entry key="M5" value="3.7941439710780265" />
+      <entry key="M10" value="4.024602562817924" />
+      <entry key="M15" value="4.75598551030004" />
+      <entry key="M30" value="9.81675315540742" />
+      <entry key="H1" value="20.51045763442468" />
+      <entry key="H2" value="32.57655644669839" />
+      <entry key="H4" value="43.06406063469903" />
+      <entry key="D1" value="96.55733085481886" />
+      <entry key="W1" value="308.19717205659913" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9330329915368074" />
-      <entry key="MS500" value="0.9862327044933592" />
-      <entry key="S2" value="0.9965402628278678" />
-      <entry key="S5" value="0.9986146661010289" />
-      <entry key="S10" value="0.9993070930053587" />
-      <entry key="S30" value="1.0000150834957595" />
-      <entry key="S60" value="1.0155722438111092" />
-      <entry key="M2" value="1.1251930344845034" />
-      <entry key="M5" value="1.4356171764644803" />
-      <entry key="M10" value="1.6731607967648103" />
-      <entry key="M15" value="1.8818484669291715" />
-      <entry key="M30" value="3.0371538997122536" />
-      <entry key="H1" value="5.564455631704736" />
-      <entry key="H2" value="9.39944281216433" />
-      <entry key="H4" value="17.57617018096454" />
-      <entry key="D1" value="117.61176359788149" />
-      <entry key="W1" value="348.31693591879105" />
+      <entry key="MS100" value="0.007598866776658482" />
+      <entry key="MS500" value="0.3768454853715957" />
+      <entry key="S2" value="0.842212910456933" />
+      <entry key="S5" value="1.2783783845140673" />
+      <entry key="S10" value="2.1278912183607006" />
+      <entry key="S30" value="7.349451946374054" />
+      <entry key="S60" value="14.595591097403716" />
+      <entry key="M2" value="24.14994489666332" />
+      <entry key="M5" value="34.94354190863929" />
+      <entry key="M10" value="40.14773470743761" />
+      <entry key="M15" value="42.940542501972196" />
+      <entry key="M30" value="51.450973398409865" />
+      <entry key="H1" value="66.25798144947431" />
+      <entry key="H2" value="82.28589521614843" />
+      <entry key="H4" value="96.01938055022062" />
+      <entry key="D1" value="196.9208124010223" />
+      <entry key="W1" value="570.3842750142604" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -366,7 +222,12 @@
     &quot;Gradle.ResponseFormatValidationTests.shouldUseIso8601FormatForTimestamps.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.ResultControllerIntegrationTest.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.ResultControllerTest.executor&quot;: &quot;Run&quot;,
+    &quot;Gradle.ResultControllerTest.shouldDownloadStudentResultSuccessfully.executor&quot;: &quot;Run&quot;,
+    &quot;Gradle.ResultControllerTest.shouldGetClassResultSheetSuccessfully.executor&quot;: &quot;Run&quot;,
+    &quot;Gradle.ResultControllerTest.shouldGetPublishedStudentResultsSuccessfully.executor&quot;: &quot;Run&quot;,
+    &quot;Gradle.ResultControllerTest.shouldShareStudentResultSuccessfully.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.ResultServiceImplIntegrationTest.executor&quot;: &quot;Run&quot;,
+    &quot;Gradle.ResultServiceImplIntegrationTest.shouldEnterExamScoresAndComputeFinalScoreAndRanking.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.ResultServiceImplTest.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.RoleManagementTests.shouldAssignRealmRolesToUser.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.RoleManagementTests.shouldGetUserRoles.executor&quot;: &quot;Run&quot;,
@@ -378,6 +239,10 @@
     &quot;Gradle.SecurityAndErrorHandlingTests.shouldVerifyCorsEndpointIsAccessible.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.SecurityAndErrorHandlingTests.shouldVerifyCorsIsConfigured.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.SmsChannelTest.executor&quot;: &quot;Run&quot;,
+    &quot;Gradle.SubjectControllerTest.shouldAssignSubjectToClass.executor&quot;: &quot;Run&quot;,
+    &quot;Gradle.SubjectControllerTest.shouldDeactivateSubject.executor&quot;: &quot;Run&quot;,
+    &quot;Gradle.SubjectControllerTest.shouldGetSubjectsForClass.executor&quot;: &quot;Run&quot;,
+    &quot;Gradle.SubjectControllerTest.shouldRemoveSubjectFromClass.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.UserManagementControllerTest.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.UserManagementServiceImplTest.executor&quot;: &quot;Run&quot;,
     &quot;Gradle.UserManagementServiceImplTest.shouldCreateCleanupEventWhenTransactionFails.executor&quot;: &quot;Run&quot;,
@@ -399,7 +264,7 @@
     &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
     &quot;com.intellij.testIntegration.createTest.CreateTestDialog.defaultLibrary&quot;: &quot;JUnit5&quot;,
     &quot;com.intellij.testIntegration.createTest.CreateTestDialog.defaultLibrarySuperClass.JUnit5&quot;: &quot;&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;#2 on test__coverage&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
     &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
     &quot;last_opened_file_path&quot;: &quot;/Users/sulaiman/IdeaProjects/school-fee-app/frontend&quot;,
@@ -447,8 +312,8 @@
       <recent name="com.fee.app.schoolfeeapp.auth.service" />
     </key>
   </component>
-  <component name="RunManager" selected="Spring Boot.SchoolFeeAppApplication">
-    <configuration name="FeeReportingRepositoryTest" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
+  <component name="RunManager" selected="Gradle.SubjectControllerTest.shouldRemoveSubjectFromClass">
+    <configuration name="ResultControllerTest.shouldShareStudentResultSuccessfully" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
       <ExternalSystemSettings>
         <option name="executionName" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
@@ -461,7 +326,7 @@
           <list>
             <option value=":backend:test" />
             <option value="--tests" />
-            <option value="&quot;com.fee.app.schoolfeeapp.fee.repository.FeeReportingRepositoryTest&quot;" />
+            <option value="&quot;com.fee.app.schoolfeeapp.result.controller.ResultControllerTest.shouldShareStudentResultSuccessfully&quot;" />
           </list>
         </option>
         <option name="vmOptions" />
@@ -475,7 +340,7 @@
       <GradleCoverageDisabled>false</GradleCoverageDisabled>
       <method v="2" />
     </configuration>
-    <configuration name="ReceiptControllerTest" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
+    <configuration name="SubjectControllerTest.shouldAssignSubjectToClass" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
       <ExternalSystemSettings>
         <option name="executionName" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
@@ -488,7 +353,7 @@
           <list>
             <option value=":backend:test" />
             <option value="--tests" />
-            <option value="&quot;com.fee.app.schoolfeeapp.receipt.controller.ReceiptControllerTest&quot;" />
+            <option value="&quot;com.fee.app.schoolfeeapp.result.controller.SubjectControllerTest.shouldAssignSubjectToClass&quot;" />
           </list>
         </option>
         <option name="vmOptions" />
@@ -502,7 +367,7 @@
       <GradleCoverageDisabled>false</GradleCoverageDisabled>
       <method v="2" />
     </configuration>
-    <configuration name="ReceiptServiceImplTest" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
+    <configuration name="SubjectControllerTest.shouldDeactivateSubject" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
       <ExternalSystemSettings>
         <option name="executionName" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
@@ -515,7 +380,7 @@
           <list>
             <option value=":backend:test" />
             <option value="--tests" />
-            <option value="&quot;com.fee.app.schoolfeeapp.receipt.service.impl.ReceiptServiceImplTest&quot;" />
+            <option value="&quot;com.fee.app.schoolfeeapp.result.controller.SubjectControllerTest.shouldDeactivateSubject&quot;" />
           </list>
         </option>
         <option name="vmOptions" />
@@ -529,7 +394,7 @@
       <GradleCoverageDisabled>false</GradleCoverageDisabled>
       <method v="2" />
     </configuration>
-    <configuration name="ReportPdfGeneratorTest" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
+    <configuration name="SubjectControllerTest.shouldGetSubjectsForClass" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
       <ExternalSystemSettings>
         <option name="executionName" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
@@ -542,7 +407,7 @@
           <list>
             <option value=":backend:test" />
             <option value="--tests" />
-            <option value="&quot;com.fee.app.schoolfeeapp.reporting.utils.ReportPdfGeneratorTest&quot;" />
+            <option value="&quot;com.fee.app.schoolfeeapp.result.controller.SubjectControllerTest.shouldGetSubjectsForClass&quot;" />
           </list>
         </option>
         <option name="vmOptions" />
@@ -556,7 +421,7 @@
       <GradleCoverageDisabled>false</GradleCoverageDisabled>
       <method v="2" />
     </configuration>
-    <configuration name="SchoolServiceImplTest" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
+    <configuration name="SubjectControllerTest.shouldRemoveSubjectFromClass" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
       <ExternalSystemSettings>
         <option name="executionName" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
@@ -569,7 +434,7 @@
           <list>
             <option value=":backend:test" />
             <option value="--tests" />
-            <option value="&quot;com.fee.app.schoolfeeapp.school.service.impl.SchoolServiceImplTest&quot;" />
+            <option value="&quot;com.fee.app.schoolfeeapp.result.controller.SubjectControllerTest.shouldRemoveSubjectFromClass&quot;" />
           </list>
         </option>
         <option name="vmOptions" />
@@ -592,11 +457,11 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Gradle.FeeReportingRepositoryTest" />
-        <item itemvalue="Gradle.ReceiptServiceImplTest" />
-        <item itemvalue="Gradle.ReceiptControllerTest" />
-        <item itemvalue="Gradle.SchoolServiceImplTest" />
-        <item itemvalue="Gradle.ReportPdfGeneratorTest" />
+        <item itemvalue="Gradle.SubjectControllerTest.shouldRemoveSubjectFromClass" />
+        <item itemvalue="Gradle.SubjectControllerTest.shouldGetSubjectsForClass" />
+        <item itemvalue="Gradle.SubjectControllerTest.shouldAssignSubjectToClass" />
+        <item itemvalue="Gradle.SubjectControllerTest.shouldDeactivateSubject" />
+        <item itemvalue="Gradle.ResultControllerTest.shouldShareStudentResultSuccessfully" />
       </list>
     </recent_temporary>
   </component>
@@ -655,6 +520,10 @@
       <workItem from="1781257155518" duration="12649000" />
       <workItem from="1781342474060" duration="21248000" />
       <workItem from="1781513620199" duration="15713000" />
+      <workItem from="1781691845502" duration="11252000" />
+      <workItem from="1781770229495" duration="38063000" />
+      <workItem from="1782040822785" duration="565000" />
+      <workItem from="1782041606761" duration="7383000" />
     </task>
     <servers />
   </component>

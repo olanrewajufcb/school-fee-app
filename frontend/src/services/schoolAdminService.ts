@@ -231,6 +231,7 @@ export interface CreateFeeStructurePayload {
 }
 
 export interface FeeSummary {
+  studentFeeId?: string;
   termName?: string;
   totalFee?: number;
   amountPaid?: number;
@@ -316,8 +317,30 @@ export interface GradingRulesPayload {
   };
 }
 
+export interface GradingRulesResponse {
+  schoolId: string;
+  gradesCount: number;
+  message: string;
+  config: {
+    grades: Array<{ grade: string; minScore: number; maxScore: number; remark: string }>;
+    passMark: number;
+  } | null;
+}
+
+export interface ExamLookupResponse {
+  id: string;
+  name: string;
+  maxScore: number;
+}
+
+export interface CaConfig {
+  componentCount: number;
+  examWeightPercentage?: number;
+  message?: string;
+}
+
 export interface CaConfigPayload {
-  components: Array<{ name: string; maxScore: number; weightPercentage: number }>;
+  components: Array<{ name: string; maxScore: number; weightPercentage: number; sortOrder: number }>;
   examWeightPercentage: number;
 }
 
@@ -339,6 +362,72 @@ export interface SendBulkNotificationPayload {
   studentFeeIds: string[];
   templateCode: string;
   channel: 'SMS' | 'EMAIL';
+}
+
+export interface SubjectResponse {
+  subjectId: string;
+  name: string;
+  code?: string;
+  category?: string;
+  isActive: boolean;
+}
+
+export interface ClassSubjectResponse {
+  classSubjectId: string;
+  subjectId: string;
+  subjectName: string;
+  subjectCode?: string;
+  teacherId?: string;
+  teacherName?: string;
+}
+
+export interface CreateSubjectPayload {
+  name: string;
+  code?: string;
+  category?: string;
+}
+
+export interface AssignSubjectPayload {
+  subjectId: string;
+  teacherId?: string;
+}
+
+export interface AttendanceResponse {
+  attendanceId?: string;
+  studentId: string;
+  studentName?: string;
+  admissionNumber?: string;
+  status: string;
+  date: string;
+  sessionType?: string;
+  arrivalTime?: string;
+  departureTime?: string;
+  broughtBy?: string;
+  pickedUpBy?: string;
+  pickUpPersonName?: string;
+  pickUpPersonPhone?: string;
+  notes?: string;
+}
+
+export interface TodayAttendanceResponse {
+  classId: string;
+  className: string;
+  date: string;
+  totalStudents: number;
+  present: number;
+  absent: number;
+  late: number;
+  notMarked: number;
+  students: AttendanceResponse[];
+}
+
+export interface AttendanceSummaryResponse {
+  totalSchoolDays: number;
+  daysPresent: number;
+  daysAbsent: number;
+  daysLate: number;
+  earlyPickups: number;
+  attendancePercentage: number;
 }
 
 function unwrap<T>(response: { data: ApiEnvelope<T> | T }): T {
@@ -454,6 +543,11 @@ export const schoolAdminService = {
     return unwrap(response);
   },
 
+  async updateNotificationTemplate(templateId: string, payload: { name?: string; body: string; isActive: boolean }) {
+    const response = await api.put<ApiEnvelope<unknown>>(`/api/v1/notifications/templates/${templateId}`, payload);
+    return unwrap(response);
+  },
+
   async getStudentDetails(studentId: string) {
     const response = await api.get<ApiEnvelope<StudentDetail>>(`/api/v1/students/${studentId}`);
     return unwrap(response);
@@ -489,6 +583,13 @@ export const schoolAdminService = {
     return response.data;
   },
 
+  async getOutstandingFeeIds(termId: string = 'current', filter: string = 'overdue') {
+    const response = await api.get<ApiEnvelope<string[]>>('/api/v1/fees/outstanding-ids', {
+      params: { termId, filter }
+    });
+    return unwrap(response);
+  },
+
   async sendBulkNotifications(payload: SendBulkNotificationPayload) {
     const response = await api.post<ApiEnvelope<unknown>>('/api/v1/notifications/send-bulk', payload);
     return unwrap(response);
@@ -504,8 +605,33 @@ export const schoolAdminService = {
     return unwrap(response);
   },
 
+  async getCaConfig() {
+    const response = await api.get<ApiEnvelope<CaConfig>>('/api/v1/results/ca-config');
+    return unwrap(response);
+  },
+
+  async getGradingRules() {
+    const response = await api.get<ApiEnvelope<GradingRulesResponse>>('/api/v1/results/grading-rules');
+    return unwrap(response);
+  },
+
+  async getExamsForTerm(termId: string) {
+    const response = await api.get<ApiEnvelope<ExamLookupResponse[]>>(`/api/v1/results/terms/${termId}/exams`);
+    return unwrap(response);
+  },
+
+  async getCaComponents() {
+    const response = await api.get<ApiEnvelope<Array<{ id: string; name: string; maxScore: number; weightPercentage?: number; sortOrder?: number }>>>('/api/v1/results/ca-components');
+    return unwrap(response);
+  },
+
   async getClassResults(classId: string, termId: string) {
     const response = await api.get<ApiEnvelope<unknown>>(`/api/v1/results/classes/${classId}/term/${termId}/result-sheet`);
+    return unwrap(response);
+  },
+
+  async getStudentResult(studentId: string, termId: string) {
+    const response = await api.get<ApiEnvelope<any>>(`/api/v1/results/students/${studentId}/term/${termId}`);
     return unwrap(response);
   },
 
@@ -524,8 +650,8 @@ export const schoolAdminService = {
     return unwrap(response);
   },
 
-  async recomputeRankings() {
-    const response = await api.post<ApiEnvelope<unknown>>('/api/v1/results/rankings/recompute');
+  async recomputeRankings(classId: string, termId: string) {
+    const response = await api.post<ApiEnvelope<unknown>>('/api/v1/results/rankings/recompute', { classId, termId });
     return unwrap(response);
   },
 
@@ -535,8 +661,13 @@ export const schoolAdminService = {
   },
 
   async checkReportCardJob(jobId: string) {
-    const response = await api.get<ApiEnvelope<{ jobId: string; status: string; progress?: number }>>(`/api/v1/results/report-cards/jobs/${jobId}`);
+    const response = await api.get<ApiEnvelope<{ jobId: string; status: string; progress?: number; downloadUrl?: string }>>(`/api/v1/results/report-cards/jobs/${jobId}`);
     return unwrap(response);
+  },
+
+  async downloadReportCardPdf(downloadUrl: string) {
+    const response = await api.get(downloadUrl, { responseType: 'blob' });
+    return response.data;
   },
 
   async promoteStudents(payload: PromoteStudentsPayload) {
@@ -565,7 +696,61 @@ export const schoolAdminService = {
   },
 
   async getFeeCollectionReport(params?: { termId?: string; format?: string }) {
-    const response = await api.get<ApiEnvelope<unknown>>('/api/v1/reports/fee-collection', { params });
+    const response = await api.get('/api/v1/reports/fee-collection', { params, responseType: 'blob' });
+    return response.data;
+  },
+
+  async listSubjects() {
+    const response = await api.get<ApiEnvelope<SubjectResponse[]>>('/api/v1/subjects');
+    return unwrap(response);
+  },
+
+  async createSubject(payload: CreateSubjectPayload) {
+    const response = await api.post<ApiEnvelope<SubjectResponse>>('/api/v1/subjects', payload);
+    return unwrap(response);
+  },
+
+  async updateSubject(subjectId: string, payload: CreateSubjectPayload) {
+    const response = await api.put<ApiEnvelope<SubjectResponse>>(`/api/v1/subjects/${subjectId}`, payload);
+    return unwrap(response);
+  },
+
+  async deactivateSubject(subjectId: string) {
+    const response = await api.delete<ApiEnvelope<void>>(`/api/v1/subjects/${subjectId}`);
+    return unwrap(response);
+  },
+
+  async getSubjectsForClass(classId: string) {
+    const response = await api.get<ApiEnvelope<ClassSubjectResponse[]>>(`/api/v1/subjects/class/${classId}`);
+    return unwrap(response);
+  },
+
+  async getTodayClassAttendance(classId: string) {
+    const response = await api.get<ApiEnvelope<TodayAttendanceResponse>>(`/api/v1/attendance/classes/${classId}/today`);
+    return unwrap(response);
+  },
+
+  async getStudentAttendance(studentId: string, termId: string) {
+    const response = await api.get<ApiEnvelope<AttendanceResponse[]>>(`/api/v1/attendance/students/${studentId}`, {
+      params: { termId },
+    });
+    return unwrap(response);
+  },
+
+  async getStudentAttendanceSummary(studentId: string, termId: string) {
+    const response = await api.get<ApiEnvelope<AttendanceSummaryResponse>>(`/api/v1/attendance/students/${studentId}/summary`, {
+      params: { termId },
+    });
+    return unwrap(response);
+  },
+
+  async assignSubjectToClass(classId: string, payload: AssignSubjectPayload) {
+    const response = await api.post<ApiEnvelope<ClassSubjectResponse>>(`/api/v1/subjects/class/${classId}/assign`, payload);
+    return unwrap(response);
+  },
+
+  async removeSubjectFromClass(classId: string, subjectId: string) {
+    const response = await api.delete<ApiEnvelope<void>>(`/api/v1/subjects/class/${classId}/subject/${subjectId}`);
     return unwrap(response);
   },
 };
