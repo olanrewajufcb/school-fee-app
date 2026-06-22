@@ -29,17 +29,28 @@ public class ScoreComputationEngine {
                     e.score AS exam_score,
                     e.max_score AS exam_max_score,
                     COALESCE(
-                        (COALESCE(ca.total_ca, 0) / NULLIF(COALESCE(ca.max_ca, 1), 0) * 50) +
-                        (e.score / NULLIF(e.max_score, 1) * 50),
+                        COALESCE(ca.ca_weighted_score, 0) +
+                        CASE WHEN e.max_score > 0
+                             THEN (e.score / e.max_score::DECIMAL
+                                   * COALESCE(ex.weight_percentage, 60))
+                             ELSE 0
+                        END,
                         0
                     ) AS final_score
                 FROM result.scores e
                 JOIN school.students s ON e.student_id = s.id
+                JOIN result.exams ex ON e.exam_id = ex.id
                 LEFT JOIN (
-                    SELECT student_id, SUM(score) AS total_ca, SUM(max_score) AS max_ca
-                    FROM result.ca_scores
-                    WHERE subject_id = :subjectId AND term_id = :termId
-                    GROUP BY student_id
+                    SELECT cas.student_id, 
+                           SUM(cas.score) AS total_ca, 
+                           SUM(cas.max_score) AS max_ca,
+                           SUM((cas.score / cas.max_score::DECIMAL) * cc.weight_percentage) AS ca_weighted_score
+                    FROM result.ca_scores cas
+                    JOIN result.ca_components cc ON cas.ca_component_id = cc.id
+                    WHERE cas.subject_id = :subjectId 
+                      AND cas.term_id = :termId
+                      AND cc.is_active = true
+                    GROUP BY cas.student_id
                 ) ca ON e.student_id = ca.student_id
                 WHERE e.class_id = :classId
                   AND e.term_id = :termId

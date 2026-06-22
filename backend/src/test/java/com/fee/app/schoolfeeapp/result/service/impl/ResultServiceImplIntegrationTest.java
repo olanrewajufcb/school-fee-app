@@ -261,14 +261,117 @@ class ResultServiceImplIntegrationTest {
                 FROM result.final_scores
                 WHERE student_id = :studentId AND term_id = :termId
                 """, Map.of("studentId", STUDENT_ID, "termId", TERM_ID)))
-                .containsEntry("grade", "F9")
-                .containsEntry("remark", "Fail");
+                .containsEntry("grade", "D7")
+                .containsEntry("remark", "Pass");
         assertThat(fetchOne("""
                 SELECT overall_grade
                 FROM result.class_rankings
                 WHERE student_id = :studentId AND term_id = :termId
                 """, Map.of("studentId", STUDENT_ID, "termId", TERM_ID)))
-                .containsEntry("overall_grade", "F9");
+                .containsEntry("overall_grade", "D7");
+    }
+
+    @Test
+    @DisplayName("Should compute final scores with multiple CA components")
+    void shouldComputeFinalScoresWithMultipleCaComponents() {
+        seedScoreEntryFixture();
+        
+        // Seed 2 CA Components: Test 1 (20% weight), Test 2 (30% weight)
+        UUID component1Id = seedCaComponent("Test 1", 20, BigDecimal.valueOf(20), 1, true);
+        UUID component2Id = seedCaComponent("Test 2", 20, BigDecimal.valueOf(30), 2, true);
+        
+        // Seed CA scores: Test 1 = 16.0 (out of 20), Test 2 = 10.0 (out of 20)
+        seedCaScore(component1Id, BigDecimal.valueOf(16), 20);
+        seedCaScore(component2Id, BigDecimal.valueOf(10), 20);
+        
+        // Seed Exam with 50% weight
+        databaseClient.sql("""
+                INSERT INTO result.exams (
+                    id, school_id, term_id, name, exam_type, exam_date,
+                    max_score, weight_percentage, is_published, created_by
+                )
+                VALUES (
+                    :examId, :schoolId, :termId, 'End of Term', 'END_OF_TERM', :examDate,
+                    100, 50.00, false, :userId
+                )
+                """)
+                .bind("examId", EXAM_ID)
+                .bind("schoolId", SCHOOL_ID)
+                .bind("termId", TERM_ID)
+                .bind("examDate", LocalDate.parse("2026-04-01"))
+                .bind("userId", USER_ID)
+                .fetch()
+                .rowsUpdated()
+                .block();
+        
+        // Enter Exam score = 75 (out of 100) -> weights to 37.5
+        // Expected final score = 16.0 (Test 1) + 15.0 (Test 2) + 37.5 (Exam) = 68.5 -> B3
+        StepVerifier.create(resultService.enterExamScores(validExamScoreRequest()))
+                .assertNext(response -> {
+                    assertThat(response.scoresEntered()).isEqualTo(1);
+                    assertThat(response.finalScoresComputed()).isEqualTo(1);
+                })
+                .verifyComplete();
+
+        assertThat(fetchOne("""
+                SELECT final_score, grade, remark
+                FROM result.final_scores
+                WHERE student_id = :studentId AND term_id = :termId
+                """, Map.of("studentId", STUDENT_ID, "termId", TERM_ID)))
+                .containsEntry("final_score", BigDecimal.valueOf(68.5))
+                .containsEntry("grade", "B3")
+                .containsEntry("remark", "Good");
+    }
+
+    @Test
+    @DisplayName("Should compute final scores with missing CA component score")
+    void shouldComputeFinalScoresWithMissingCaComponentScore() {
+        seedScoreEntryFixture();
+        
+        // Seed 2 CA Components: Test 1 (20% weight), Test 2 (30% weight)
+        UUID component1Id = seedCaComponent("Test 1", 20, BigDecimal.valueOf(20), 1, true);
+        UUID component2Id = seedCaComponent("Test 2", 20, BigDecimal.valueOf(30), 2, true);
+        
+        // Seed only Test 1 score: 16.0 (out of 20) -> weights to 16.0. Test 2 is missed (no score).
+        seedCaScore(component1Id, BigDecimal.valueOf(16), 20);
+        
+        // Seed Exam with 50% weight
+        databaseClient.sql("""
+                INSERT INTO result.exams (
+                    id, school_id, term_id, name, exam_type, exam_date,
+                    max_score, weight_percentage, is_published, created_by
+                )
+                VALUES (
+                    :examId, :schoolId, :termId, 'End of Term', 'END_OF_TERM', :examDate,
+                    100, 50.00, false, :userId
+                )
+                """)
+                .bind("examId", EXAM_ID)
+                .bind("schoolId", SCHOOL_ID)
+                .bind("termId", TERM_ID)
+                .bind("examDate", LocalDate.parse("2026-04-01"))
+                .bind("userId", USER_ID)
+                .fetch()
+                .rowsUpdated()
+                .block();
+        
+        // Enter Exam score = 75 (out of 100) -> weights to 37.5
+        // Expected final score = 16.0 (Test 1) + 0 (Test 2) + 37.5 (Exam) = 53.5 -> C6
+        StepVerifier.create(resultService.enterExamScores(validExamScoreRequest()))
+                .assertNext(response -> {
+                    assertThat(response.scoresEntered()).isEqualTo(1);
+                    assertThat(response.finalScoresComputed()).isEqualTo(1);
+                })
+                .verifyComplete();
+
+        assertThat(fetchOne("""
+                SELECT final_score, grade, remark
+                FROM result.final_scores
+                WHERE student_id = :studentId AND term_id = :termId
+                """, Map.of("studentId", STUDENT_ID, "termId", TERM_ID)))
+                .containsEntry("final_score", BigDecimal.valueOf(53.5))
+                .containsEntry("grade", "C6")
+                .containsEntry("remark", "Credit");
     }
 
     @Test

@@ -602,7 +602,7 @@ class ResultServiceImpl implements ResultService {
                                                                 .termId(termId)
                                                                 .name("End of Term Exam")
                                                                 .examType("END_OF_TERM")
-                                                                .maxScore(100)
+                                                                .maxScore((int) examWeight)
                                                                 .weightPercentage(BigDecimal.valueOf(examWeight))
                                                                 .isPublished(false)
                                                                 .createdBy(localUserId)

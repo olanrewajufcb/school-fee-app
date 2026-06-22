@@ -7,6 +7,7 @@ import com.fee.app.schoolfeeapp.result.dto.response.*;
 import com.fee.app.schoolfeeapp.result.service.ResultService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/results")
 @RequiredArgsConstructor
@@ -55,7 +57,8 @@ public class ResultController {
     public Mono<ResponseEntity<ApiResponse<ExamScoreResponse>>> enterExamScores(
             @Valid @RequestBody ExamScoreRequest request) {
         return resultService.enterExamScores(request)
-                .map(r -> ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(r)));
+                .map(r -> ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(r)))
+                .doOnSuccess(response -> log.info("Scores successfully returned {}", response));
     }
 
     @PutMapping("/scores/{scoreId}")
