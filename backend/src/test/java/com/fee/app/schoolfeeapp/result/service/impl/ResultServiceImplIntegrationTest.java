@@ -205,8 +205,8 @@ class ResultServiceImplIntegrationTest {
     }
 
     @Test
-    @DisplayName("Should enter CA scores and reject duplicate score races")
-    void shouldEnterCaScoresAndRejectDuplicateScoreRaces() {
+    @DisplayName("Should enter CA scores and update duplicate score races")
+    void shouldEnterCaScoresAndUpdateDuplicateScoreRaces() {
         seedScoreEntryFixture();
         seedCaComponentWithId(COMPONENT_ID, "First Test", 20, BigDecimal.valueOf(20), 1, true);
 
@@ -220,21 +220,40 @@ class ResultServiceImplIntegrationTest {
                 WHERE student_id = :studentId AND ca_component_id = :componentId
                 """, Map.of("studentId", STUDENT_ID, "componentId", COMPONENT_ID))).isEqualTo(1);
 
-        StepVerifier.create(resultService.enterCaScores(validCaScoreRequest()))
-                .expectErrorSatisfies(error -> {
-                    assertThat(error).isInstanceOf(SchoolFeeException.class);
-                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("SCORE_ALREADY_EXISTS");
-                })
-                .verify();
+        StepVerifier.create(resultService.enterCaScores(caScoreRequest(BigDecimal.valueOf(18))))
+                .assertNext(response -> assertThat(response.scoresEntered()).isEqualTo(1))
+                .verifyComplete();
+
+        assertThat(countRows("""
+                SELECT COUNT(*) AS count
+                FROM result.ca_scores
+                WHERE student_id = :studentId AND ca_component_id = :componentId
+                """, Map.of("studentId", STUDENT_ID, "componentId", COMPONENT_ID))).isEqualTo(1);
+
+        BigDecimal savedScore = (BigDecimal) fetchOne("""
+                SELECT score
+                FROM result.ca_scores
+                WHERE student_id = :studentId AND ca_component_id = :componentId
+                """, Map.of("studentId", STUDENT_ID, "componentId", COMPONENT_ID)).get("score");
+        assertThat(savedScore).isEqualByComparingTo("18");
     }
 
     @Test
     @DisplayName("Should enter exam scores and compute final score and ranking")
     void shouldEnterExamScoresAndComputeFinalScoreAndRanking() {
         seedScoreEntryFixture();
+        resultService.configureCa(validRequest()).block();
         seedExam();
 
-        StepVerifier.create(resultService.enterExamScores(validExamScoreRequest()))
+        ExamScoreRequest request = new ExamScoreRequest(
+                EXAM_ID,
+                CLASS_ID,
+                SUBJECT_ID,
+                TERM_ID,
+                60,
+                List.of(new ExamScoreRequest.ScoreEntry(STUDENT_ID, BigDecimal.valueOf(45.0))));
+
+        StepVerifier.create(resultService.enterExamScores(request))
                 .assertNext(response -> {
                     assertThat(response.scoresEntered()).isEqualTo(1);
                     assertThat(response.finalScoresComputed()).isEqualTo(1);
@@ -304,9 +323,17 @@ class ResultServiceImplIntegrationTest {
                 .rowsUpdated()
                 .block();
         
-        // Enter Exam score = 75 (out of 100) -> weights to 37.5
+        // Enter Exam score = 37.5 (out of 50) -> weights to 37.5
         // Expected final score = 16.0 (Test 1) + 15.0 (Test 2) + 37.5 (Exam) = 68.5 -> B3
-        StepVerifier.create(resultService.enterExamScores(validExamScoreRequest()))
+        ExamScoreRequest request = new ExamScoreRequest(
+                EXAM_ID,
+                CLASS_ID,
+                SUBJECT_ID,
+                TERM_ID,
+                50,
+                List.of(new ExamScoreRequest.ScoreEntry(STUDENT_ID, BigDecimal.valueOf(37.5))));
+
+        StepVerifier.create(resultService.enterExamScores(request))
                 .assertNext(response -> {
                     assertThat(response.scoresEntered()).isEqualTo(1);
                     assertThat(response.finalScoresComputed()).isEqualTo(1);
@@ -355,9 +382,17 @@ class ResultServiceImplIntegrationTest {
                 .rowsUpdated()
                 .block();
         
-        // Enter Exam score = 75 (out of 100) -> weights to 37.5
+        // Enter Exam score = 37.5 (out of 50) -> weights to 37.5
         // Expected final score = 16.0 (Test 1) + 0 (Test 2) + 37.5 (Exam) = 53.5 -> C6
-        StepVerifier.create(resultService.enterExamScores(validExamScoreRequest()))
+        ExamScoreRequest request = new ExamScoreRequest(
+                EXAM_ID,
+                CLASS_ID,
+                SUBJECT_ID,
+                TERM_ID,
+                50,
+                List.of(new ExamScoreRequest.ScoreEntry(STUDENT_ID, BigDecimal.valueOf(37.5))));
+
+        StepVerifier.create(resultService.enterExamScores(request))
                 .assertNext(response -> {
                     assertThat(response.scoresEntered()).isEqualTo(1);
                     assertThat(response.finalScoresComputed()).isEqualTo(1);
@@ -466,6 +501,7 @@ class ResultServiceImplIntegrationTest {
         ReportCardRequest request = new ReportCardRequest(
                 TERM_ID,
                 CLASS_ID,
+                null,
                 List.of(STUDENT_ID, STUDENT_ID),
                 true,
                 true,
@@ -817,13 +853,17 @@ class ResultServiceImplIntegrationTest {
     }
 
     private CaScoreRequest validCaScoreRequest() {
+        return caScoreRequest(BigDecimal.valueOf(15));
+    }
+
+    private CaScoreRequest caScoreRequest(BigDecimal score) {
         return new CaScoreRequest(
                 TERM_ID,
                 CLASS_ID,
                 SUBJECT_ID,
                 COMPONENT_ID,
                 20,
-                List.of(new CaScoreRequest.ScoreEntry(STUDENT_ID, BigDecimal.valueOf(15))));
+                List.of(new CaScoreRequest.ScoreEntry(STUDENT_ID, score)));
     }
 
     private ExamScoreRequest validExamScoreRequest() {

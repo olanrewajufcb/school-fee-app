@@ -3,8 +3,10 @@ package com.fee.app.schoolfeeapp.student.controller;
 import com.fee.app.schoolfeeapp.common.dto.ApiResponse;
 import com.fee.app.schoolfeeapp.common.dto.PageResponse;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
+import com.fee.app.schoolfeeapp.student.dto.request.BatchEnrollRequest;
 import com.fee.app.schoolfeeapp.student.dto.request.EnrollStudentRequest;
 import com.fee.app.schoolfeeapp.student.dto.request.UpdateStudentRequest;
+import com.fee.app.schoolfeeapp.student.dto.response.BatchEnrollResponse;
 import com.fee.app.schoolfeeapp.student.dto.response.EnrollStudentResponse;
 import com.fee.app.schoolfeeapp.student.dto.response.MyChildrenResponse;
 import com.fee.app.schoolfeeapp.student.dto.response.StudentDetailResponse;
@@ -93,6 +95,53 @@ class StudentControllerTest {
                 .verify();
 
         verify(studentService, times(1)).enrollStudent(request);
+    }
+
+    @Test
+    @DisplayName("Should enroll students batch successfully")
+    void shouldEnrollStudentsBatchSuccessfully() {
+        BatchEnrollRequest request = new BatchEnrollRequest(List.of(validRequest()));
+        BatchEnrollResponse serviceResponse = new BatchEnrollResponse(
+                1,
+                1,
+                0,
+                List.of(new BatchEnrollResponse.EnrollmentResult(
+                        "ENROLLED",
+                        STUDENT_ID,
+                        "STU260001ABCD",
+                        "Ada",
+                        "Lovelace",
+                        null)));
+        when(studentService.enrollStudentsBatch(request)).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(studentController.enrollStudentsBatch(request))
+                .assertNext(responseEntity -> {
+                    assertThat(responseEntity.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+                    ApiResponse<BatchEnrollResponse> body = responseEntity.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(studentService).enrollStudentsBatch(request);
+    }
+
+    @Test
+    @DisplayName("Should propagate batch enroll error")
+    void shouldPropagateBatchEnrollError() {
+        BatchEnrollRequest request = new BatchEnrollRequest(List.of(validRequest()));
+        SchoolFeeException expectedError = new SchoolFeeException(
+                "INVALID_STUDENT_BATCH_ENROLLMENT",
+                "At least one student is required",
+                "students");
+        when(studentService.enrollStudentsBatch(request)).thenReturn(Mono.error(expectedError));
+
+        StepVerifier.create(studentController.enrollStudentsBatch(request))
+                .expectErrorSatisfies(error -> assertThat(error).isSameAs(expectedError))
+                .verify();
+
+        verify(studentService).enrollStudentsBatch(request);
     }
 
     @Test

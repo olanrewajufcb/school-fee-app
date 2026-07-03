@@ -23,9 +23,16 @@ public class ReportComment {
     @Column("teacher_id") private UUID teacherId;
     @Column("principal_comment") private String principalComment;
     @Column("principal_id") private UUID principalId;
+    @Column("teacher_comment_auto") private String teacherCommentAuto;
+    @Column("teacher_comment_final") private String teacherCommentFinal;
+    @Column("principal_comment_auto") private String principalCommentAuto;
+    @Column("principal_comment_final") private String principalCommentFinal;
+    @Column("comments_generated_at") private Instant commentsGeneratedAt;
     @Column("attendance_days_open") private Integer attendanceDaysOpen;
     @Column("attendance_days_present") private Integer attendanceDaysPresent;
     @Column("attendance_days_absent") private Integer attendanceDaysAbsent;
+    @Column("promotion_status") private String promotionStatus;
+    @Column("promotion_class_id") private UUID promotionClassId;
     @Column("next_term_resumes") private LocalDate nextTermResumes;
     @Column("next_term_fees") private BigDecimal nextTermFees;
     @Column("created_at") private Instant createdAt;

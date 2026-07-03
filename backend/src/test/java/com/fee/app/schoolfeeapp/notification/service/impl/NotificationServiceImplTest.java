@@ -390,6 +390,66 @@ class NotificationServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should create default fee reminder template when missing")
+    void shouldCreateDefaultFeeReminderTemplateWhenMissing() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(templateRepository.findActiveForBulkSend(SCHOOL_ID, "FEE_REMINDER", "SMS"))
+                .thenReturn(Mono.empty());
+        when(templateRepository.save(any(NotificationTemplate.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        UUID feeId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        UUID guardianId = UUID.randomUUID();
+        when(studentFeeRepository.findByIdAndSchoolId(feeId, SCHOOL_ID))
+                .thenReturn(Mono.just(studentFee(feeId, studentId)));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, SCHOOL_ID))
+                .thenReturn(Mono.just(student(studentId)));
+        when(guardianLinkRepository.findByStudentIdAndIsPrimaryContactTrue(studentId))
+                .thenReturn(Flux.just(guardianLink(studentId, guardianId)));
+        when(guardianRepository.findByIdAndDeletedAtIsNull(guardianId))
+                .thenReturn(Mono.just(guardian(guardianId, "+2348012345678")));
+        when(notificationRepository.insertNotification(any(Notification.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(notificationRepository.updateDeliveryResult(
+                any(), anyString(), nullable(String.class), any(), nullable(String.class), nullable(Instant.class)))
+                .thenAnswer(invocation -> Mono.just(Notification.builder().id(invocation.getArgument(0)).build()));
+
+        NotificationChannel mockChannel = mockChannel(
+                "SMS",
+                BigDecimal.TEN,
+                ChannelResult.builder()
+                        .channel("SMS")
+                        .messageId("sms-123")
+                        .success(true)
+                        .build());
+        when(channelSelector.select("SMS")).thenReturn(mockChannel);
+
+        SendBulkNotificationRequest request = new SendBulkNotificationRequest(
+                List.of(feeId), "FEE_REMINDER", "SMS");
+
+        StepVerifier.create(notificationService.sendBulkNotifications(request))
+                .assertNext(response -> {
+                    assertThat(response.recipientsCount()).isEqualTo(1);
+                    assertThat(response.status()).isEqualTo("QUEUED");
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<NotificationTemplate> templateCaptor = ArgumentCaptor.forClass(NotificationTemplate.class);
+        verify(templateRepository).save(templateCaptor.capture());
+        assertThat(templateCaptor.getValue().getTemplateCode()).isEqualTo("FEE_REMINDER");
+        assertThat(templateCaptor.getValue().getChannel()).isEqualTo("SMS");
+        assertThat(templateCaptor.getValue().getIsActive()).isTrue();
+
+        verify(mockChannel).send(
+                eq("+2348012345678"),
+                argThat(message -> message.contains("Ada Okafor")
+                        && message.contains("5000.00")
+                        && message.contains("Due date:")),
+                eq(feeId.toString()));
+    }
+
+    @Test
     @DisplayName("Should send SMS fee reminder and log notification before provider call")
     void shouldSendSmsFeeReminderAndLogNotification() {
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
@@ -1651,4 +1711,3 @@ class NotificationServiceImplTest {
         }
     }
 }
-

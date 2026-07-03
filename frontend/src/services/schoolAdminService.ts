@@ -212,6 +212,26 @@ export interface EnrollStudentPayload {
   }>;
 }
 
+export interface BatchEnrollRequestPayload {
+  students: EnrollStudentPayload[];
+}
+
+export interface BatchEnrollResult {
+  status: 'ENROLLED' | 'FAILED' | string;
+  studentId?: string | null;
+  admissionNumber?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  reason?: string | null;
+}
+
+export interface BatchEnrollResponse {
+  totalSubmitted: number;
+  enrolled: number;
+  failed: number;
+  results: BatchEnrollResult[];
+}
+
 export interface CreateFeeStructurePayload {
   name: string;
   sessionId: string;
@@ -310,10 +330,16 @@ export interface ReceiptDetail {
   items?: Array<{ description: string; amount: number }>;
 }
 
+export interface GradingScheme {
+  grades: Array<{ grade: string; minScore: number; maxScore: number; remark: string; points?: number }>;
+  passMark: number;
+}
+
 export interface GradingRulesPayload {
   config: {
-    grades: Array<{ grade: string; minScore: number; maxScore: number; remark: string }>;
-    passMark: number;
+    grades?: GradingScheme['grades'];
+    passMark?: number;
+    byEducationLevel?: Partial<Record<'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY', GradingScheme>>;
   };
 }
 
@@ -322,8 +348,9 @@ export interface GradingRulesResponse {
   gradesCount: number;
   message: string;
   config: {
-    grades: Array<{ grade: string; minScore: number; maxScore: number; remark: string }>;
-    passMark: number;
+    grades?: GradingScheme['grades'];
+    passMark?: number;
+    byEducationLevel?: Partial<Record<'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY', GradingScheme>>;
   } | null;
 }
 
@@ -354,8 +381,30 @@ export interface PromoteStudentsPayload {
 export interface GenerateReportCardsPayload {
   termId: string;
   classId: string;
+  templateId?: string;
   studentIds?: string[];
   format?: 'PDF';
+  includeAttendance?: boolean;
+  includeTeacherComment?: boolean;
+  includePrincipalComment?: boolean;
+}
+
+export interface ReportCardTemplate {
+  templateId: string;
+  name: string;
+  educationLevel: 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
+  config: Record<string, unknown>;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateReportCardTemplatePayload {
+  name: string;
+  educationLevel: ReportCardTemplate['educationLevel'];
+  config: Record<string, unknown>;
+  isDefault: boolean;
 }
 
 export interface SendBulkNotificationPayload {
@@ -502,6 +551,11 @@ export const schoolAdminService = {
     return unwrap(response);
   },
 
+  async enrollStudentsBatch(payload: BatchEnrollRequestPayload) {
+    const response = await api.post<ApiEnvelope<BatchEnrollResponse>>('/api/v1/students/batch', payload);
+    return unwrap(response);
+  },
+
   async getFeeDashboard() {
     const response = await api.get<ApiEnvelope<FeeDashboard>>('/api/v1/fees/dashboard', {
       params: { termId: 'current' },
@@ -635,8 +689,11 @@ export const schoolAdminService = {
     return unwrap(response);
   },
 
-  async addPrincipalComment(studentId: string, termId: string, comment: string) {
-    const response = await api.put<ApiEnvelope<unknown>>(`/api/v1/results/report-cards/${studentId}/term/${termId}/principal-comment`, { comment });
+  async addPrincipalComment(studentId: string, termId: string, comment: string, autoGenerate = false) {
+    const response = await api.put<ApiEnvelope<unknown>>(`/api/v1/results/report-cards/${studentId}/term/${termId}/principal-comment`, {
+      comment,
+      autoGenerate,
+    });
     return unwrap(response);
   },
 
@@ -657,6 +714,16 @@ export const schoolAdminService = {
 
   async generateReportCards(payload: GenerateReportCardsPayload) {
     const response = await api.post<ApiEnvelope<{ jobId: string }>>('/api/v1/results/report-cards', payload);
+    return unwrap(response);
+  },
+
+  async listReportCardTemplates() {
+    const response = await api.get<ApiEnvelope<ReportCardTemplate[]>>('/api/v1/results/report-card-templates');
+    return unwrap(response);
+  },
+
+  async createReportCardTemplate(payload: CreateReportCardTemplatePayload) {
+    const response = await api.post<ApiEnvelope<ReportCardTemplate>>('/api/v1/results/report-card-templates', payload);
     return unwrap(response);
   },
 

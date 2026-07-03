@@ -11,6 +11,9 @@ public record StudentResultResponse(
         ResultSummary summary,
         RankingInfo ranking,
         AttendanceInfo attendance,
+        List<GradeScaleItem> gradingScale,
+        List<TraitAssessment> behaviouralAssessments,
+        List<TraitAssessment> psychomotorAssessments,
         String teacherComment,
         String principalComment
 ) {
@@ -26,14 +29,19 @@ public record StudentResultResponse(
             BigDecimal finalScore, int finalMaxScore,
             BigDecimal percentage, String grade, String remark,
             BigDecimal points, int subjectPosition,
-            BigDecimal classHighest, BigDecimal classLowest, BigDecimal classAverage
+            BigDecimal classHighest, BigDecimal classLowest, BigDecimal classAverage,
+            UUID scoreId, UUID examId
     ) {}
     public record CaBreakdown(String component, BigDecimal score, int maxScore) {}
     public record ResultSummary(
             BigDecimal totalScore, int totalMaxScore, BigDecimal average,
             String overallGrade, BigDecimal totalPoints,
-            int subjectsTaken, int subjectsPassed, int subjectsFailed
+            int subjectsTaken, int subjectsPassed, int subjectsFailed,
+            BigDecimal classAverage, BigDecimal highestScore, BigDecimal lowestScore,
+            String promotionStatus
     ) {}
     public record RankingInfo(int classPosition, int outOf, double percentile, boolean topThird) {}
     public record AttendanceInfo(int daysOpen, int daysPresent, int daysAbsent, double attendanceRate) {}
+    public record GradeScaleItem(String grade, BigDecimal minScore, BigDecimal maxScore, String remark) {}
+    public record TraitAssessment(String name, String category, String rating, String comment) {}
 }

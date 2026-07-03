@@ -219,14 +219,15 @@ class AttendanceServiceImpl implements AttendanceService {
                             return studentRepository.findAllById(studentIds)
                                     .collectMap(Student::getId)
                                     .map(studentMap -> records.stream()
+                                            .filter(record -> {
+                                                Student student = studentMap.get(record.getStudentId());
+                                                return student != null
+                                                        && Objects.equals(student.getCurrentClassId(), session.getClassId());
+                                            })
                                             .map(record -> {
                                                 Student student = studentMap.get(record.getStudentId());
-                                                String studentName = student != null 
-                                                        ? student.getFirstName() + " " + student.getLastName() 
-                                                        : "Unknown Student";
-                                                String admissionNumber = student != null 
-                                                        ? student.getAdmissionNumber() 
-                                                        : "";
+                                                String studentName = student.getFirstName() + " " + student.getLastName();
+                                                String admissionNumber = student.getAdmissionNumber();
                                                 return new AttendanceResponse(
                                                         record.getId(),
                                                         record.getStudentId(),
@@ -475,11 +476,12 @@ class AttendanceServiceImpl implements AttendanceService {
             UUID schoolId,
             AttendanceSession session,
             UUID localUserId,
-            MarkAttendanceRequest.AttendanceMark mark) {
-        return attendanceRepository
-                .findByStudentIdAndSessionId(mark.studentId(), session.getId())
-                .hasElement()
-                .flatMap(alreadyExists -> attendanceRepository.upsertAttendanceMark(
+        MarkAttendanceRequest.AttendanceMark mark) {
+        return validateStudentBelongsToSessionClass(schoolId, session, mark.studentId())
+                .then(Mono.defer(() -> attendanceRepository
+                        .findByStudentIdAndSessionId(mark.studentId(), session.getId())
+                        .hasElement()
+                        .flatMap(alreadyExists -> attendanceRepository.upsertAttendanceMark(
                                 schoolId,
                                 session.getId(),
                                 mark.studentId(),
@@ -495,7 +497,30 @@ class AttendanceServiceImpl implements AttendanceService {
                                 mark.pickUpPersonPhone(),
                                 mark.notes(),
                                 localUserId)
-                        .map(saved -> new SavedAttendanceMark(saved, !alreadyExists)));
+                        .map(saved -> new SavedAttendanceMark(saved, !alreadyExists)))));
+    }
+
+    private Mono<Void> validateStudentBelongsToSessionClass(UUID schoolId, AttendanceSession session, UUID studentId) {
+        if (studentId == null) {
+            return Mono.error(new SchoolFeeException(
+                    "INVALID_ATTENDANCE_MARK",
+                    "Student is required for each attendance mark",
+                    "studentId"));
+        }
+        return studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, schoolId)
+                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                        "STUDENT_NOT_FOUND",
+                        "Student not found",
+                        "studentId")))
+                .flatMap(student -> {
+                    if (!Objects.equals(student.getCurrentClassId(), session.getClassId())) {
+                        return Mono.error(new SchoolFeeException(
+                                "STUDENT_NOT_IN_CLASS",
+                                "Student does not belong to this attendance session class",
+                                "studentId"));
+                    }
+                    return Mono.empty();
+                });
     }
 
     private LocalTime parseTime(String value) {
@@ -663,14 +688,11 @@ class AttendanceServiceImpl implements AttendanceService {
                 .collectMap(AttendanceSession::getId)
                 .map(sessionMap -> {
                     List<AttendanceResponse> responses = records.stream()
+                            .filter(record -> studentMap.containsKey(record.getStudentId()))
                             .map(record -> {
                                 Student student = studentMap.get(record.getStudentId());
-                                String studentName = student != null 
-                                        ? student.getFirstName() + " " + student.getLastName() 
-                                        : "Unknown Student";
-                                String admissionNumber = student != null 
-                                        ? student.getAdmissionNumber() 
-                                        : "";
+                                String studentName = student.getFirstName() + " " + student.getLastName();
+                                String admissionNumber = student.getAdmissionNumber();
                                 AttendanceSession session = sessionMap.get(record.getSessionId());
                                 String sessionType = session != null ? session.getSessionType() : "";
                                 return new AttendanceResponse(

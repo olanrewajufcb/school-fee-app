@@ -1,6 +1,7 @@
 package com.fee.app.schoolfeeapp.student.service;
 
 import com.fee.app.schoolfeeapp.common.dto.PageResponse;
+import com.fee.app.schoolfeeapp.student.dto.request.BatchEnrollRequest;
 import com.fee.app.schoolfeeapp.student.dto.request.EnrollStudentRequest;
 import com.fee.app.schoolfeeapp.student.dto.request.UpdateStudentRequest;
 import com.fee.app.schoolfeeapp.student.dto.response.*;
@@ -17,5 +18,8 @@ public interface StudentService {
     Mono<StudentDetailResponse> getStudentDetails(UUID studentId);
     Mono<List<MyChildrenResponse>> getMyChildren();
     Mono<UpdateStudentResponse> updateStudent(UUID studentId, UpdateStudentRequest request);
+
+    Mono<BatchEnrollResponse> enrollStudentsBatch(BatchEnrollRequest request);
+
 
 }

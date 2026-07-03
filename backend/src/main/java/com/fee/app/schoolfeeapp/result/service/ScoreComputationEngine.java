@@ -27,19 +27,27 @@ public class ScoreComputationEngine {
                     COALESCE(ca.total_ca, 0) AS ca_total,
                     COALESCE(ca.max_ca, 0) AS ca_max_total,
                     e.score AS exam_score,
-                    e.max_score AS exam_max_score,
+                    COALESCE(NULLIF(ex.max_score, 0), e.max_score) AS exam_max_score,
                     COALESCE(
                         COALESCE(ca.ca_weighted_score, 0) +
-                        CASE WHEN e.max_score > 0
-                             THEN (e.score / e.max_score::DECIMAL
+                        CASE WHEN COALESCE(NULLIF(ex.max_score, 0), e.max_score) > 0
+                             THEN (e.score / COALESCE(NULLIF(ex.max_score, 0), e.max_score)::DECIMAL
                                    * COALESCE(ex.weight_percentage, 60))
                              ELSE 0
                         END,
                         0
-                    ) AS final_score
+                    ) AS final_score,
+                    CASE
+                        WHEN c.grade_level ILIKE 'NURSERY%' THEN 'NURSERY'
+                        WHEN c.grade_level ILIKE 'PRIMARY%' THEN 'PRIMARY'
+                        WHEN c.grade_level ILIKE 'JSS%' OR c.grade_level ILIKE 'JUNIOR%' THEN 'JUNIOR_SECONDARY'
+                        WHEN c.grade_level ILIKE 'SSS%' OR c.grade_level ILIKE 'SENIOR%' THEN 'SENIOR_SECONDARY'
+                        ELSE NULL
+                    END AS education_level
                 FROM result.scores e
                 JOIN school.students s ON e.student_id = s.id
                 JOIN result.exams ex ON e.exam_id = ex.id
+                JOIN school.classes c ON c.id = :classId
                 LEFT JOIN (
                     SELECT cas.student_id, 
                            SUM(cas.score) AS total_ca, 
@@ -49,6 +57,7 @@ public class ScoreComputationEngine {
                     JOIN result.ca_components cc ON cas.ca_component_id = cc.id
                     WHERE cas.subject_id = :subjectId 
                       AND cas.term_id = :termId
+                      AND cas.class_id = :classId
                       AND cc.is_active = true
                     GROUP BY cas.student_id
                 ) ca ON e.student_id = ca.student_id
@@ -73,7 +82,9 @@ public class ScoreComputationEngine {
             LEFT JOIN LATERAL (
                 SELECT rule
                 FROM jsonb_array_elements(COALESCE(
+                    gc.config -> 'byEducationLevel' -> cs.education_level -> 'grades',
                     gc.config -> 'grades',
+                    CASE WHEN jsonb_typeof(gc.config) = 'array' THEN gc.config END,
                     '[
                       {"grade":"A1","minScore":75,"maxScore":100,"remark":"Excellent","points":4.0},
                       {"grade":"B2","minScore":70,"maxScore":74,"remark":"Very Good","points":3.5},
@@ -142,6 +153,17 @@ public class ScoreComputationEngine {
                 WHERE class_id = :classId AND term_id = :termId
                 GROUP BY student_id
             ),
+            class_context AS (
+                SELECT CASE
+                    WHEN grade_level ILIKE 'NURSERY%' THEN 'NURSERY'
+                    WHEN grade_level ILIKE 'PRIMARY%' THEN 'PRIMARY'
+                    WHEN grade_level ILIKE 'JSS%' OR grade_level ILIKE 'JUNIOR%' THEN 'JUNIOR_SECONDARY'
+                    WHEN grade_level ILIKE 'SSS%' OR grade_level ILIKE 'SENIOR%' THEN 'SENIOR_SECONDARY'
+                    ELSE NULL
+                END AS education_level
+                FROM school.classes
+                WHERE id = :classId
+            ),
             ranked AS (
                 SELECT student_id, total_score, subjects_taken, subjects_passed, avg_score,
                     RANK() OVER (ORDER BY avg_score DESC) as class_position,
@@ -151,12 +173,15 @@ public class ScoreComputationEngine {
             graded AS (
                 SELECT ranked.*, grade_rule.rule ->> 'grade' AS overall_grade
                 FROM ranked
+                CROSS JOIN class_context cc
                 LEFT JOIN result.grade_configs gc
                   ON gc.school_id = :schoolId AND gc.is_active = true
                 LEFT JOIN LATERAL (
                     SELECT rule
                     FROM jsonb_array_elements(COALESCE(
+                        gc.config -> 'byEducationLevel' -> cc.education_level -> 'grades',
                         gc.config -> 'grades',
+                        CASE WHEN jsonb_typeof(gc.config) = 'array' THEN gc.config END,
                         '[
                           {"grade":"A1","minScore":75,"maxScore":100},
                           {"grade":"B2","minScore":70,"maxScore":74},

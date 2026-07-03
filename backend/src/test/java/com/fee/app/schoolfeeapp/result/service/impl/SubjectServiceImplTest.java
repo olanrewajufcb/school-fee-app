@@ -682,4 +682,219 @@ class SubjectServiceImplTest {
                 .expectErrorSatisfies(error -> assertThat(error).isInstanceOf(SchoolFeeException.class))
                 .verify();
     }
+
+    @Test
+    void shouldThrowWhenSchoolIdIsNull() {
+        SchoolFeeUser userWithNullSchool = SchoolFeeUser.builder()
+                .userId(USER_ID)
+                .schoolId(null)
+                .email("admin@test.com")
+                .userType("SCHOOL_ADMIN")
+                .roles(java.util.Set.of("SCHOOL_ADMIN"))
+                .build();
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(userWithNullSchool));
+
+        StepVerifier.create(subjectService.createSubject(new CreateSubjectRequest("Math", "MTH", "Science")))
+                .expectErrorSatisfies(error -> assertBusinessError(error, "SCHOOL_CONTEXT_REQUIRED", null))
+                .verify();
+    }
+
+    @Test
+    void shouldThrowWhenCreateSubjectRequestIsNull() {
+        StepVerifier.create(subjectService.createSubject(null))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_SUBJECT");
+                    assertThat(error.getMessage()).contains("Subject details are required");
+                })
+                .verify();
+    }
+
+    @Test
+    void shouldThrowWhenSubjectNameIsTooLong() {
+        CreateSubjectRequest request = new CreateSubjectRequest("a".repeat(101), "CODE", "Cat");
+        StepVerifier.create(subjectService.createSubject(request))
+                .expectErrorSatisfies(error -> assertBusinessError(error, "INVALID_SUBJECT", "name"))
+                .verify();
+    }
+
+    @Test
+    void shouldThrowWhenSubjectCodeIsTooLong() {
+        CreateSubjectRequest request = new CreateSubjectRequest("Math", "a".repeat(21), "Cat");
+        StepVerifier.create(subjectService.createSubject(request))
+                .expectErrorSatisfies(error -> assertBusinessError(error, "INVALID_SUBJECT", "code"))
+                .verify();
+    }
+
+    @Test
+    void shouldThrowWhenSubjectCategoryIsTooLong() {
+        CreateSubjectRequest request = new CreateSubjectRequest("Math", "MTH", "a".repeat(51));
+        StepVerifier.create(subjectService.createSubject(request))
+                .expectErrorSatisfies(error -> assertBusinessError(error, "INVALID_SUBJECT", "category"))
+                .verify();
+    }
+
+    @Test
+    void shouldThrowWhenUpdateSubjectIdIsNull() {
+        CreateSubjectRequest request = new CreateSubjectRequest("Math", "MTH", "Science");
+        StepVerifier.create(subjectService.updateSubject(null, request))
+                .expectErrorSatisfies(error -> assertBusinessError(error, "INVALID_SUBJECT", "subjectId"))
+                .verify();
+    }
+
+    @Test
+    void shouldThrowWhenDeactivateSubjectIdIsNull() {
+        StepVerifier.create(subjectService.deactivateSubject(null))
+                .expectErrorSatisfies(error -> assertBusinessError(error, "INVALID_SUBJECT", "subjectId"))
+                .verify();
+    }
+
+    @Test
+    void shouldThrowWhenAssignSubjectClassIdIsNull() {
+        AssignSubjectRequest request = new AssignSubjectRequest(SUBJECT_ID, TEACHER_ID);
+        assertThatThrownBy(() -> subjectService.assignSubjectToClass(null, request))
+                .isInstanceOf(SchoolFeeException.class)
+                .satisfies(error -> assertBusinessError(error, "INVALID_CLASS", "classId"));
+    }
+
+    @Test
+    void shouldThrowWhenAssignSubjectRequestIsNull() {
+        assertThatThrownBy(() -> subjectService.assignSubjectToClass(CLASS_ID, null))
+                .isInstanceOf(SchoolFeeException.class)
+                .satisfies(error -> assertBusinessError(error, "INVALID_ASSIGNMENT", "subjectId"));
+    }
+
+    @Test
+    void shouldThrowWhenAssignSubjectRequestSubjectIdIsNull() {
+        AssignSubjectRequest request = new AssignSubjectRequest(null, TEACHER_ID);
+        assertThatThrownBy(() -> subjectService.assignSubjectToClass(CLASS_ID, request))
+                .isInstanceOf(SchoolFeeException.class)
+                .satisfies(error -> assertBusinessError(error, "INVALID_ASSIGNMENT", "subjectId"));
+    }
+
+    @Test
+    void shouldFallbackToEmailOrUnassignedWhenTeacherNameIsEmpty() {
+        // Test case 1: name empty, has email
+        User teacherWithNoName = User.builder()
+                .id(TEACHER_ID)
+                .schoolId(SCHOOL_ID)
+                .firstName("")
+                .lastName("")
+                .email("teacher@example.com")
+                .userType("TEACHER")
+                .isActive(true)
+                .build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(activeClass()));
+        when(subjectRepository.findByIdAndSchoolIdAndIsActiveTrue(SUBJECT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(subject(SUBJECT_ID, "Maths", "MTH")));
+        when(userRepository.findByIdAndSchoolIdAndDeletedAtIsNull(TEACHER_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(teacherWithNoName));
+        when(classSubjectRepository.findByClassAndSubjectForUpdate(CLASS_ID, SUBJECT_ID, SCHOOL_ID))
+                .thenReturn(Mono.empty());
+        when(classSubjectRepository.save(any(ClassSubject.class)))
+                .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+
+        StepVerifier.create(subjectService.assignSubjectToClass(CLASS_ID, new AssignSubjectRequest(SUBJECT_ID, TEACHER_ID)))
+                .assertNext(response -> {
+                    assertThat(response.teacherName()).isEqualTo("teacher@example.com");
+                })
+                .verifyComplete();
+
+        // Test case 2: name null/empty, email null/empty
+        User teacherWithNoNameOrEmail = User.builder()
+                .id(TEACHER_ID)
+                .schoolId(SCHOOL_ID)
+                .firstName(null)
+                .lastName(null)
+                .email(null)
+                .userType("TEACHER")
+                .isActive(true)
+                .build();
+
+        when(userRepository.findByIdAndSchoolIdAndDeletedAtIsNull(TEACHER_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(teacherWithNoNameOrEmail));
+
+        StepVerifier.create(subjectService.assignSubjectToClass(CLASS_ID, new AssignSubjectRequest(SUBJECT_ID, TEACHER_ID)))
+                .assertNext(response -> {
+                    assertThat(response.teacherName()).isEqualTo("Unassigned");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldResolveTeacherToNoTeacherAssignedWhenTeacherNotFoundForDisplay() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(activeClass()));
+        ClassSubject assignment = assignment(true, TEACHER_ID);
+        when(classSubjectRepository.findActiveByClassIdAndSchoolId(CLASS_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(assignment));
+        when(subjectRepository.findByIdAndSchoolIdAndIsActiveTrue(SUBJECT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(subject(SUBJECT_ID, "Maths", "MTH")));
+        when(userRepository.findByIdAndSchoolIdAndDeletedAtIsNull(TEACHER_ID, SCHOOL_ID))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(subjectService.getSubjectsForClass(CLASS_ID))
+                .assertNext(list -> {
+                    assertThat(list).hasSize(1);
+                    assertThat(list.getFirst().teacherName()).isEqualTo("No Teacher Assigned");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldMapDuplicateSubjectExceptionWithMessageNull() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(subjectRepository.existsByNormalizedName(SCHOOL_ID, "Mathematics", null))
+                .thenReturn(Mono.just(false));
+        when(subjectRepository.existsByNormalizedCode(SCHOOL_ID, "MTH", null))
+                .thenReturn(Mono.just(false));
+        when(subjectRepository.save(any(Subject.class)))
+                .thenReturn(Mono.error(new DuplicateKeyException((String) null)));
+
+        StepVerifier.create(subjectService.createSubject(new CreateSubjectRequest("Mathematics", "MTH", "Science")))
+                .expectErrorSatisfies(error -> assertBusinessError(error, "DUPLICATE_RESOURCE", "name"))
+                .verify();
+    }
+
+    @Test
+    void shouldNotSaveWhenRemovingAlreadyInactiveSubjectFromClass() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(activeClass()));
+        ClassSubject inactiveAssignment = assignment(false, TEACHER_ID);
+        when(classSubjectRepository.findByClassAndSubjectForUpdate(
+                CLASS_ID, SUBJECT_ID, SCHOOL_ID)).thenReturn(Mono.just(inactiveAssignment));
+
+        StepVerifier.create(subjectService.removeSubjectFromClass(CLASS_ID, SUBJECT_ID))
+                .verifyComplete();
+
+        verify(classSubjectRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldReturnExistingAssignmentWhenTeacherAssignNotChanged() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(activeClass()));
+        when(subjectRepository.findByIdAndSchoolIdAndIsActiveTrue(SUBJECT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(subject(SUBJECT_ID, "Maths", "MTH")));
+        when(userRepository.findByIdAndSchoolIdAndDeletedAtIsNull(TEACHER_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(teacher()));
+        ClassSubject assignment = assignment(true, TEACHER_ID);
+        when(classSubjectRepository.findByClassAndSubjectForUpdate(CLASS_ID, SUBJECT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(assignment));
+
+        StepVerifier.create(subjectService.assignSubjectToClass(CLASS_ID, new AssignSubjectRequest(SUBJECT_ID, TEACHER_ID)))
+                .assertNext(response -> {
+                    assertThat(response.classSubjectId()).isEqualTo(ASSIGNMENT_ID);
+                    assertThat(response.teacherName()).isEqualTo("Ada Teacher");
+                })
+                .verifyComplete();
+
+        verify(classSubjectRepository, never()).save(any());
+    }
 }

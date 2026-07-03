@@ -17,7 +17,7 @@ public interface PaymentRepository extends ReactiveCrudRepository<Payment, UUID>
     @Modifying
     @Query("""
         UPDATE payment.payments
-        SET status = 'FAILED', gateway_status = 'FAILED', narration = 'Payment expired/abandoned', updated_at = NOW()
+        SET status = 'FAILED', gateway_status = 'FAILED', narration = 'Payment expired/abandoned', idempotency_key = 'failed-' || id::text, updated_at = NOW()
         WHERE status IN ('PENDING', 'PROCESSING')
           AND created_at < :beforeTime
           AND deleted_at IS NULL

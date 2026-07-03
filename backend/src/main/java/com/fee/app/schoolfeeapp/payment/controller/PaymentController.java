@@ -3,12 +3,10 @@ package com.fee.app.schoolfeeapp.payment.controller;
 
 import com.fee.app.schoolfeeapp.common.dto.ApiResponse;
 import com.fee.app.schoolfeeapp.common.dto.PageResponse;
+import com.fee.app.schoolfeeapp.payment.dto.request.BankTransferRequest;
 import com.fee.app.schoolfeeapp.payment.dto.request.InitiatePaymentRequest;
 import com.fee.app.schoolfeeapp.payment.dto.request.OfflinePaymentRequest;
-import com.fee.app.schoolfeeapp.payment.dto.response.InitiatePaymentResponse;
-import com.fee.app.schoolfeeapp.payment.dto.response.OfflinePaymentResponse;
-import com.fee.app.schoolfeeapp.payment.dto.response.PaymentHistoryResponse;
-import com.fee.app.schoolfeeapp.payment.dto.response.PaymentStatusResponse;
+import com.fee.app.schoolfeeapp.payment.dto.response.*;
 import com.fee.app.schoolfeeapp.payment.service.PaymentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +44,14 @@ public class PaymentController {
                 .map(response -> ResponseEntity.ok(ApiResponse.success(response)));
     }
 
+    @GetMapping("/reference/{reference}")
+    @PreAuthorize("hasAnyRole('PARENT', 'SCHOOL_ADMIN', 'ACCOUNTANT', 'SUPER_ADMIN')")
+    public Mono<ResponseEntity<ApiResponse<PaymentStatusResponse>>> getPaymentStatusByReference(
+            @PathVariable String reference) {
+        return paymentService.getPaymentStatusByReference(reference)
+                .map(response -> ResponseEntity.ok(ApiResponse.success(response)));
+    }
+
     @GetMapping("/history")
     @PreAuthorize("hasAnyRole('PARENT', 'SCHOOL_ADMIN', 'ACCOUNTANT', 'SUPER_ADMIN')")
     public Mono<ResponseEntity<ApiResponse<PageResponse<PaymentHistoryResponse>>>> getPaymentHistory(
@@ -64,5 +70,33 @@ public class PaymentController {
         return paymentService.recordOfflinePayment(request)
                 .map(response -> ResponseEntity.status(HttpStatus.CREATED)
                         .body(ApiResponse.success(response)));
+    }
+
+    /**
+     * POST /api/v1/payments/bank-transfer
+     * Initiate a bank transfer payment via Paystack.
+     * Returns virtual account details for the parent to transfer to.
+     */
+    @PostMapping("/bank-transfer")
+    @PreAuthorize("hasRole('PARENT')")
+    public Mono<ResponseEntity<ApiResponse<BankTransferResponse>>> initiateBankTransfer(
+            @Valid @RequestBody BankTransferRequest request) {
+        return paymentService.initiateBankTransfer(request)
+                .map(response -> ResponseEntity.status(HttpStatus.CREATED)
+                        .body(ApiResponse.success(response)));
+    }
+
+
+    /**
+     * GET /api/v1/payments/{paymentId}/bank-transfer-details
+     * Get the bank transfer details for a payment.
+     * Parent calls this to see the virtual account details or check status.
+     */
+    @GetMapping("/{paymentId}/bank-transfer-details")
+    @PreAuthorize("hasRole('PARENT')")
+    public Mono<ResponseEntity<ApiResponse<BankTransferResponse>>> getBankTransferDetails(
+            @PathVariable UUID paymentId) {
+        return paymentService.getBankTransferDetails(paymentId)
+                .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
     }
 }

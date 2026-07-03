@@ -78,9 +78,6 @@ public class JwtUtils {
     private SchoolFeeUser extractUserFromAuthentication(Authentication authentication) {
         if (authentication instanceof JwtAuthenticationToken jwtAuth) {
             Jwt jwt = jwtAuth.getToken();
-
-            log.debug("Extracting user from JWT. All claims: {}", jwt.getClaims());
-
             return SchoolFeeUser.builder()
                     .userId(UUID.fromString(jwt.getSubject()))
                     .username(jwt.getClaimAsString("preferred_username"))

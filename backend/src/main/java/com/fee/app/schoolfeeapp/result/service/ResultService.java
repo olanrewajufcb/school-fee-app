@@ -31,10 +31,14 @@ public interface ResultService {
     // Report Cards
     Mono<ReportCardJobResponse> generateReportCards(ReportCardRequest request);
     Mono<ReportCardJobResponse> getReportCardJobStatus(UUID jobId);
+    Mono<ReportCardTemplateResponse> createReportCardTemplate(ReportCardTemplateRequest request);
+    Mono<List<ReportCardTemplateResponse>> getReportCardTemplates();
 
     // Comments
     Mono<ReportCommentResponse> addTeacherComment(UUID studentId, UUID termId, String comment);
+    Mono<ReportCommentResponse> addTeacherComment(UUID studentId, UUID termId, String comment, boolean autoGenerate);
     Mono<ReportCommentResponse> addPrincipalComment(UUID studentId, UUID termId, String comment);
+    Mono<ReportCommentResponse> addPrincipalComment(UUID studentId, UUID termId, String comment, boolean autoGenerate);
 
     // Publication
     Mono<PublishResultResponse> publishResults(UUID termId);
@@ -48,6 +52,9 @@ public interface ResultService {
     Mono<List<SubjectLookupResponse>> getSubjectsForClass(UUID classId);
     Mono<List<CaComponentLookupResponse>> getCaComponents();
     Mono<List<ExamLookupResponse>> getExamsForTerm(UUID termId);
+    Mono<List<AssessmentTraitResponse>> getAssessmentTraits(UUID classId);
+    Mono<List<TraitAssessmentValueResponse>> getTraitAssessmentValues(UUID classId, UUID termId);
+    Mono<TraitAssessmentSaveResponse> saveTraitAssessments(TraitAssessmentRequest request);
 
     // In ResultService.java
 

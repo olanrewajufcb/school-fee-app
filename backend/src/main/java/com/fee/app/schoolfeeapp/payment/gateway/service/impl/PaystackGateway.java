@@ -2,8 +2,11 @@ package com.fee.app.schoolfeeapp.payment.gateway.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fee.app.schoolfeeapp.common.exceptions.GatewayException;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
+import com.fee.app.schoolfeeapp.payment.dto.response.BankTransferResponse;
 import com.fee.app.schoolfeeapp.payment.gateway.GatewayCallbackData;
 import com.fee.app.schoolfeeapp.payment.gateway.GatewayStatus;
 import com.fee.app.schoolfeeapp.payment.gateway.dto.GatewayResponse;
@@ -13,6 +16,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
@@ -52,10 +56,10 @@ public class PaystackGateway implements PaymentGateway {
 
     @Override
     public Mono<GatewayResponse> initiatePayment(
-            UUID paymentId, String phoneNumber, BigDecimal amount, String narration) {
+            UUID paymentId, String customerEmail, BigDecimal amount, String narration) {
 
         ObjectNode body = objectMapper.createObjectNode();
-        body.put("email", "payer-" + paymentId + "@schoolfee.app");
+        body.put("email", requireEmail(customerEmail));
         body.put("amount", toKobo(amount));
         body.put("currency", CURRENCY);
         body.put("reference", paymentId.toString());
@@ -76,6 +80,8 @@ public class PaystackGateway implements PaymentGateway {
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .bodyValue(body)
                 .retrieve()
+                .onStatus(status -> status.is4xxClientError() || status.is5xxServerError(),
+                        this::paystackInitializeError)
                 .bodyToMono(JsonNode.class)
                 .flatMap(response -> {
                     if (!response.path("status").asBoolean()) {
@@ -99,6 +105,17 @@ public class PaystackGateway implements PaymentGateway {
                             .rawResponse(response.toString())
                             .expiresInSeconds(3600) // Paystack gives 1 hour
                             .build());
+                });
+    }
+
+    private Mono<? extends Throwable> paystackInitializeError(ClientResponse response) {
+        return response.bodyToMono(JsonNode.class)
+                .defaultIfEmpty(objectMapper.createObjectNode())
+                .map(body -> {
+                    String message = body.path("message")
+                            .asText("Paystack rejected the payment initialization request");
+                    log.error("Paystack initialization HTTP {} failed: {}", response.statusCode(), message);
+                    return new SchoolFeeException("PAYSTACK_INIT_FAILED", message);
                 });
     }
 
@@ -201,10 +218,184 @@ public class PaystackGateway implements PaymentGateway {
                 .longValueExact();
     }
 
+    private String requireEmail(String email) {
+        if (email == null || email.isBlank()) {
+            throw new SchoolFeeException(
+                    "INVALID_PAYMENT_CUSTOMER",
+                    "A valid parent email is required to initialize Paystack payment",
+                    "email");
+        }
+        String trimmed = email.trim();
+        if (!trimmed.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            throw new SchoolFeeException(
+                    "INVALID_PAYMENT_CUSTOMER",
+                    "A valid parent email is required to initialize Paystack payment",
+                    "email");
+        }
+        return trimmed;
+    }
+
     private Instant parseInstant(String value) {
         if (value == null || value.isBlank()) {
             return Instant.now();
         }
         return Instant.parse(value);
+    }
+
+
+
+    @Override
+    public Mono<BankTransferResponse> initiateBankTransfer(
+            UUID paymentId, BigDecimal amount, String email, String customerName) {
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("email", email);
+        body.put("amount", amount.multiply(BigDecimal.valueOf(100)).intValue()); // Kobo
+        body.put("reference", paymentId.toString());
+
+        // Request virtual account
+        ArrayNode channels = objectMapper.createArrayNode();
+        channels.add("bank_transfer");
+        body.set("channels", channels);
+
+        return webClient.post()
+                .uri(baseUrl + "/transaction/initialize")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + secretKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .flatMap(response -> {
+                    if (!response.path("status").asBoolean()) {
+                        return Mono.error(new GatewayException(
+                                "PAYSTACK_ERROR", response.path("message").asText()));
+                    }
+
+                    String reference = response.path("data").path("reference").asText();
+
+                    // Now resolve to get the virtual account details
+                    return resolveBankTransferDetails(reference, amount);
+                });
+    }
+
+    @Override
+    public Mono<BankTransferResponse> resolveBankTransfer(String gatewayTransactionRef) {
+        if (gatewayTransactionRef == null || gatewayTransactionRef.isBlank()) {
+            return Mono.just(BankTransferResponse.builder()
+                    .reference(null)
+                    .accountNumber(null)
+                    .accountName(null)
+                    .bankName(null)
+                    .amount(null)
+                    .status("PENDING")
+                    .message("Transfer details not yet available. Please wait or try again.")
+                    .build());
+        }
+
+        return webClient.get()
+                .uri(baseUrl + "/transaction/verify/" + gatewayTransactionRef)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + secretKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .map(response -> {
+                    JsonNode data = response.path("data");
+                    String status = data.path("status").asText();
+
+                    // Map Paystack status to our status
+                    String mappedStatus;
+                    if ("success".equalsIgnoreCase(status)) {
+                        mappedStatus = "COMPLETED";
+                    } else if ("abandoned".equalsIgnoreCase(status)) {
+                        mappedStatus = "FAILED";
+                    } else {
+                        mappedStatus = "PROCESSING";
+                    }
+
+                    String accountNumber = data.path("authorization")
+                            .path("account_number").asText(null);
+                    String accountName = data.path("authorization")
+                            .path("account_name").asText(null);
+                    String bankName = data.path("authorization")
+                            .path("bank").asText(null);
+
+                    BigDecimal amount = BigDecimal.valueOf(
+                                    data.path("amount").asLong(0))
+                            .divide(BigDecimal.valueOf(100));
+
+                    if (accountNumber == null || accountNumber.isBlank()) {
+                        return BankTransferResponse.builder()
+                                .reference(gatewayTransactionRef)
+                                .status(mappedStatus)
+                                .amount(amount)
+                                .message("Transfer details are being generated. Please check back shortly.")
+                                .build();
+                    }
+
+                    return BankTransferResponse.builder()
+                            .reference(gatewayTransactionRef)
+                            .accountNumber(accountNumber)
+                            .accountName(accountName)
+                            .bankName(bankName)
+                            .amount(amount)
+                            .status(mappedStatus)
+                            .message(mappedStatus.equals("COMPLETED")
+                                    ? "Payment confirmed. Receipt generated."
+                                    : "Transfer to the account above. Payment will be confirmed automatically.")
+                            .build();
+                })
+                .onErrorResume(error -> {
+                    log.error("Failed to resolve bank transfer: ref={}", gatewayTransactionRef, error);
+                    return Mono.just(BankTransferResponse.builder()
+                            .reference(gatewayTransactionRef)
+                            .status("UNKNOWN")
+                            .message("Unable to retrieve transfer details. Please try again.")
+                            .build());
+                });
+    }
+    /**
+     * After initializing a bank transfer payment, resolve the virtual account details.
+     * Paystack generates a unique virtual account per transaction.
+     */
+    private Mono<BankTransferResponse> resolveBankTransferDetails(
+            String reference, BigDecimal amount) {
+
+        return webClient.get()
+                .uri(baseUrl + "/transaction/verify/" + reference)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + secretKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .map(response -> {
+                    JsonNode data = response.path("data");
+
+                    String accountNumber = data.path("authorization")
+                            .path("account_number").asText(null);
+                    String accountName = data.path("authorization")
+                            .path("account_name").asText(null);
+                    String bankName = data.path("authorization")
+                            .path("bank").asText(null);
+
+                    // If no virtual account yet, provide manual transfer details
+                    if (accountNumber == null || accountNumber.isBlank()) {
+                        return BankTransferResponse.builder()
+                                .reference(reference)
+                                .accountNumber("Coming soon...")
+                                .accountName("Grace International School")
+                                .bankName("Paystack Titan")
+                                .amount(amount)
+                                .status("PENDING")
+                                .message("Transfer details will be sent to your email/phone.")
+                                .build();
+                    }
+
+                    return BankTransferResponse.builder()
+                            .reference(reference)
+                            .accountNumber(accountNumber)
+                            .accountName(accountName)
+                            .bankName(bankName)
+                            .amount(amount)
+                            .status("READY")
+                            .message("Transfer to the account above. Payment will be confirmed automatically.")
+                            .build();
+                });
     }
 }

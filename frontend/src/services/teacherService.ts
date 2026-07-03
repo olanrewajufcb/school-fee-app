@@ -102,6 +102,10 @@ export interface GradingRules {
   schoolId?: string;
   gradesCount: number;
   message?: string;
+  config?: {
+    grades?: Array<{ grade: string; minScore: number; maxScore: number; remark?: string }>;
+    byEducationLevel?: Record<string, { grades?: Array<{ grade: string; minScore: number; maxScore: number; remark?: string }> }>;
+  } | null;
 }
 
 export interface ClassResultSheet {
@@ -137,13 +141,17 @@ export interface StudentResult {
   subjects?: Array<{
     subjectId: string;
     subjectName: string;
+    caScores?: Array<{ component: string; score: number; maxScore: number }>;
     caTotal?: number;
     caMaxTotal?: number;
     examScore?: number;
     examMaxScore?: number;
     finalScore?: number;
     grade?: string;
+    remark?: string;
     subjectPosition?: number;
+    scoreId?: string;
+    examId?: string;
   }>;
   summary?: {
     totalScore?: number;
@@ -154,6 +162,8 @@ export interface StudentResult {
   };
   teacherComment?: string;
 }
+
+export type StudentSubjectResult = NonNullable<StudentResult['subjects']>[number];
 
 export interface StudentFee {
   studentFeeId: string;
@@ -189,6 +199,43 @@ export interface ExamScorePayload {
   termId: string;
   maxScore: number;
   scores: ScoreEntryPayload[];
+}
+
+export interface UpdateScorePayload {
+  score: number;
+  reason?: string;
+}
+
+export interface UpdateScoreResponse {
+  scoreId: string;
+  newScore: number;
+  previousScore?: number;
+  updatedAt?: string;
+}
+
+export interface AssessmentTrait {
+  traitId: string;
+  name: string;
+  category: 'AFFECTIVE' | 'PSYCHOMOTOR' | string;
+  sortOrder?: number;
+}
+
+export interface TraitAssessmentPayload {
+  classId: string;
+  termId: string;
+  entries: Array<{
+    studentId: string;
+    traitId: string;
+    rating: string;
+    comment?: string;
+  }>;
+}
+
+export interface TraitAssessmentValue {
+  studentId: string;
+  traitId: string;
+  rating: string;
+  comment?: string;
 }
 
 function unwrap<T>(response: { data: ApiEnvelope<T> | T }): T {
@@ -240,12 +287,22 @@ export const teacherService = {
   },
 
   async getCaComponents() {
-    const response = await api.get<ApiEnvelope<Array<{ id: string; name: string; maxScore: number }>>>('/api/v1/results/ca-components');
+    const response = await api.get<ApiEnvelope<Array<{ id: string; name: string; maxScore: number; weightPercentage?: number; sortOrder?: number }>>>('/api/v1/results/ca-components');
     return unwrap(response);
   },
 
   async getExamsForTerm(termId: string) {
     const response = await api.get<ApiEnvelope<Array<{ id: string; name: string; maxScore: number }>>>(`/api/v1/results/terms/${termId}/exams`);
+    return unwrap(response);
+  },
+
+  async getAssessmentTraits(classId: string) {
+    const response = await api.get<ApiEnvelope<AssessmentTrait[]>>(`/api/v1/results/classes/${classId}/assessment-traits`);
+    return unwrap(response);
+  },
+
+  async getTraitAssessmentValues(classId: string, termId: string) {
+    const response = await api.get<ApiEnvelope<TraitAssessmentValue[]>>(`/api/v1/results/classes/${classId}/terms/${termId}/trait-assessments`);
     return unwrap(response);
   },
 
@@ -259,6 +316,16 @@ export const teacherService = {
     return unwrap(response);
   },
 
+  async updateScore(scoreId: string, payload: UpdateScorePayload) {
+    const response = await api.put<ApiEnvelope<UpdateScoreResponse>>(`/api/v1/results/scores/${scoreId}`, payload);
+    return unwrap(response);
+  },
+
+  async saveTraitAssessments(payload: TraitAssessmentPayload) {
+    const response = await api.put<ApiEnvelope<unknown>>('/api/v1/results/trait-assessments', payload);
+    return unwrap(response);
+  },
+
   async getClassResultSheet(classId: string, termId: string) {
     const response = await api.get<ApiEnvelope<ClassResultSheet>>(`/api/v1/results/classes/${classId}/term/${termId}/result-sheet`);
     return unwrap(response);
@@ -269,9 +336,10 @@ export const teacherService = {
     return unwrap(response);
   },
 
-  async saveTeacherComment(studentId: string, termId: string, comment: string) {
+  async saveTeacherComment(studentId: string, termId: string, comment: string, autoGenerate = false) {
     const response = await api.put<ApiEnvelope<unknown>>(`/api/v1/results/report-cards/${studentId}/term/${termId}/teacher-comment`, {
       comment,
+      autoGenerate,
     });
     return unwrap(response);
   },

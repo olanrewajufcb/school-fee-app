@@ -20,6 +20,7 @@ import {
   ArrowRight,
   UserCheck,
   Calendar,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Badge } from '@/components/ui/badge';
@@ -31,12 +32,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import {
   type AcademicSession,
+  type AssessmentTrait,
   type CaConfig,
   type ClassDetail,
   type ClassResultSheet,
   type ClassRoom,
   type ClassStudent,
   type GradingRules,
+  type StudentSubjectResult,
   teacherService,
 } from '@/services/teacherService';
 import {
@@ -44,7 +47,7 @@ import {
   type AttendanceSessionResponse,
 } from '@/services/attendanceService';
 
-type Section = 'overview' | 'classes' | 'attendance' | 'scores' | 'results' | 'comments' | 'reference';
+type Section = 'overview' | 'classes' | 'attendance' | 'scores' | 'results' | 'comments' | 'assessments' | 'reference';
 type ScoreMode = 'ca' | 'exam';
 
 interface ScoreForm {
@@ -53,7 +56,16 @@ interface ScoreForm {
   assessmentId: string;
   maxScore: string;
   scores: Record<string, string>;
+  scoreIds?: Record<string, string>;
+  originalScores?: Record<string, string>;
+  caScores?: Record<string, Record<string, string>>;
+  existingSubjectResults?: Record<string, StudentSubjectResult>;
   studentIdFilter?: string;
+}
+
+interface ScorePreviewCacheEntry {
+  caScores?: Record<string, Record<string, string>>;
+  examScores?: Record<string, string>;
 }
 
 const sections: Array<{ id: Section; label: string; icon: React.ComponentType<{ className?: string }> }> = [
@@ -63,6 +75,7 @@ const sections: Array<{ id: Section; label: string; icon: React.ComponentType<{ 
   { id: 'scores', label: 'Scores', icon: ClipboardList },
   { id: 'results', label: 'Results', icon: Award },
   { id: 'comments', label: 'Comments', icon: MessageSquareText },
+  { id: 'assessments', label: 'Assessments', icon: Sparkles },
   { id: 'reference', label: 'Reference', icon: BookOpen },
 ];
 
@@ -86,9 +99,12 @@ export const TeacherDashboard: React.FC = () => {
     scores: {},
     studentIdFilter: 'ALL',
   });
+  const [scorePreviewCache, setScorePreviewCache] = useState<Record<string, ScorePreviewCacheEntry>>({});
   const [lookupSubjects, setLookupSubjects] = useState<Array<{ id: string; name: string; code: string }>>([]);
-  const [lookupComponents, setLookupComponents] = useState<Array<{ id: string; name: string; maxScore: number }>>([]);
+  const [lookupComponents, setLookupComponents] = useState<Array<{ id: string; name: string; maxScore: number; weightPercentage?: number; sortOrder?: number }>>([]);
   const [lookupExams, setLookupExams] = useState<Array<{ id: string; name: string; maxScore: number }>>([]);
+  const [assessmentTraits, setAssessmentTraits] = useState<AssessmentTrait[]>([]);
+  const [traitRatings, setTraitRatings] = useState<Record<string, Record<string, { rating: string; comment: string }>>>({});
   const [isLookupLoading, setIsLookupLoading] = useState(false);
   const [commentStudentId, setCommentStudentId] = useState('');
   const [commentText, setCommentText] = useState('');
@@ -102,7 +118,7 @@ export const TeacherDashboard: React.FC = () => {
   const [todaySessions, setTodaySessions] = useState<Record<string, AttendanceSessionResponse[]>>({});
   const [selectedSession, setSelectedSession] = useState<AttendanceSessionResponse | null>(null);
   const [attendanceMarks, setAttendanceMarks] = useState<Record<string, {
-    status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
+    status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED' | 'NOT_MARKED';
     arrivalTime?: string;
     broughtBy?: string;
     departureTime?: string;
@@ -149,6 +165,83 @@ export const TeacherDashboard: React.FC = () => {
   const feePaidCount = classDetail?.statistics?.fullyPaidFees ?? students.filter((student) => student.feeStatus?.status === 'PAID').length;
   const pendingFeesCount = classDetail?.statistics?.pendingFees ?? students.filter((student) => student.feeStatus?.status && student.feeStatus.status !== 'PAID').length;
   const resultRows = resultSheet?.students ?? [];
+  const blankScoreMap = () => Object.fromEntries(students.map((student) => [student.studentId, '']));
+  const blankCaScoreMap = (components = lookupComponents) => Object.fromEntries(
+    students.map((student) => [
+      student.studentId,
+      Object.fromEntries(components.map((comp) => [comp.id, ''])),
+    ]),
+  );
+  const scoreCacheKey = (subjectId: string) => `${selectedClassId}:${currentTerm?.termId ?? ''}:${subjectId}`;
+
+  const loadExistingSubjectScores = async (
+    subjectId: string,
+    examId: string,
+    components = lookupComponents,
+  ) => {
+    const nextScores: Record<string, string> = blankScoreMap();
+    const scoreIds: Record<string, string> = {};
+    const originalScores: Record<string, string> = {};
+    const caScores: Record<string, Record<string, string>> = blankCaScoreMap(components);
+    const existingSubjectResults: Record<string, StudentSubjectResult> = {};
+    const cached = scorePreviewCache[scoreCacheKey(subjectId)];
+
+    if (cached?.examScores) {
+      Object.entries(cached.examScores).forEach(([studentId, score]) => {
+        nextScores[studentId] = score;
+        originalScores[studentId] = score;
+      });
+    }
+    if (cached?.caScores) {
+      Object.entries(cached.caScores).forEach(([studentId, studentScores]) => {
+        caScores[studentId] = {
+          ...(caScores[studentId] ?? {}),
+          ...studentScores,
+        };
+      });
+    }
+
+    if (!currentTerm?.termId || !subjectId || students.length === 0) {
+      return { scores: nextScores, scoreIds, originalScores, caScores, existingSubjectResults };
+    }
+
+    const results = await Promise.allSettled(
+      students.map((student) => teacherService.getStudentResult(student.studentId, currentTerm.termId)),
+    );
+
+    results.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return;
+      const student = students[index];
+      const subject = result.value.subjects?.find((item) => {
+        const sameSubject = item.subjectId === subjectId;
+        const sameExam = !item.examId || !examId || item.examId === examId;
+        return sameSubject && sameExam;
+      });
+      if (!student || !subject) return;
+
+      existingSubjectResults[student.studentId] = subject;
+
+      subject.caScores?.forEach((ca) => {
+        const component = components.find((comp) => comp.name.trim().toLowerCase() === ca.component.trim().toLowerCase());
+        if (!component || ca.score === undefined || ca.score === null) return;
+        caScores[student.studentId] = {
+          ...(caScores[student.studentId] ?? {}),
+          [component.id]: String(ca.score),
+        };
+      });
+
+      if (subject.examScore === undefined || subject.examScore === null) return;
+
+      const scoreValue = String(subject.examScore);
+      nextScores[student.studentId] = scoreValue;
+      originalScores[student.studentId] = scoreValue;
+      if (subject.scoreId) {
+        scoreIds[student.studentId] = subject.scoreId;
+      }
+    });
+
+    return { scores: nextScores, scoreIds, originalScores, caScores, existingSubjectResults };
+  };
 
   useEffect(() => {
     void loadDashboard();
@@ -244,15 +337,16 @@ export const TeacherDashboard: React.FC = () => {
     try {
       const payloadMarks = students.map((s) => {
         const formMark = attendanceMarks[s.studentId] || { status: 'PRESENT' };
+        const status = formMark.status === 'NOT_MARKED' ? 'PRESENT' : formMark.status;
         return {
           studentId: s.studentId,
-          status: formMark.status,
-          arrivalTime: formMark.status === 'PRESENT' || formMark.status === 'LATE' ? formMark.arrivalTime : undefined,
-          broughtBy: formMark.status === 'PRESENT' || formMark.status === 'LATE' ? formMark.broughtBy : undefined,
-          departureTime: formMark.status === 'PRESENT' ? formMark.departureTime : undefined,
-          pickedUpBy: formMark.status === 'PRESENT' ? formMark.pickedUpBy : undefined,
-          pickUpPersonName: formMark.status === 'PRESENT' && formMark.pickedUpBy === 'Other' ? formMark.pickUpPersonName : (formMark.status === 'PRESENT' ? formMark.pickedUpBy : undefined),
-          pickUpPersonPhone: formMark.status === 'PRESENT' ? formMark.pickUpPersonPhone : undefined,
+          status,
+          arrivalTime: status === 'PRESENT' || status === 'LATE' ? formMark.arrivalTime : undefined,
+          broughtBy: status === 'PRESENT' || status === 'LATE' ? formMark.broughtBy : undefined,
+          departureTime: status === 'PRESENT' ? formMark.departureTime : undefined,
+          pickedUpBy: status === 'PRESENT' ? formMark.pickedUpBy : undefined,
+          pickUpPersonName: status === 'PRESENT' && formMark.pickedUpBy === 'Other' ? formMark.pickUpPersonName : (status === 'PRESENT' ? formMark.pickedUpBy : undefined),
+          pickUpPersonPhone: status === 'PRESENT' ? formMark.pickUpPersonPhone : undefined,
           notes: formMark.notes,
         };
       });
@@ -271,18 +365,19 @@ export const TeacherDashboard: React.FC = () => {
 
   const updateSingleAttendanceMark = async (studentId: string) => {
     const formMark = attendanceMarks[studentId];
-    if (!formMark || !formMark.markId) return;
+    if (!formMark || !formMark.markId || formMark.status === 'NOT_MARKED') return;
     setIsSaving(true);
     setError(null);
     try {
+      const status = formMark.status;
       const payload = {
-        status: formMark.status,
-        arrivalTime: formMark.status === 'PRESENT' || formMark.status === 'LATE' ? formMark.arrivalTime : undefined,
-        broughtBy: formMark.status === 'PRESENT' || formMark.status === 'LATE' ? formMark.broughtBy : undefined,
-        departureTime: formMark.status === 'PRESENT' ? formMark.departureTime : undefined,
-        pickedUpBy: formMark.status === 'PRESENT' ? formMark.pickedUpBy : undefined,
-        pickUpPersonName: formMark.status === 'PRESENT' && formMark.pickedUpBy === 'Other' ? formMark.pickUpPersonName : (formMark.status === 'PRESENT' ? formMark.pickedUpBy : undefined),
-        pickUpPersonPhone: formMark.status === 'PRESENT' ? formMark.pickUpPersonPhone : undefined,
+        status,
+        arrivalTime: status === 'PRESENT' || status === 'LATE' ? formMark.arrivalTime : undefined,
+        broughtBy: status === 'PRESENT' || status === 'LATE' ? formMark.broughtBy : undefined,
+        departureTime: status === 'PRESENT' ? formMark.departureTime : undefined,
+        pickedUpBy: status === 'PRESENT' ? formMark.pickedUpBy : undefined,
+        pickUpPersonName: status === 'PRESENT' && formMark.pickedUpBy === 'Other' ? formMark.pickUpPersonName : (status === 'PRESENT' ? formMark.pickedUpBy : undefined),
+        pickUpPersonPhone: status === 'PRESENT' ? formMark.pickUpPersonPhone : undefined,
         notes: formMark.notes,
       };
       await attendanceService.updateMark(formMark.markId, payload);
@@ -331,9 +426,11 @@ export const TeacherDashboard: React.FC = () => {
   const loadClass = async (classId: string) => {
     setIsClassLoading(true);
     setError(null);
-    const [detailResult, resultSheetResult] = await Promise.allSettled([
+    const [detailResult, resultSheetResult, traitsResult, traitValuesResult] = await Promise.allSettled([
       teacherService.getClassDetails(classId),
       currentTerm?.termId ? teacherService.getClassResultSheet(classId, currentTerm.termId) : Promise.resolve(null),
+      teacherService.getAssessmentTraits(classId),
+      currentTerm?.termId ? teacherService.getTraitAssessmentValues(classId, currentTerm.termId) : Promise.resolve([]),
     ]);
 
     if (detailResult.status === 'fulfilled') {
@@ -341,14 +438,64 @@ export const TeacherDashboard: React.FC = () => {
       setScoreForm((form) => ({
         ...form,
         scores: Object.fromEntries(detailResult.value.students.map((student) => [student.studentId, ''])),
+        scoreIds: {},
+        originalScores: {},
+        existingSubjectResults: {},
       }));
     }
     if (resultSheetResult.status === 'fulfilled') setResultSheet(resultSheetResult.value);
+    if (traitsResult.status === 'fulfilled') setAssessmentTraits(traitsResult.value);
+    if (traitValuesResult.status === 'fulfilled') {
+      const nextRatings: Record<string, Record<string, { rating: string; comment: string }>> = {};
+      traitValuesResult.value.forEach((value) => {
+        nextRatings[value.studentId] = {
+          ...(nextRatings[value.studentId] ?? {}),
+          [value.traitId]: {
+            rating: value.rating ?? '',
+            comment: value.comment ?? '',
+          },
+        };
+      });
+      setTraitRatings(nextRatings);
+    }
     if (detailResult.status === 'rejected') setError(readError(detailResult.reason, 'Unable to load class details.'));
     setIsClassLoading(false);
   };
 
-  const handleAssessmentChange = (id: string, mode: ScoreMode) => {
+  const handleScoreSubjectChange = async (subjectId: string) => {
+    setScoreForm((prev) => ({
+      ...prev,
+      subjectId,
+      scores: blankScoreMap(),
+      scoreIds: {},
+      originalScores: {},
+      caScores: scoreForm.mode === 'ca' ? blankCaScoreMap() : prev.caScores,
+      existingSubjectResults: {},
+    }));
+
+    setIsLookupLoading(true);
+    try {
+      const existing = await loadExistingSubjectScores(
+        subjectId,
+        scoreForm.mode === 'exam' ? scoreForm.assessmentId : '',
+      );
+      setScoreForm((prev) => ({
+        ...prev,
+        subjectId,
+        scores: existing.scores,
+        scoreIds: existing.scoreIds,
+        originalScores: existing.originalScores,
+        caScores: scoreForm.mode === 'ca' ? existing.caScores : prev.caScores,
+        existingSubjectResults: existing.existingSubjectResults,
+      }));
+    } catch (err) {
+      setError(readError(err, 'Unable to load existing scores for this subject.'));
+    } finally {
+      setIsLookupLoading(false);
+    }
+  };
+
+  const handleAssessmentChange = async (id: string, mode: ScoreMode) => {
     let maxScore = mode === 'ca' ? '20' : '100';
     if (mode === 'ca') {
       const comp = lookupComponents.find((c) => c.id === id);
@@ -361,7 +508,29 @@ export const TeacherDashboard: React.FC = () => {
       ...prev,
       assessmentId: id,
       maxScore,
+      ...(mode === 'exam' ? { scores: blankScoreMap(), scoreIds: {}, originalScores: {}, existingSubjectResults: {} } : {}),
     }));
+
+    if (mode !== 'exam') return;
+
+    setIsLookupLoading(true);
+    try {
+      const existing = await loadExistingSubjectScores(scoreForm.subjectId, id);
+      setScoreForm((prev) => ({
+        ...prev,
+        assessmentId: id,
+        maxScore,
+        scores: existing.scores,
+        scoreIds: existing.scoreIds,
+        originalScores: existing.originalScores,
+        caScores: existing.caScores,
+        existingSubjectResults: existing.existingSubjectResults,
+      }));
+    } catch (err) {
+      setError(readError(err, 'Unable to load existing exam scores for this exam.'));
+    } finally {
+      setIsLookupLoading(false);
+    }
   };
 
   const openScoreDialog = async (mode: ScoreMode) => {
@@ -377,25 +546,46 @@ export const TeacherDashboard: React.FC = () => {
       const defaultSubjectId = classSubjects[0]?.id ?? '';
       let defaultAssessmentId = '';
       let defaultMaxScore = mode === 'ca' ? '20' : '100';
+      let loadedComponents = lookupComponents;
 
       if (mode === 'ca') {
-        const comps = await teacherService.getCaComponents();
+        const [comps, termExams] = await Promise.all([
+          teacherService.getCaComponents(),
+          currentTerm?.termId ? teacherService.getExamsForTerm(currentTerm.termId) : Promise.resolve([]),
+        ]);
+        loadedComponents = comps;
         setLookupComponents(comps);
+        setLookupExams(termExams);
         defaultAssessmentId = comps[0]?.id ?? '';
         defaultMaxScore = comps[0]?.maxScore?.toString() ?? '20';
       } else if (mode === 'exam' && currentTerm?.termId) {
-        const termExams = await teacherService.getExamsForTerm(currentTerm.termId);
+        const [termExams, comps] = await Promise.all([
+          teacherService.getExamsForTerm(currentTerm.termId),
+          teacherService.getCaComponents(),
+        ]);
+        loadedComponents = comps;
+        setLookupComponents(comps);
         setLookupExams(termExams);
         defaultAssessmentId = termExams[0]?.id ?? '';
         defaultMaxScore = termExams[0]?.maxScore?.toString() ?? '100';
       }
+
+      const existingScores = await loadExistingSubjectScores(
+        defaultSubjectId,
+        mode === 'exam' ? defaultAssessmentId : '',
+        loadedComponents,
+      );
 
       setScoreForm({
         mode,
         subjectId: defaultSubjectId,
         assessmentId: defaultAssessmentId,
         maxScore: defaultMaxScore,
-        scores: Object.fromEntries(students.map((student) => [student.studentId, ''])),
+        scores: existingScores.scores,
+        scoreIds: existingScores.scoreIds,
+        originalScores: existingScores.originalScores,
+        caScores: existingScores.caScores,
+        existingSubjectResults: existingScores.existingSubjectResults,
         studentIdFilter: 'ALL',
       });
       setScoreDialog(mode);
@@ -412,50 +602,158 @@ export const TeacherDashboard: React.FC = () => {
       setError('Select a class with a current term before saving scores.');
       return;
     }
-    const entries = Object.entries(scoreForm.scores)
-      .filter(([, score]) => score.trim() !== '')
-      .map(([studentId, score]) => ({ studentId, score: Number(score) }));
 
-    if (!entries.length) {
-      setError('Enter at least one score.');
-      return;
-    }
+    if (scoreForm.mode === 'ca') {
+      const componentScoresMap: Record<string, Array<{ studentId: string; score: number }>> = {};
+      lookupComponents.forEach((comp) => {
+        const compScores: Array<{ studentId: string; score: number }> = [];
+        students.forEach((student) => {
+          const rawScore = scoreForm.caScores?.[student.studentId]?.[comp.id];
+          if (rawScore !== undefined && rawScore.trim() !== '') {
+            compScores.push({
+              studentId: student.studentId,
+              score: Number(rawScore),
+            });
+          }
+        });
+        if (compScores.length > 0) {
+          componentScoresMap[comp.id] = compScores;
+        }
+      });
 
-    await runAction(async () => {
-      if (scoreForm.mode === 'ca') {
-        await teacherService.enterCaScores({
-          termId: currentTerm.termId,
-          classId: selectedClassId,
-          subjectId: scoreForm.subjectId.trim(),
-          caComponentId: scoreForm.assessmentId.trim(),
-          maxScore: Number(scoreForm.maxScore),
-          scores: entries,
-        });
-      } else {
-        await teacherService.enterExamScores({
-          termId: currentTerm.termId,
-          classId: selectedClassId,
-          subjectId: scoreForm.subjectId.trim(),
-          examId: scoreForm.assessmentId.trim(),
-          maxScore: Number(scoreForm.maxScore),
-          scores: entries,
-        });
+      const componentIdsToSave = Object.keys(componentScoresMap);
+      if (componentIdsToSave.length === 0) {
+        setError('Enter at least one score.');
+        return;
       }
-      setScoreDialog(null);
-      setNotice(scoreForm.mode === 'ca' ? 'CA scores saved.' : 'Exam scores saved and final scores recomputed.');
-      await loadClass(selectedClassId);
-    });
+
+      await runAction(async () => {
+        for (const compId of componentIdsToSave) {
+          const comp = lookupComponents.find((c) => c.id === compId);
+          const maxScore = comp?.maxScore ?? 20;
+          await teacherService.enterCaScores({
+            termId: currentTerm.termId,
+            classId: selectedClassId,
+            subjectId: scoreForm.subjectId.trim(),
+            caComponentId: compId,
+            maxScore: maxScore,
+            scores: componentScoresMap[compId],
+          });
+        }
+        setScorePreviewCache((prev) => ({
+          ...prev,
+          [scoreCacheKey(scoreForm.subjectId.trim())]: {
+            ...(prev[scoreCacheKey(scoreForm.subjectId.trim())] ?? {}),
+            caScores: scoreForm.caScores ?? {},
+          },
+        }));
+        setScoreDialog(null);
+        setNotice('CA scores saved.');
+        await loadClass(selectedClassId);
+      });
+    } else {
+      const entries = Object.entries(scoreForm.scores)
+        .filter(([, score]) => score.trim() !== '')
+        .map(([studentId, score]) => ({ studentId, score: Number(score) }));
+
+      if (!entries.length) {
+        setError('Enter at least one score.');
+        return;
+      }
+
+      await runAction(async () => {
+        const newEntries = entries.filter((entry) => !scoreForm.scoreIds?.[entry.studentId]);
+        const changedExistingEntries = entries.filter((entry) => {
+          const scoreId = scoreForm.scoreIds?.[entry.studentId];
+          if (!scoreId) return false;
+          const originalScore = scoreForm.originalScores?.[entry.studentId];
+          return originalScore === undefined || Number(originalScore) !== entry.score;
+        });
+
+        if (!newEntries.length && !changedExistingEntries.length) {
+          setNotice('No score changes to save.');
+          return;
+        }
+
+        if (newEntries.length) {
+          await teacherService.enterExamScores({
+            termId: currentTerm.termId,
+            classId: selectedClassId,
+            subjectId: scoreForm.subjectId.trim(),
+            examId: scoreForm.assessmentId.trim(),
+            maxScore: Number(scoreForm.maxScore),
+            scores: newEntries,
+          });
+        }
+
+        for (const entry of changedExistingEntries) {
+          const scoreId = scoreForm.scoreIds?.[entry.studentId];
+          if (!scoreId) continue;
+          await teacherService.updateScore(scoreId, {
+            score: entry.score,
+            reason: 'Updated from teacher score entry dashboard',
+          });
+        }
+
+        setScorePreviewCache((prev) => ({
+          ...prev,
+          [scoreCacheKey(scoreForm.subjectId.trim())]: {
+            ...(prev[scoreCacheKey(scoreForm.subjectId.trim())] ?? {}),
+            caScores: scoreForm.caScores,
+            examScores: Object.fromEntries(entries.map((entry) => [entry.studentId, String(entry.score)])),
+          },
+        }));
+        setScoreDialog(null);
+        setNotice(changedExistingEntries.length && newEntries.length
+          ? 'Exam scores created and updated. Final scores recomputed.'
+          : changedExistingEntries.length
+            ? 'Exam scores updated and final scores recomputed.'
+            : 'Exam scores saved and final scores recomputed.');
+        await loadClass(selectedClassId);
+      });
+    }
   };
 
-  const saveComment = async (studentId = commentStudentId) => {
+  const saveComment = async (studentId = commentStudentId, autoGenerate = false) => {
     if (!studentId || !currentTerm?.termId) {
       setError('Choose a student and current term before saving a comment.');
       return;
     }
     await runAction(async () => {
-      await teacherService.saveTeacherComment(studentId, currentTerm.termId, commentText.trim());
-      setNotice('Teacher comment saved.');
+      await teacherService.saveTeacherComment(studentId, currentTerm.termId, autoGenerate ? '' : commentText.trim(), autoGenerate);
+      setNotice(autoGenerate ? 'Teacher comment auto-generated from result.' : 'Teacher comment saved.');
       setCommentStudentId(studentId);
+      if (autoGenerate) setCommentText('');
+    });
+  };
+
+  const saveTraitAssessments = async () => {
+    if (!selectedClassId || !currentTerm?.termId) {
+      setError('Select a class with a current term before saving assessments.');
+      return;
+    }
+    const entries = Object.entries(traitRatings).flatMap(([studentId, ratings]) =>
+      Object.entries(ratings)
+        .filter(([, value]) => value.rating.trim() !== '')
+        .map(([traitId, value]) => ({
+          studentId,
+          traitId,
+          rating: value.rating.trim(),
+          comment: value.comment.trim() || undefined,
+        })),
+    );
+    if (!entries.length) {
+      setError('Enter at least one behavioural or psychomotor rating.');
+      return;
+    }
+    await runAction(async () => {
+      await teacherService.saveTraitAssessments({
+        classId: selectedClassId,
+        termId: currentTerm.termId,
+        entries,
+      });
+      setNotice('Behavioural and psychomotor assessments saved.');
+      await loadClass(selectedClassId);
     });
   };
 
@@ -656,6 +954,18 @@ export const TeacherDashboard: React.FC = () => {
                   }}
                   onCommentChange={setCommentText}
                   onSave={() => void saveComment()}
+                  onAutoGenerate={() => void saveComment(commentStudentId, true)}
+                />
+              )}
+
+              {activeSection === 'assessments' && (
+                <AssessmentsSection
+                  students={students}
+                  traits={assessmentTraits}
+                  ratings={traitRatings}
+                  isSaving={isSaving}
+                  onRatingsChange={setTraitRatings}
+                  onSave={() => void saveTraitAssessments()}
                 />
               )}
 
@@ -677,11 +987,14 @@ export const TeacherDashboard: React.FC = () => {
         form={scoreForm}
         students={students}
         isSaving={isSaving}
+        caConfig={caConfig}
+        gradingRules={gradingRules}
         lookupSubjects={lookupSubjects}
         lookupComponents={lookupComponents}
         lookupExams={lookupExams}
         onOpenChange={(open) => setScoreDialog(open ? scoreForm.mode : null)}
         onChange={setScoreForm}
+        onSubjectChange={handleScoreSubjectChange}
         onAssessmentChange={handleAssessmentChange}
         onSubmit={submitScores}
       />
@@ -930,7 +1243,7 @@ function AttendanceSection({
   session: AttendanceSessionResponse | null;
   students: ClassStudent[];
   marks: Record<string, {
-    status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
+    status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED' | 'NOT_MARKED';
     arrivalTime?: string;
     broughtBy?: string;
     departureTime?: string;
@@ -1099,10 +1412,10 @@ function AttendanceSection({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {students.map((student, index) => {
-                const mark = marks[student.studentId] ?? { status: 'PRESENT' as const };
+                const mark = marks[student.studentId] ?? { status: session.isComplete ? 'NOT_MARKED' as const : 'PRESENT' as const };
                 const isEditing = session.isComplete && editingStudentId === student.studentId;
                 const isReadOnly = session.isComplete && !isEditing;
-                const showTimeFields = mark.status !== 'ABSENT';
+                const showTimeFields = mark.status !== 'ABSENT' && mark.status !== 'NOT_MARKED';
                 const statusOpt = statusOptions.find((o) => o.value === mark.status);
 
                 return (
@@ -1236,14 +1549,18 @@ function AttendanceSection({
                             </Button>
                           </div>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs border-slate-200"
-                            onClick={() => onEditStudent(student.studentId)}
-                          >
-                            Edit
-                          </Button>
+                          mark.markId ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs border-slate-200"
+                              onClick={() => onEditStudent(student.studentId)}
+                            >
+                              Edit
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )
                         )}
                       </td>
                     )}
@@ -1446,6 +1763,7 @@ function CommentsSection({
   onSelectStudent,
   onCommentChange,
   onSave,
+  onAutoGenerate,
 }: {
   students: ClassStudent[];
   selectedStudentId: string;
@@ -1454,6 +1772,7 @@ function CommentsSection({
   onSelectStudent: (studentId: string) => void;
   onCommentChange: (value: string) => void;
   onSave: () => void;
+  onAutoGenerate: () => void;
 }) {
   const student = students.find((item) => item.studentId === selectedStudentId);
   return (
@@ -1486,7 +1805,11 @@ function CommentsSection({
           onChange={(event) => onCommentChange(event.target.value)}
           placeholder="Write a clear, constructive report-card comment..."
         />
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onAutoGenerate} disabled={isSaving || !student}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+            Auto-generate from Result
+          </Button>
           <Button onClick={onSave} disabled={isSaving || !student || !commentText.trim()} className="bg-slate-950 text-white hover:bg-slate-800">
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
             Save Comment
@@ -1494,6 +1817,114 @@ function CommentsSection({
         </div>
       </section>
     </div>
+  );
+}
+
+function AssessmentsSection({
+  students,
+  traits,
+  ratings,
+  isSaving,
+  onRatingsChange,
+  onSave,
+}: {
+  students: ClassStudent[];
+  traits: AssessmentTrait[];
+  ratings: Record<string, Record<string, { rating: string; comment: string }>>;
+  isSaving: boolean;
+  onRatingsChange: (ratings: Record<string, Record<string, { rating: string; comment: string }>>) => void;
+  onSave: () => void;
+}) {
+  const behavioural = traits.filter((trait) => ['AFFECTIVE', 'BEHAVIOURAL'].includes(trait.category));
+  const psychomotor = traits.filter((trait) => trait.category === 'PSYCHOMOTOR');
+  const orderedTraits = [...behavioural, ...psychomotor];
+  const ratingOptions = ['A', 'B', 'C', 'D', 'E'];
+
+  const updateRating = (studentId: string, traitId: string, patch: Partial<{ rating: string; comment: string }>) => {
+    const current = ratings[studentId]?.[traitId] ?? { rating: '', comment: '' };
+    onRatingsChange({
+      ...ratings,
+      [studentId]: {
+        ...(ratings[studentId] ?? {}),
+        [traitId]: { ...current, ...patch },
+      },
+    });
+  };
+
+  return (
+    <section className="rounded-md border border-slate-200 bg-white">
+      <div className="flex flex-col gap-3 border-b border-slate-200 p-5 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm font-medium text-slate-500">Report Card Assessments</p>
+          <h2 className="mt-1 text-xl font-semibold text-slate-950">Behavioural & Psychomotor Ratings</h2>
+          <p className="mt-1 text-sm text-slate-500">Use A–E or your school’s preferred rating shorthand.</p>
+        </div>
+        <Button onClick={onSave} disabled={isSaving || !students.length || !orderedTraits.length} className="bg-slate-950 text-white hover:bg-slate-800">
+          {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+          Save Assessments
+        </Button>
+      </div>
+
+      {!orderedTraits.length ? (
+        <div className="p-5">
+          <EmptyPanel message="No assessment traits are configured for this class yet." />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[960px] text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-5 py-3">Student</th>
+                {orderedTraits.map((trait) => (
+                  <th key={trait.traitId} className="px-5 py-3">
+                    <span>{trait.name}</span>
+                    <span className="ml-1 text-[10px] normal-case text-slate-400">
+                      {trait.category === 'PSYCHOMOTOR' ? 'Psychomotor' : 'Behavioural'}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((student) => (
+                <tr key={student.studentId} className="border-b border-slate-100 align-top">
+                  <td className="px-5 py-4">
+                    <p className="font-medium text-slate-900">{student.firstName} {student.lastName}</p>
+                    <p className="text-xs text-slate-500">{student.admissionNumber}</p>
+                  </td>
+                  {orderedTraits.map((trait) => {
+                    const value = ratings[student.studentId]?.[trait.traitId] ?? { rating: '', comment: '' };
+                    return (
+                      <td key={`${student.studentId}-${trait.traitId}`} className="px-5 py-4">
+                        <div className="space-y-2">
+                          <select
+                            value={value.rating}
+                            onChange={(event) => updateRating(student.studentId, trait.traitId, { rating: event.target.value })}
+                            className="h-9 w-24 rounded-md border border-slate-200 bg-white px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                          >
+                            <option value="">—</option>
+                            {ratingOptions.map((rating) => (
+                              <option key={rating} value={rating}>{rating}</option>
+                            ))}
+                          </select>
+                          <Input
+                            value={value.comment}
+                            onChange={(event) => updateRating(student.studentId, trait.traitId, { comment: event.target.value })}
+                            placeholder="Optional note"
+                            className="h-9 min-w-36"
+                          />
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {!students.length && <EmptyTableRow colSpan={orderedTraits.length + 1} message="No students in this class." />}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1567,11 +1998,14 @@ function ScoreDialog({
   form,
   students,
   isSaving,
+  caConfig,
+  gradingRules,
   lookupSubjects,
   lookupComponents,
   lookupExams,
   onOpenChange,
   onChange,
+  onSubjectChange,
   onAssessmentChange,
   onSubmit,
 }: {
@@ -1580,17 +2014,110 @@ function ScoreDialog({
   form: ScoreForm;
   students: ClassStudent[];
   isSaving: boolean;
+  caConfig: CaConfig | null;
+  gradingRules: GradingRules | null;
   lookupSubjects: Array<{ id: string; name: string; code: string }>;
-  lookupComponents: Array<{ id: string; name: string; maxScore: number }>;
+  lookupComponents: Array<{ id: string; name: string; maxScore: number; weightPercentage?: number; sortOrder?: number }>;
   lookupExams: Array<{ id: string; name: string; maxScore: number }>;
   onOpenChange: (open: boolean) => void;
   onChange: (form: ScoreForm) => void;
-  onAssessmentChange: (id: string, mode: ScoreMode) => void;
+  onSubjectChange: (id: string) => void | Promise<void>;
+  onAssessmentChange: (id: string, mode: ScoreMode) => void | Promise<void>;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 }) {
   const maxScore = Number(form.maxScore) || 0;
-  const enteredScores = Object.values(form.scores).map(Number).filter((score) => !Number.isNaN(score));
+  const enteredScores = Object.values(form.scores)
+    .filter((score) => score.trim() !== '')
+    .map(Number)
+    .filter((score) => !Number.isNaN(score));
   const average = enteredScores.length ? enteredScores.reduce((sum, score) => sum + score, 0) / enteredScores.length : 0;
+
+  const gridStyle = mode === 'ca'
+    ? { gridTemplateColumns: `56px 2.5fr repeat(${lookupComponents.length}, 1fr)` }
+    : { gridTemplateColumns: '56px 2.5fr 140px' };
+
+  let totalEnteredCount = 0;
+  if (mode === 'ca') {
+    if (form.caScores) {
+      Object.values(form.caScores).forEach((studentScores) => {
+        Object.values(studentScores).forEach((score) => {
+          if (score && score.trim() !== '') {
+            totalEnteredCount++;
+          }
+        });
+      });
+    }
+  } else {
+    totalEnteredCount = enteredScores.length;
+  }
+
+  const visibleScoreStudents = students.filter(
+    (student) => !form.studentIdFilter || form.studentIdFilter === 'ALL' || student.studentId === form.studentIdFilter,
+  );
+  const selectedExam = lookupExams.find((exam) => exam.id === form.assessmentId);
+  const configuredExamMax = caConfig?.examWeightPercentage
+    ? Math.round(caConfig.examWeightPercentage)
+    : undefined;
+  const examMax = selectedExam?.maxScore ?? lookupExams[0]?.maxScore ?? configuredExamMax ?? 60;
+  const examWeight = caConfig?.examWeightPercentage ?? examMax;
+  const overallMaxScore = 100;
+  const configuredGrades =
+    gradingRules?.config?.grades ??
+    Object.values(gradingRules?.config?.byEducationLevel ?? {}).find((scheme) => scheme?.grades?.length)?.grades ??
+    [
+      { grade: 'A1', minScore: 75, maxScore: 100, remark: 'Excellent' },
+      { grade: 'B2', minScore: 70, maxScore: 74, remark: 'Very Good' },
+      { grade: 'B3', minScore: 65, maxScore: 69, remark: 'Good' },
+      { grade: 'C4', minScore: 60, maxScore: 64, remark: 'Credit' },
+      { grade: 'C5', minScore: 55, maxScore: 59, remark: 'Credit' },
+      { grade: 'C6', minScore: 50, maxScore: 54, remark: 'Credit' },
+      { grade: 'D7', minScore: 45, maxScore: 49, remark: 'Pass' },
+      { grade: 'E8', minScore: 40, maxScore: 44, remark: 'Pass' },
+      { grade: 'F9', minScore: 0, maxScore: 39, remark: 'Fail' },
+    ];
+  const resolvePreviewGrade = (score: number) => configuredGrades.find((grade) => score >= Number(grade.minScore) && score <= Number(grade.maxScore));
+  const parseScore = (value?: string | number | null) => {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const formatPreviewScore = (value: number | null | undefined) => {
+    if (value === undefined || value === null || !Number.isFinite(value)) return '—';
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  };
+  const previewRows = visibleScoreStudents.map((student) => {
+    const existing = form.existingSubjectResults?.[student.studentId];
+    const caItems = lookupComponents.map((component) => {
+      const typedScore = parseScore(form.caScores?.[student.studentId]?.[component.id]);
+      const savedScore = existing?.caScores?.find((ca) => ca.component.trim().toLowerCase() === component.name.trim().toLowerCase());
+      const score = typedScore ?? parseScore(savedScore?.score);
+      const max = component.maxScore || savedScore?.maxScore || 0;
+      const weight = component.weightPercentage ?? max;
+      const weighted = score !== null && max > 0 ? (score / max) * weight : 0;
+      return { name: component.name, score, max, weighted };
+    });
+    const rawCaTotal = caItems.reduce((sum, item) => sum + (item.score ?? 0), 0);
+    const caMaxTotal = caItems.reduce((sum, item) => sum + item.max, 0);
+    const caWeighted = caItems.reduce((sum, item) => sum + item.weighted, 0);
+    const examScore = parseScore(form.scores[student.studentId]) ?? parseScore(existing?.examScore);
+    const examWeighted = examScore !== null && examMax > 0 ? (examScore / examMax) * examWeight : 0;
+    const finalScore = caWeighted + examWeighted;
+    const grade = resolvePreviewGrade(finalScore);
+
+    return {
+      student,
+      caItems,
+      rawCaTotal,
+      caMaxTotal,
+      examScore,
+      examMax,
+      finalScore,
+      grade: grade?.grade ?? existing?.grade ?? '—',
+      remark: grade?.remark ?? existing?.remark,
+      hasAnyScore: caItems.some((item) => item.score !== null) || examScore !== null,
+    };
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1600,71 +2127,200 @@ function ScoreDialog({
           <DialogDescription>Scores are saved for the selected class and current term.</DialogDescription>
         </DialogHeader>
         <form className="space-y-5" onSubmit={onSubmit}>
-          <div className="grid gap-4 md:grid-cols-4">
-            <SelectField
-              label="Subject"
-              value={form.subjectId}
-              onChange={(value) => onChange({ ...form, subjectId: value })}
-              options={lookupSubjects.map((s) => ({ value: s.id, label: `${s.name} (${s.code || 'N/A'})` }))}
-              required
-            />
-            <SelectField
-              label={mode === 'ca' ? 'CA Component' : 'Exam'}
-              value={form.assessmentId}
-              onChange={(value) => onAssessmentChange(value, mode)}
-              options={
-                mode === 'ca'
-                  ? lookupComponents.map((c) => ({ value: c.id, label: `${c.name} (Max: ${c.maxScore})` }))
-                  : lookupExams.map((e) => ({ value: e.id, label: `${e.name} (Max: ${e.maxScore})` }))
-              }
-              required
-            />
-            <Field label="Max score" type="number" min="1" value={form.maxScore} onChange={(value) => onChange({ ...form, maxScore: value })} required disabled />
-            <SelectField
-              label="Student (Optional)"
-              value={form.studentIdFilter || 'ALL'}
-              onChange={(value) => onChange({ ...form, studentIdFilter: value })}
-              options={[
-                { value: 'ALL', label: 'All Students' },
-                ...students.map((s) => ({ value: s.studentId, label: `${s.firstName} ${s.lastName}` }))
-              ]}
-            />
+          {mode === 'ca' ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              <SelectField
+                label="Subject"
+                value={form.subjectId}
+                onChange={(value) => void onSubjectChange(value)}
+                options={lookupSubjects.map((s) => ({ value: s.id, label: `${s.name} (${s.code || 'N/A'})` }))}
+                required
+              />
+              <SelectField
+                label="Student (Optional)"
+                value={form.studentIdFilter || 'ALL'}
+                onChange={(value) => onChange({ ...form, studentIdFilter: value })}
+                options={[
+                  { value: 'ALL', label: 'All Students' },
+                  ...students.map((s) => ({ value: s.studentId, label: `${s.firstName} ${s.lastName}` }))
+                ]}
+              />
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-4">
+              <SelectField
+                label="Subject"
+                value={form.subjectId}
+                onChange={(value) => void onSubjectChange(value)}
+                options={lookupSubjects.map((s) => ({ value: s.id, label: `${s.name} (${s.code || 'N/A'})` }))}
+                required
+              />
+              <SelectField
+                label="Exam"
+                value={form.assessmentId}
+                onChange={(value) => void onAssessmentChange(value, mode)}
+                options={lookupExams.map((e) => ({ value: e.id, label: `${e.name} (Exam max: ${e.maxScore})` }))}
+                required
+              />
+              <Field label="Exam max score" type="number" min="1" value={form.maxScore} onChange={(value) => onChange({ ...form, maxScore: value })} required disabled />
+              <SelectField
+                label="Student (Optional)"
+                value={form.studentIdFilter || 'ALL'}
+                onChange={(value) => onChange({ ...form, studentIdFilter: value })}
+                options={[
+                  { value: 'ALL', label: 'All Students' },
+                  ...students.map((s) => ({ value: s.studentId, label: `${s.firstName} ${s.lastName}` }))
+                ]}
+              />
+            </div>
+          )}
+
+          <div className="rounded-md border border-slate-200 overflow-x-auto">
+            <div className="min-w-[750px]">
+              <div
+                style={gridStyle}
+                className="grid border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase text-slate-500"
+              >
+                <span>#</span>
+                <span>Student</span>
+                {mode === 'ca' ? (
+                  lookupComponents.map((comp) => (
+                    <span key={comp.id} className="text-center">
+                      {comp.name}{' '}
+                      <span className="text-[10px] text-slate-400 lowercase">(max {comp.maxScore})</span>
+                    </span>
+                  ))
+                ) : (
+                  <span>Score</span>
+                )}
+              </div>
+              <div className="divide-y divide-slate-100">
+                {visibleScoreStudents
+                  .map((student, index) => (
+                    <div
+                      key={student.studentId}
+                      style={gridStyle}
+                      className="grid items-center px-4 py-3"
+                    >
+                      <span className="text-sm text-slate-500">{index + 1}</span>
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{student.firstName} {student.lastName}</p>
+                        <p className="text-xs text-slate-500">{student.admissionNumber}</p>
+                      </div>
+                      {mode === 'ca' ? (
+                        lookupComponents.map((comp) => (
+                          <div key={comp.id} className="px-2">
+                            <Input
+                              type="number"
+                              min="0"
+                              max={comp.maxScore || undefined}
+                              value={form.caScores?.[student.studentId]?.[comp.id] ?? ''}
+                              onChange={(event) => {
+                                const newCaScores = {
+                                  ...form.caScores,
+                                  [student.studentId]: {
+                                    ...(form.caScores?.[student.studentId] ?? {}),
+                                    [comp.id]: event.target.value,
+                                  },
+                                };
+                                onChange({
+                                  ...form,
+                                  caScores: newCaScores,
+                                });
+                              }}
+                              className="text-center"
+                            />
+                          </div>
+                        ))
+                      ) : (
+                        <Input
+                          type="number"
+                          min="0"
+                          max={maxScore || undefined}
+                          value={form.scores[student.studentId] ?? ''}
+                          onChange={(event) => onChange({
+                            ...form,
+                            scores: { ...form.scores, [student.studentId]: event.target.value },
+                          })}
+                        />
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </div>
           </div>
 
-          <div className="rounded-md border border-slate-200">
-            <div className="grid grid-cols-[56px_1fr_140px] border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase text-slate-500">
-              <span>#</span>
-              <span>Student</span>
-              <span>Score</span>
+          <section className="rounded-md border border-blue-100 bg-blue-50/40">
+            <div className="border-b border-blue-100 px-4 py-3">
+              <p className="text-sm font-semibold text-slate-900">Result preview</p>
+              <p className="text-xs text-slate-500">
+                Live check of CA + exam before saving. Saved scores are reused where an input is blank.
+              </p>
             </div>
-            <div className="divide-y divide-slate-100">
-              {students
-                .filter((student) => !form.studentIdFilter || form.studentIdFilter === 'ALL' || student.studentId === form.studentIdFilter)
-                .map((student, index) => (
-                  <div key={student.studentId} className="grid grid-cols-[56px_1fr_140px] items-center px-4 py-3">
-                    <span className="text-sm text-slate-500">{index + 1}</span>
-                    <div>
-                      <p className="text-sm font-medium text-slate-900">{student.firstName} {student.lastName}</p>
-                      <p className="text-xs text-slate-500">{student.admissionNumber}</p>
-                    </div>
-                    <Input
-                      type="number"
-                      min="0"
-                      max={maxScore || undefined}
-                      value={form.scores[student.studentId] ?? ''}
-                      onChange={(event) => onChange({
-                        ...form,
-                        scores: { ...form.scores, [student.studentId]: event.target.value },
-                      })}
-                    />
-                  </div>
-                ))}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-xs">
+                <thead className="border-b border-blue-100 text-slate-500">
+                  <tr>
+                    <th className="px-4 py-2">Student</th>
+                    <th className="px-4 py-2">CA breakdown</th>
+                    <th className="px-4 py-2">CA total</th>
+                    <th className="px-4 py-2">Exam</th>
+                    <th className="px-4 py-2">Final</th>
+                    <th className="px-4 py-2">Grade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewRows.map((row) => (
+                    <tr key={row.student.studentId} className="border-b border-blue-100/70 last:border-0">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-slate-900">{row.student.firstName} {row.student.lastName}</p>
+                        <p className="text-[11px] text-slate-500">{row.student.admissionNumber}</p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {row.caItems.length ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {row.caItems.map((item) => (
+                              <span key={item.name} className="rounded-full bg-white px-2 py-1 ring-1 ring-blue-100">
+                                {item.name}: {formatPreviewScore(item.score)}/{item.max || '—'}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">No CA components</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-700">
+                        {row.hasAnyScore ? `${formatPreviewScore(row.rawCaTotal)} / ${formatPreviewScore(row.caMaxTotal)}` : '—'}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-700">
+                        {formatPreviewScore(row.examScore)} / {formatPreviewScore(row.examMax)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-slate-950">
+                          {row.hasAnyScore ? `${formatPreviewScore(row.finalScore)} / ${overallMaxScore}` : '—'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline" className="bg-white">
+                          {row.hasAnyScore ? row.grade : '—'}
+                        </Badge>
+                        {row.hasAnyScore && row.remark && <p className="mt-1 text-[11px] text-slate-500">{row.remark}</p>}
+                      </td>
+                    </tr>
+                  ))}
+                  {!previewRows.length && <EmptyTableRow colSpan={6} message="No students selected for preview." />}
+                </tbody>
+              </table>
             </div>
-          </div>
+          </section>
 
           <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 md:flex-row md:items-center md:justify-between">
             <p className="text-sm text-slate-500">
-              {enteredScores.length} entered · average {average.toFixed(1)} / {maxScore || '-'}
+              {mode === 'ca' ? (
+                `${totalEnteredCount} score(s) entered across components`
+              ) : (
+                `${enteredScores.length} entered · average ${average.toFixed(1)} / ${maxScore || '-'} exam marks`
+              )}
             </p>
             <Button type="submit" disabled={isSaving} className="bg-slate-950 text-white hover:bg-slate-800">
               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}

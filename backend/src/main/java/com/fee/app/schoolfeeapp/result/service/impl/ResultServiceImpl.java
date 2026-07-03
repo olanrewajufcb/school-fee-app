@@ -19,6 +19,7 @@ import com.fee.app.schoolfeeapp.result.utils.ResultPdfGenerator;
 import com.fee.app.schoolfeeapp.school.domain.AcademicSession;
 import com.fee.app.schoolfeeapp.school.domain.ClassEntity;
 import com.fee.app.schoolfeeapp.school.domain.Term;
+import com.fee.app.schoolfeeapp.school.enums.GradeLevel;
 import com.fee.app.schoolfeeapp.school.repository.AcademicSessionRepository;
 import com.fee.app.schoolfeeapp.school.repository.ClassRepository;
 import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
@@ -51,15 +52,24 @@ class ResultServiceImpl implements ResultService {
     private static final String REPORT_JOB_PROCESSING = "PROCESSING";
     private static final String REPORT_JOB_COMPLETED = "COMPLETED";
     private static final List<GradeBand> DEFAULT_GRADE_BANDS = List.of(
-            new GradeBand("A1", 75, 100),
-            new GradeBand("B2", 70, 74),
-            new GradeBand("B3", 65, 69),
-            new GradeBand("C4", 60, 64),
-            new GradeBand("C5", 55, 59),
-            new GradeBand("C6", 50, 54),
-            new GradeBand("D7", 45, 49),
-            new GradeBand("E8", 40, 44),
-            new GradeBand("F9", 0, 39));
+            new GradeBand("A1", 75, 100, "Excellent"),
+            new GradeBand("B2", 70, 74, "Very Good"),
+            new GradeBand("B3", 65, 69, "Good"),
+            new GradeBand("C4", 60, 64, "Credit"),
+            new GradeBand("C5", 55, 59, "Credit"),
+            new GradeBand("C6", 50, 54, "Credit"),
+            new GradeBand("D7", 45, 49, "Pass"),
+            new GradeBand("E8", 40, 44, "Pass"),
+            new GradeBand("F9", 0, 39, "Fail"));
+    private static final List<DefaultTrait> DEFAULT_ASSESSMENT_TRAITS = List.of(
+            new DefaultTrait("Punctuality", "AFFECTIVE", 1),
+            new DefaultTrait("Attentiveness", "AFFECTIVE", 2),
+            new DefaultTrait("Neatness", "AFFECTIVE", 3),
+            new DefaultTrait("Conduct", "AFFECTIVE", 4),
+            new DefaultTrait("Handwriting", "PSYCHOMOTOR", 1),
+            new DefaultTrait("Verbal Fluency", "PSYCHOMOTOR", 2),
+            new DefaultTrait("Sports", "PSYCHOMOTOR", 3),
+            new DefaultTrait("Creativity", "PSYCHOMOTOR", 4));
 
     private final CaComponentRepository caComponentRepository;
     private final CaScoreRepository caScoreRepository;
@@ -70,6 +80,9 @@ class ResultServiceImpl implements ResultService {
     private final ReportCommentRepository commentRepository;
     private final PublishedResultRepository publishedResultRepository;
     private final ScoreAuditLogRepository auditLogRepository;
+    private final ReportCardTemplateRepository reportCardTemplateRepository;
+    private final AssessmentTraitRepository assessmentTraitRepository;
+    private final StudentTraitAssessmentRepository studentTraitAssessmentRepository;
     private final SubjectRepository subjectRepository;
     private final ClassSubjectRepository classSubjectRepository;
     private final ExamRepository examRepository;
@@ -159,13 +172,21 @@ class ResultServiceImpl implements ResultService {
                                                     .concatMap(scoreReq -> caScoreRepository.insert(
                                                             toCaScoreEntity(validatedRequest, scoreReq, schoolId, localUserId))))
                                             .collectList()
-                                            .map(scores -> new CaScoreResponse(
+                                            .flatMap(scores -> computeFinalScores(
+                                                            validatedRequest.classId(),
+                                                            validatedRequest.termId(),
+                                                            validatedRequest.subjectId())
+                                                    .then(autoComputeRankings(
+                                                            validatedRequest.classId(),
+                                                            validatedRequest.termId(),
+                                                            schoolId))
+                                                    .thenReturn(new CaScoreResponse(
                                                     UUID.randomUUID(),
                                                     validatedRequest.classId().toString(),
                                                     validatedRequest.subjectId().toString(),
                                                     validatedRequest.caComponentId().toString(),
                                                     scores.size(),
-                                                    "CA scores recorded")));
+                                                    "CA scores recorded"))));
 
                             return transactionalOperator.transactional(transaction)
                                     .onErrorMap(DuplicateKeyException.class, this::duplicateScoreException);
@@ -227,25 +248,36 @@ class ResultServiceImpl implements ResultService {
 
     private Mono<UpdateScoreResponse> doUpdateScore(
             ResultScore score, UpdateScoreRequest request, UUID schoolId, UUID localUserId) {
-        if (request.score().compareTo(BigDecimal.valueOf(score.getMaxScore())) > 0) {
-            return Mono.error(new SchoolFeeException(
-                    "INVALID_SCORE",
-                    "Score must be between 0 and " + score.getMaxScore(),
-                    "score"));
-        }
+        return getCaConfig()
+                .flatMap(caConfig -> examRepository.findByIdAndSchoolIdAndTermId(score.getExamId(), schoolId, score.getTermId())
+                        .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                "EXAM_NOT_FOUND",
+                                "Exam not found",
+                                "examId")))
+                        .flatMap(exam -> normalizeExamMaxScore(exam, caConfig)))
+                .flatMap(exam -> {
+                    int maxScore = exam.getMaxScore();
+                    if (request.score().compareTo(BigDecimal.valueOf(maxScore)) > 0) {
+                        return Mono.error(new SchoolFeeException(
+                                "INVALID_SCORE",
+                                "Score must be between 0 and " + maxScore,
+                                "score"));
+                    }
 
-        BigDecimal oldScore = score.getScore();
-        Instant updatedAt = Instant.now();
-        score.setScore(request.score());
-        score.setUpdatedAt(updatedAt);
+                    BigDecimal oldScore = score.getScore();
+                    Instant updatedAt = Instant.now();
+                    score.setScore(request.score());
+                    score.setMaxScore(maxScore);
+                    score.setUpdatedAt(updatedAt);
 
-        return scoreRepository.save(score)
-                .flatMap(saved -> auditScoreChange("EXAM_SCORE", saved.getId(), saved.getStudentId(),
-                        saved.getSubjectId(), saved.getTermId(), oldScore, request.score(),
-                        schoolId, localUserId, request.reason(), updatedAt))
-                .then(computeFinalScores(score.getClassId(), score.getTermId(), score.getSubjectId()))
-                .then(autoComputeRankings(score.getClassId(), score.getTermId(), schoolId))
-                .thenReturn(new UpdateScoreResponse(score.getId(), request.score(), oldScore, updatedAt));
+                    return scoreRepository.save(score)
+                            .flatMap(saved -> auditScoreChange("EXAM_SCORE", saved.getId(), saved.getStudentId(),
+                                    saved.getSubjectId(), saved.getTermId(), oldScore, request.score(),
+                                    schoolId, localUserId, request.reason(), updatedAt))
+                            .then(computeFinalScores(score.getClassId(), score.getTermId(), score.getSubjectId()))
+                            .then(autoComputeRankings(score.getClassId(), score.getTermId(), schoolId))
+                            .thenReturn(new UpdateScoreResponse(score.getId(), request.score(), oldScore, updatedAt));
+                });
     }
 
     // ========================================================================
@@ -383,6 +415,7 @@ class ResultServiceImpl implements ResultService {
                                             "TERM_NOT_FOUND",
                                             "Term not found",
                                             "termId"))))
+                            .then(validateReportCardTemplate(request.templateId(), schoolId))
                             .then(verifyStudentsBelongToClass(distinctStudentIds, request.classId(), schoolId))
                             .then(Mono.defer(() -> {
                                 int totalStudents = distinctStudentIds.size();
@@ -431,31 +464,93 @@ class ResultServiceImpl implements ResultService {
                 });
     }
 
+    @Override
+    public Mono<ReportCardTemplateResponse> createReportCardTemplate(ReportCardTemplateRequest request) {
+        return Mono.fromCallable(() -> validateTemplateRequest(request))
+                .flatMap(validated -> jwtUtils.getCurrentUser()
+                        .flatMap(user -> {
+                            UUID schoolId = requireSchoolId(user);
+                            Instant now = Instant.now();
+                            Mono<ReportCardTemplateResponse> transaction = reportCardTemplateRepository
+                                    .existsActiveByNormalizedName(schoolId, validated.educationLevel(), validated.name())
+                                    .flatMap(exists -> {
+                                        if (Boolean.TRUE.equals(exists)) {
+                                            return Mono.error(new SchoolFeeException(
+                                                    "REPORT_CARD_TEMPLATE_EXISTS",
+                                                    "A report-card template with this name already exists for this education level",
+                                                    "name"));
+                                        }
+                                        Mono<Integer> clearDefault = validated.isDefault()
+                                                ? reportCardTemplateRepository.clearDefaultForLevel(
+                                                        schoolId,
+                                                        validated.educationLevel(),
+                                                        now)
+                                                : Mono.just(0);
+                                        return clearDefault.then(reportCardTemplateRepository.insert(
+                                                schoolId,
+                                                validated.name(),
+                                                validated.educationLevel(),
+                                                validated.config(),
+                                                validated.isDefault(),
+                                                now,
+                                                now));
+                                    })
+                                    .map(this::toTemplateResponse);
+
+                            return transactionalOperator.transactional(transaction)
+                                    .onErrorMap(DuplicateKeyException.class, ex -> new SchoolFeeException(
+                                            "REPORT_CARD_TEMPLATE_EXISTS",
+                                            "A report-card template with this name already exists for this education level",
+                                            "name",
+                                            ex));
+                        }));
+    }
+
+    @Override
+    public Mono<List<ReportCardTemplateResponse>> getReportCardTemplates() {
+        return jwtUtils.getCurrentUser()
+                .flatMapMany(user -> reportCardTemplateRepository.findActiveBySchoolId(requireSchoolId(user)))
+                .map(this::toTemplateResponse)
+                .collectList();
+    }
+
     // ========================================================================
     // COMMENTS
     // ========================================================================
 
     @Override
     public Mono<ReportCommentResponse> addTeacherComment(UUID studentId, UUID termId, String comment) {
+        return addTeacherComment(studentId, termId, comment, false);
+    }
+
+    @Override
+    public Mono<ReportCommentResponse> addTeacherComment(UUID studentId, UUID termId, String comment, boolean autoGenerate) {
         return jwtUtils.getCurrentUser()
                 .flatMap(user -> {
                     UUID schoolId = requireSchoolId(user);
                     return resolveLocalUserId(user.getUserId())
                             .flatMap(localUserId -> validateCommentContext(studentId, termId, schoolId)
-                                    .then(Mono.defer(() ->
-                                            saveComment(studentId, termId, schoolId, comment, true, localUserId))));
+                                    .then(resolveCommentText(studentId, termId, schoolId, comment, true, autoGenerate))
+                                    .flatMap(resolved ->
+                                            saveComment(studentId, termId, schoolId, resolved, true, localUserId)));
                 });
     }
 
     @Override
     public Mono<ReportCommentResponse> addPrincipalComment(UUID studentId, UUID termId, String comment) {
+        return addPrincipalComment(studentId, termId, comment, false);
+    }
+
+    @Override
+    public Mono<ReportCommentResponse> addPrincipalComment(UUID studentId, UUID termId, String comment, boolean autoGenerate) {
         return jwtUtils.getCurrentUser()
                 .flatMap(user -> {
                     UUID schoolId = requireSchoolId(user);
                     return resolveLocalUserId(user.getUserId())
                             .flatMap(localUserId -> validateCommentContext(studentId, termId, schoolId)
-                                    .then(Mono.defer(() ->
-                                            saveComment(studentId, termId, schoolId, comment, false, localUserId))));
+                                    .then(resolveCommentText(studentId, termId, schoolId, comment, false, autoGenerate))
+                                    .flatMap(resolved ->
+                                            saveComment(studentId, termId, schoolId, resolved, false, localUserId)));
                 });
     }
 
@@ -511,23 +606,24 @@ class ResultServiceImpl implements ResultService {
         return jwtUtils.getCurrentUser()
                 .flatMap(user -> {
                     UUID schoolId = requireSchoolId(user);
+                    com.fasterxml.jackson.databind.JsonNode normalizedConfig = normalizeGradingConfig(request.config());
                     return gradeConfigRepository.findBySchoolId(schoolId)
                             .flatMap(existing -> {
-                                existing.setConfig(request.config());
+                                existing.setConfig(normalizedConfig);
                                 existing.setUpdatedAt(Instant.now());
                                 return gradeConfigRepository.save(existing);
                             })
                             .switchIfEmpty(Mono.defer(() -> {
                                 GradeConfig config = GradeConfig.builder()
                                         .schoolId(schoolId)
-                                        .config(request.config())
+                                        .config(normalizedConfig)
                                         .isActive(true)
                                         .createdAt(Instant.now())
                                         .build();
                                 return gradeConfigRepository.save(config);
                             }))
                             .map(saved -> new GradingRuleResponse(schoolId,
-                                    saved.getConfig() != null ? saved.getConfig().size() : 0,
+                                    countConfiguredGrades(saved.getConfig()),
                                     "Grading rules updated",
                                     saved.getConfig()));
                 });
@@ -540,7 +636,7 @@ class ResultServiceImpl implements ResultService {
                     UUID schoolId = requireSchoolId(user);
                     return gradeConfigRepository.findBySchoolId(schoolId)
                             .map(config -> new GradingRuleResponse(schoolId,
-                                    config.getConfig() != null ? config.getConfig().size() : 0,
+                                    countConfiguredGrades(config.getConfig()),
                                     "Current grading rules",
                                     config.getConfig()))
                             .defaultIfEmpty(new GradingRuleResponse(schoolId, 0,
@@ -590,34 +686,127 @@ class ResultServiceImpl implements ResultService {
                             .thenMany(examRepository.findByTermId(termId))
                             .filter(exam -> exam.getSchoolId().equals(schoolId))
                             .collectList()
-                            .flatMap(exams -> {
+                            .zipWith(getCaConfig())
+                            .flatMap(tuple -> {
+                                List<Exam> exams = tuple.getT1();
+                                CaConfigResponse caConfig = tuple.getT2();
                                 if (exams.isEmpty()) {
-                                    return getCaConfig()
-                                            .flatMap(caConfig -> resolveLocalUserId(user.getUserId())
-                                                    .flatMap(localUserId -> {
-                                                        double examWeight = caConfig.examWeightPercentage() != null ? caConfig.examWeightPercentage() : 60.0;
-                                                        Exam defaultExam = Exam.builder()
-                                                                .id(null) // Let database generate id (forces INSERT in R2DBC)
-                                                                .schoolId(schoolId)
-                                                                .termId(termId)
-                                                                .name("End of Term Exam")
-                                                                .examType("END_OF_TERM")
-                                                                .maxScore((int) examWeight)
-                                                                .weightPercentage(BigDecimal.valueOf(examWeight))
-                                                                .isPublished(false)
-                                                                .createdBy(localUserId)
-                                                                .createdAt(Instant.now())
-                                                                .updatedAt(Instant.now())
-                                                                .build();
-                                                        return examRepository.save(defaultExam)
-                                                                .map(saved -> List.of(new ExamLookupResponse(saved.getId(), saved.getName(), saved.getMaxScore())));
-                                                    }));
+                                    return resolveLocalUserId(user.getUserId())
+                                            .flatMap(localUserId -> {
+                                                int examMaxScore = configuredExamMaxScore(caConfig);
+                                                Exam defaultExam = Exam.builder()
+                                                        .id(null) // Let database generate id (forces INSERT in R2DBC)
+                                                        .schoolId(schoolId)
+                                                        .termId(termId)
+                                                        .name("End of Term Exam")
+                                                        .examType("END_OF_TERM")
+                                                        .maxScore(examMaxScore)
+                                                        .weightPercentage(BigDecimal.valueOf(examMaxScore))
+                                                        .isPublished(false)
+                                                        .createdBy(localUserId)
+                                                        .createdAt(Instant.now())
+                                                        .updatedAt(Instant.now())
+                                                        .build();
+                                                return examRepository.save(defaultExam)
+                                                        .map(saved -> List.of(new ExamLookupResponse(saved.getId(), saved.getName(), saved.getMaxScore())));
+                                            });
                                 }
-                                return Mono.just(exams.stream()
-                                        .map(exam -> new ExamLookupResponse(exam.getId(), exam.getName(), exam.getMaxScore()))
-                                        .collect(Collectors.toList()));
+                                return Flux.fromIterable(exams)
+                                        .concatMap(exam -> normalizeExamMaxScore(exam, caConfig)
+                                                .map(normalized -> new ExamLookupResponse(
+                                                        normalized.getId(),
+                                                        normalized.getName(),
+                                                        normalized.getMaxScore())))
+                                        .collectList();
                             });
                 });
+    }
+
+    @Override
+    public Mono<List<AssessmentTraitResponse>> getAssessmentTraits(UUID classId) {
+        return jwtUtils.getCurrentUser()
+                .flatMap(user -> {
+                    UUID schoolId = requireSchoolId(user);
+                    return classRepository.findByIdAndSchoolId(classId, schoolId)
+                            .switchIfEmpty(Mono.error(new SchoolFeeException("CLASS_NOT_FOUND", "Class not found", "classId")))
+                            .flatMap(classEntity -> ensureAssessmentTraits(schoolId, educationLevelForClass(classEntity)));
+                });
+    }
+
+    @Override
+    public Mono<List<TraitAssessmentValueResponse>> getTraitAssessmentValues(UUID classId, UUID termId) {
+        return jwtUtils.getCurrentUser()
+                .flatMap(user -> {
+                    UUID schoolId = requireSchoolId(user);
+                    return classRepository.findByIdAndSchoolId(classId, schoolId)
+                            .switchIfEmpty(Mono.error(new SchoolFeeException("CLASS_NOT_FOUND", "Class not found", "classId")))
+                            .then(termRepository.findByIdAndSchoolId(termId, schoolId)
+                                    .switchIfEmpty(Mono.error(new SchoolFeeException("TERM_NOT_FOUND", "Term not found", "termId"))))
+                            .thenMany(studentTraitAssessmentRepository.findValuesForClass(classId, termId, schoolId))
+                            .map(value -> new TraitAssessmentValueResponse(
+                                    value.getStudentId(),
+                                    value.getTraitId(),
+                                    value.getRating(),
+                                    value.getComment()))
+                            .collectList();
+                });
+    }
+
+    private Mono<Exam> normalizeExamMaxScore(Exam exam, CaConfigResponse caConfig) {
+        int configuredMaxScore = configuredExamMaxScore(caConfig);
+        BigDecimal configuredWeight = BigDecimal.valueOf(configuredMaxScore);
+        boolean maxChanged = exam.getMaxScore() != configuredMaxScore;
+        boolean weightChanged = exam.getWeightPercentage() == null
+                || exam.getWeightPercentage().compareTo(configuredWeight) != 0;
+
+        if (!maxChanged && !weightChanged) {
+            return Mono.just(exam);
+        }
+
+        exam.setMaxScore(configuredMaxScore);
+        exam.setWeightPercentage(configuredWeight);
+        exam.setUpdatedAt(Instant.now());
+        return examRepository.save(exam);
+    }
+
+    private Mono<Void> normalizeExamsForTerm(UUID termId, UUID schoolId) {
+        return getCaConfig()
+                .flatMapMany(caConfig -> examRepository.findByTermId(termId)
+                        .filter(exam -> exam.getSchoolId().equals(schoolId))
+                        .concatMap(exam -> normalizeExamMaxScore(exam, caConfig)))
+                .then();
+    }
+
+    private int configuredExamMaxScore(CaConfigResponse caConfig) {
+        double examWeight = caConfig != null && caConfig.examWeightPercentage() != null
+                ? caConfig.examWeightPercentage()
+                : 60.0;
+        return BigDecimal.valueOf(examWeight)
+                .setScale(0, RoundingMode.HALF_UP)
+                .intValue();
+    }
+
+    @Override
+    public Mono<TraitAssessmentSaveResponse> saveTraitAssessments(TraitAssessmentRequest request) {
+        return Mono.fromCallable(() -> validateTraitAssessmentRequest(request))
+                .flatMap(validated -> jwtUtils.getCurrentUser()
+                        .flatMap(user -> {
+                            UUID schoolId = requireSchoolId(user);
+                            Mono<TraitAssessmentSaveResponse> transaction = resolveLocalUserId(user.getUserId())
+                                    .flatMap(localUserId -> classRepository.findByIdAndSchoolId(validated.classId(), schoolId)
+                                            .switchIfEmpty(Mono.error(new SchoolFeeException("CLASS_NOT_FOUND", "Class not found", "classId")))
+                                            .flatMap(classEntity -> termRepository.findByIdAndSchoolId(validated.termId(), schoolId)
+                                                    .switchIfEmpty(Mono.error(new SchoolFeeException("TERM_NOT_FOUND", "Term not found", "termId")))
+                                                    .then(verifyTraitAssessmentContext(validated, schoolId))
+                                                    .thenMany(Flux.fromIterable(validated.entries())
+                                                            .concatMap(entry -> studentTraitAssessmentRepository.upsert(
+                                                                    toStudentTraitAssessment(validated, entry, schoolId, localUserId))))
+                                                    .collectList()
+                                                    .map(saved -> new TraitAssessmentSaveResponse(
+                                                            saved.size(),
+                                                            "Trait assessments saved"))));
+                            return transactionalOperator.transactional(transaction);
+                        }));
     }
 
     private Mono<UUID> resolveLocalUserId(UUID keycloakUserId) {
@@ -635,6 +824,131 @@ class ResultServiceImpl implements ResultService {
                 .flatMap(p -> Mono.<Void>error(new SchoolFeeException(
                         "RESULTS_ALREADY_PUBLISHED",
                         "Results are published. Unpublish before modifying scores.")));
+    }
+
+    private Mono<List<AssessmentTraitResponse>> ensureAssessmentTraits(UUID schoolId, String educationLevel) {
+        String level = normalizeEducationLevelForStorage(educationLevel);
+        return assessmentTraitRepository.findActiveForLevel(schoolId, level)
+                .collectList()
+                .flatMap(existing -> {
+                    if (!existing.isEmpty()) {
+                        return Mono.just(existing);
+                    }
+                    Instant now = Instant.now();
+                    return Flux.fromIterable(DEFAULT_ASSESSMENT_TRAITS)
+                            .concatMap(trait -> assessmentTraitRepository.insertDefaultIfMissing(
+                                    schoolId,
+                                    level,
+                                    trait.name(),
+                                    trait.category(),
+                                    trait.sortOrder(),
+                                    now))
+                            .thenMany(assessmentTraitRepository.findActiveForLevel(schoolId, level))
+                            .collectList();
+                })
+                .map(traits -> traits.stream()
+                        .map(this::toAssessmentTraitResponse)
+                        .toList());
+    }
+
+    private AssessmentTraitResponse toAssessmentTraitResponse(AssessmentTrait trait) {
+        return new AssessmentTraitResponse(
+                trait.getId(),
+                trait.getName(),
+                trait.getCategory(),
+                trait.getSortOrder());
+    }
+
+    private TraitAssessmentRequest validateTraitAssessmentRequest(TraitAssessmentRequest request) {
+        if (request == null) {
+            throw new SchoolFeeException("INVALID_TRAIT_ASSESSMENT", "Trait assessment request is required");
+        }
+        if (request.classId() == null) {
+            throw new SchoolFeeException("INVALID_TRAIT_ASSESSMENT", "Class is required", "classId");
+        }
+        if (request.termId() == null) {
+            throw new SchoolFeeException("INVALID_TRAIT_ASSESSMENT", "Term is required", "termId");
+        }
+        if (request.entries() == null || request.entries().isEmpty()) {
+            throw new SchoolFeeException("INVALID_TRAIT_ASSESSMENT", "At least one assessment rating is required", "entries");
+        }
+        Set<String> uniqueKeys = new HashSet<>();
+        for (TraitAssessmentRequest.Entry entry : request.entries()) {
+            if (entry.studentId() == null || entry.traitId() == null) {
+                throw new SchoolFeeException("INVALID_TRAIT_ASSESSMENT", "Student and trait are required", "entries");
+            }
+            if (entry.rating() == null || entry.rating().isBlank()) {
+                throw new SchoolFeeException("INVALID_TRAIT_ASSESSMENT", "Rating is required", "rating");
+            }
+            if (!uniqueKeys.add(entry.studentId() + ":" + entry.traitId())) {
+                throw new SchoolFeeException("DUPLICATE_TRAIT_ASSESSMENT", "Each student/trait can appear only once", "entries");
+            }
+        }
+        return request;
+    }
+
+    private Mono<Void> verifyTraitAssessmentContext(TraitAssessmentRequest request, UUID schoolId) {
+        Set<UUID> studentIds = request.entries().stream()
+                .map(TraitAssessmentRequest.Entry::studentId)
+                .collect(Collectors.toSet());
+        Set<UUID> traitIds = request.entries().stream()
+                .map(TraitAssessmentRequest.Entry::traitId)
+                .collect(Collectors.toSet());
+
+        Mono<Void> studentsMono = Flux.fromIterable(studentIds)
+                .concatMap(studentId -> studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, schoolId)
+                        .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                "STUDENT_NOT_FOUND",
+                                "Student not found",
+                                "studentId")))
+                        .flatMap(student -> {
+                            if (!request.classId().equals(student.getCurrentClassId())) {
+                                return Mono.error(new SchoolFeeException(
+                                        "STUDENT_NOT_IN_CLASS",
+                                        "Student does not belong to the selected class",
+                                        "studentId"));
+                            }
+                            return Mono.empty();
+                        }))
+                .then();
+
+        Mono<Void> traitsMono = Flux.fromIterable(traitIds)
+                .concatMap(traitId -> assessmentTraitRepository.findActiveByIdAndSchoolId(traitId, schoolId)
+                        .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                "ASSESSMENT_TRAIT_NOT_FOUND",
+                                "Assessment trait not found",
+                                "traitId"))))
+                .then();
+
+        return studentsMono.then(traitsMono);
+    }
+
+    private StudentTraitAssessment toStudentTraitAssessment(
+            TraitAssessmentRequest request,
+            TraitAssessmentRequest.Entry entry,
+            UUID schoolId,
+            UUID recordedBy) {
+        Instant now = Instant.now();
+        return StudentTraitAssessment.builder()
+                .id(UUID.randomUUID())
+                .schoolId(schoolId)
+                .studentId(entry.studentId())
+                .classId(request.classId())
+                .termId(request.termId())
+                .traitId(entry.traitId())
+                .rating(entry.rating().trim())
+                .comment(entry.comment() == null || entry.comment().isBlank() ? null : entry.comment().trim())
+                .recordedBy(recordedBy)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+    }
+
+    private String normalizeEducationLevelForStorage(String educationLevel) {
+        if (educationLevel == null || educationLevel.isBlank()) {
+            return "PRIMARY";
+        }
+        return educationLevel.toUpperCase(Locale.ROOT);
     }
 
     private Mono<PublishResultResponse> publishResultsForTerm(UUID termId, UUID schoolId, UUID userId) {
@@ -699,10 +1013,20 @@ class ResultServiceImpl implements ResultService {
     }
 
     private Mono<Void> autoComputeRankings(UUID classId, UUID termId, UUID schoolId) {
-        ScoreComputationEngine.RankingParameters params =
-                new ScoreComputationEngine.RankingParameters(40, 100);
-        return computationEngine.computeSubjectPositions(classId, termId)
-                .then(computationEngine.computeClassRankings(classId, termId, schoolId, params));
+        Mono<ClassEntity> classMono = classRepository.findByIdAndSchoolId(classId, schoolId)
+                .defaultIfEmpty(ClassEntity.builder().id(classId).build());
+        Mono<Optional<GradeConfig>> gradeConfigMono = gradeConfigRepository.findBySchoolIdAndIsActiveTrue(schoolId)
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty());
+        return Mono.zip(classMono, gradeConfigMono)
+                .flatMap(tuple -> {
+                    String educationLevel = educationLevelForClass(tuple.getT1());
+                    int passMark = resolvePassMark(tuple.getT2().map(GradeConfig::getConfig).orElse(null), educationLevel);
+                    ScoreComputationEngine.RankingParameters params =
+                            new ScoreComputationEngine.RankingParameters(passMark, 100);
+                    return computationEngine.computeSubjectPositions(classId, termId)
+                            .then(computationEngine.computeClassRankings(classId, termId, schoolId, params));
+                });
     }
 
     private Mono<Void> auditScoreChange(String scoreType, UUID scoreId, UUID studentId,
@@ -727,16 +1051,10 @@ class ResultServiceImpl implements ResultService {
     }
 
     private Mono<ReportCommentResponse> saveComment(UUID studentId, UUID termId, UUID schoolId,
-                                                     String comment, boolean isTeacher, UUID authorId) {
+                                                     GeneratedComment comment, boolean isTeacher, UUID authorId) {
         return commentRepository.findByStudentIdAndTermIdAndSchoolId(studentId, termId, schoolId)
                 .flatMap(existing -> {
-                    if (isTeacher) {
-                        existing.setTeacherComment(comment);
-                        existing.setTeacherId(authorId);
-                    } else {
-                        existing.setPrincipalComment(comment);
-                        existing.setPrincipalId(authorId);
-                    }
+                    applyComment(existing, comment, isTeacher, authorId);
                     existing.setUpdatedAt(Instant.now());
                     return commentRepository.save(existing);
                 })
@@ -745,21 +1063,188 @@ class ResultServiceImpl implements ResultService {
                         .findByStudentIdAndTermIdAndSchoolId(studentId, termId, schoolId)
                         .switchIfEmpty(Mono.error(ex))
                         .flatMap(existing -> {
-                            if (isTeacher) {
-                                existing.setTeacherComment(comment);
-                                existing.setTeacherId(authorId);
-                            } else {
-                                existing.setPrincipalComment(comment);
-                                existing.setPrincipalId(authorId);
-                            }
+                            applyComment(existing, comment, isTeacher, authorId);
                             existing.setUpdatedAt(Instant.now());
                             return commentRepository.save(existing);
                         }))
                 .map(saved -> new ReportCommentResponse(
                         studentId,
                         termId,
-                        comment,
+                        comment.text(),
                         saved.getUpdatedAt() != null ? saved.getUpdatedAt() : Instant.now()));
+    }
+
+    private Mono<GeneratedComment> resolveCommentText(
+            UUID studentId,
+            UUID termId,
+            UUID schoolId,
+            String requestedComment,
+            boolean isTeacher,
+            boolean autoGenerate) {
+        String manual = trimToNull(requestedComment);
+        if (!autoGenerate && manual != null && !"AUTO".equalsIgnoreCase(manual)) {
+            return Mono.just(new GeneratedComment(manual, false));
+        }
+        return generateCommentFromGrades(studentId, termId, schoolId, isTeacher)
+                .map(comment -> new GeneratedComment(comment, true));
+    }
+
+    private Mono<String> generateCommentFromGrades(UUID studentId, UUID termId, UUID schoolId, boolean isTeacher) {
+        Mono<Student> studentMono = studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(studentId, schoolId)
+                .switchIfEmpty(Mono.error(new SchoolFeeException("STUDENT_NOT_FOUND", "Student not found", "studentId")));
+        Mono<List<FinalScore>> finalScoresMono = finalScoreRepository
+                .findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(studentId, termId, schoolId)
+                .collectList();
+        Mono<Optional<ClassRanking>> rankingMono = rankingRepository
+                .findByStudentIdAndTermIdAndSchoolId(studentId, termId, schoolId)
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty());
+        return Mono.zip(studentMono, finalScoresMono, rankingMono)
+                .flatMap(tuple -> {
+                    Student student = tuple.getT1();
+                    List<FinalScore> finalScores = tuple.getT2();
+                    Optional<ClassRanking> ranking = tuple.getT3();
+                    if (finalScores.isEmpty() && ranking.isEmpty()) {
+                        return Mono.error(new SchoolFeeException(
+                                "RESULT_SCORES_NOT_FOUND",
+                                "Computed result scores are required before an automatic comment can be generated",
+                                "studentId"));
+                    }
+                    return resolveGradeBandsForStudent(student, schoolId)
+                            .map(gradeBands -> buildAutomaticComment(student, finalScores, ranking, gradeBands, isTeacher));
+                });
+    }
+
+    private String buildAutomaticComment(
+            Student student,
+            List<FinalScore> finalScores,
+            Optional<ClassRanking> ranking,
+            List<GradeBand> gradeBands,
+            boolean isTeacher) {
+        BigDecimal average = ranking
+                .map(ClassRanking::getAveragePercentage)
+                .filter(Objects::nonNull)
+                .orElseGet(() -> averageScore(finalScores));
+        double avg = average.doubleValue();
+        String grade = ranking
+                .map(ClassRanking::getOverallGrade)
+                .filter(value -> value != null && !value.isBlank())
+                .orElseGet(() -> resolveGrade(gradeBands, avg));
+        int subjectsTaken = ranking.map(ClassRanking::getSubjectsTaken).filter(value -> value > 0).orElse(finalScores.size());
+        int subjectsPassed = ranking.map(ClassRanking::getSubjectsPassed).orElseGet(() -> countPassed(finalScores));
+        String studentName = firstNameOrFullName(student);
+        String performance = performancePhrase(avg);
+        String gradeText = grade == null ? "" : " with an overall grade of " + grade;
+        String passText = subjectsTaken <= 0
+                ? ""
+                : String.format(Locale.ROOT, ", passing %d of %d subject%s", subjectsPassed, subjectsTaken, subjectsTaken == 1 ? "" : "s");
+        String positionText = ranking
+                .filter(value -> value.getClassPosition() > 0 && value.getOutOf() > 0)
+                .map(value -> String.format(Locale.ROOT, " and placing %s out of %d", ordinal(value.getClassPosition()), value.getOutOf()))
+                .orElse("");
+
+        if (isTeacher) {
+            return String.format(Locale.ROOT,
+                    "%s %s this term, earning an average of %.1f%%%s%s%s. %s",
+                    studentName,
+                    performance,
+                    avg,
+                    gradeText,
+                    passText,
+                    positionText,
+                    teacherAdvice(avg));
+        }
+        return String.format(Locale.ROOT,
+                "%s's overall performance is %.1f%%%s%s%s. %s",
+                studentName,
+                avg,
+                gradeText,
+                passText,
+                positionText,
+                principalAdvice(avg));
+    }
+
+    private BigDecimal averageScore(List<FinalScore> finalScores) {
+        List<BigDecimal> scores = finalScores.stream()
+                .map(FinalScore::getFinalScore)
+                .filter(Objects::nonNull)
+                .toList();
+        if (scores.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return scores.stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(scores.size()), 2, RoundingMode.HALF_UP);
+    }
+
+    private int countPassed(List<FinalScore> finalScores) {
+        return (int) finalScores.stream()
+                .map(FinalScore::getFinalScore)
+                .filter(Objects::nonNull)
+                .filter(score -> score.compareTo(BigDecimal.valueOf(40)) >= 0)
+                .count();
+    }
+
+    private String performancePhrase(double average) {
+        if (average >= 75) return "delivered an excellent performance";
+        if (average >= 65) return "performed very well";
+        if (average >= 50) return "made satisfactory progress";
+        if (average >= 40) return "is making progress but needs more consistency";
+        return "needs urgent academic support";
+    }
+
+    private String teacherAdvice(double average) {
+        if (average >= 75) return "Encourage this learner to maintain the discipline and stretch further next term.";
+        if (average >= 65) return "With continued focus, this learner can reach an excellent level.";
+        if (average >= 50) return "More consistent revision and class participation will improve the result.";
+        if (average >= 40) return "Close monitoring, regular practice, and timely completion of assignments are recommended.";
+        return "A focused improvement plan, extra practice, and strong home support are urgently recommended.";
+    }
+
+    private String principalAdvice(double average) {
+        if (average >= 75) return "This is commendable; keep up the excellent standard.";
+        if (average >= 65) return "A very good result; continue to aim higher.";
+        if (average >= 50) return "A fair result; greater consistency will lead to stronger achievement.";
+        if (average >= 40) return "Promotion should be supported with deliberate academic improvement.";
+        return "Immediate intervention is required to help the learner recover academically.";
+    }
+
+    private String firstNameOrFullName(Student student) {
+        String firstName = trimToNull(student.getFirstName());
+        return firstName != null ? firstName : fullName(student);
+    }
+
+    private String ordinal(int value) {
+        int mod100 = value % 100;
+        if (mod100 >= 11 && mod100 <= 13) {
+            return value + "th";
+        }
+        return switch (value % 10) {
+            case 1 -> value + "st";
+            case 2 -> value + "nd";
+            case 3 -> value + "rd";
+            default -> value + "th";
+        };
+    }
+
+    private void applyComment(ReportComment target, GeneratedComment comment, boolean isTeacher, UUID authorId) {
+        if (isTeacher) {
+            target.setTeacherComment(comment.text());
+            target.setTeacherCommentFinal(comment.text());
+            target.setTeacherId(authorId);
+            if (comment.generated()) {
+                target.setTeacherCommentAuto(comment.text());
+                target.setCommentsGeneratedAt(Instant.now());
+            }
+        } else {
+            target.setPrincipalComment(comment.text());
+            target.setPrincipalCommentFinal(comment.text());
+            target.setPrincipalId(authorId);
+            if (comment.generated()) {
+                target.setPrincipalCommentAuto(comment.text());
+                target.setCommentsGeneratedAt(Instant.now());
+            }
+        }
     }
 
     private Mono<Void> validateCommentContext(UUID studentId, UUID termId, UUID schoolId) {
@@ -777,7 +1262,7 @@ class ResultServiceImpl implements ResultService {
     }
 
     private Mono<ReportComment> createComment(UUID studentId, UUID termId, UUID schoolId,
-                                               String comment, boolean isTeacher, UUID authorId) {
+                                               GeneratedComment comment, boolean isTeacher, UUID authorId) {
         Instant now = Instant.now();
         ReportComment rc = ReportComment.builder()
                 .schoolId(schoolId)
@@ -786,13 +1271,7 @@ class ResultServiceImpl implements ResultService {
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
-        if (isTeacher) {
-            rc.setTeacherComment(comment);
-            rc.setTeacherId(authorId);
-        } else {
-            rc.setPrincipalComment(comment);
-            rc.setPrincipalId(authorId);
-        }
+        applyComment(rc, comment, isTeacher, authorId);
         return commentRepository.save(rc);
     }
 
@@ -824,15 +1303,27 @@ class ResultServiceImpl implements ResultService {
                 .findBySchoolIdAndIsActiveTrue(schoolId)
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty());
+        Mono<List<ClassRanking>> classRankingsMono = classId == null
+                ? Mono.just(List.of())
+                : rankingRepository.findByClassIdAndTermIdOrderByAveragePercentageDesc(classId, term.getId())
+                        .collectList();
+        Mono<List<StudentResultResponse.TraitAssessment>> traitAssessmentsMono = studentTraitAssessmentRepository
+                .findForStudentResult(student.getId(), term.getId(), schoolId)
+                .map(this::toTraitAssessment)
+                .collectList();
 
-        return Mono.zip(classMono, classSizeMono, sessionMono, finalScoresMono, rankingMono, commentMono, gradeConfigMono)
+        return Mono.zip(classMono, classSizeMono, sessionMono, finalScoresMono, rankingMono, commentMono, gradeConfigMono, classRankingsMono)
                 .flatMap(tuple -> {
                     List<GradeBand> gradeBands = resolveGradeBands(
-                            tuple.getT7().map(GradeConfig::getConfig).orElse(null));
+                            tuple.getT7().map(GradeConfig::getConfig).orElse(null),
+                            educationLevelForClass(tuple.getT1()));
                     return Flux.fromIterable(tuple.getT4())
                         .concatMap(finalScore -> buildSubjectResult(finalScore, schoolId, gradeBands))
                         .collectList()
-                        .map(subjects -> {
+                        .zipWith(traitAssessmentsMono)
+                        .map(reportParts -> {
+                            List<StudentResultResponse.SubjectResult> subjects = reportParts.getT1();
+                            List<StudentResultResponse.TraitAssessment> assessments = reportParts.getT2();
                             Optional<ClassRanking> ranking = tuple.getT5();
                             Optional<ReportComment> comment = tuple.getT6();
                             return new StudentResultResponse(
@@ -848,11 +1339,14 @@ class ResultServiceImpl implements ResultService {
                                             term.getName(),
                                             tuple.getT3().getName()),
                                     subjects,
-                                    buildResultSummary(tuple.getT4(), ranking),
+                                    buildResultSummary(tuple.getT4(), ranking, tuple.getT8(), comment),
                                     buildRankingInfo(ranking),
                                     buildAttendanceInfo(comment),
-                                    comment.map(ReportComment::getTeacherComment).orElse(null),
-                                    comment.map(ReportComment::getPrincipalComment).orElse(null));
+                                    toGradeScale(gradeBands),
+                                    filterTraitAssessments(assessments, "AFFECTIVE", "BEHAVIOURAL"),
+                                    filterTraitAssessments(assessments, "PSYCHOMOTOR"),
+                                    comment.map(this::effectiveTeacherComment).orElse(null),
+                                    comment.map(this::effectivePrincipalComment).orElse(null));
                         });
                 });
     }
@@ -879,8 +1373,16 @@ class ResultServiceImpl implements ResultService {
                                 score.getScore(),
                                 score.getMaxScore())))
                 .collectList();
+        Mono<Optional<ResultScore>> examScoreMono = scoreRepository
+                .findLatestByStudentIdAndSubjectIdAndTermIdAndSchoolId(
+                        finalScore.getStudentId(),
+                        finalScore.getSubjectId(),
+                        finalScore.getTermId(),
+                        schoolId)
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty());
 
-        return Mono.zip(subjectMono, caScoresMono)
+        return Mono.zip(subjectMono, caScoresMono, examScoreMono)
                 .map(tuple -> new StudentResultResponse.SubjectResult(
                         finalScore.getSubjectId(),
                         tuple.getT1().getName(),
@@ -898,7 +1400,9 @@ class ResultServiceImpl implements ResultService {
                         finalScore.getSubjectPosition() == null ? 0 : finalScore.getSubjectPosition(),
                         null,
                         null,
-                        null));
+                        null,
+                        tuple.getT3().map(ResultScore::getId).orElse(null),
+                        tuple.getT3().map(ResultScore::getExamId).orElse(null)));
     }
 
     private Mono<ClassResultSheetResponse> buildClassResultSheet(UUID classId, UUID termId, UUID schoolId) {
@@ -914,14 +1418,20 @@ class ResultServiceImpl implements ResultService {
                 .collectList()
                 .map(list -> list.stream()
                         .sorted(Comparator.comparing(Subject::getName))
-                        .toList());
+                        .toList())
+                .cache();
 
         // Fetch students
         Mono<List<Student>> studentsListMono = studentRepository.findActiveBySchoolIdAndCurrentClassId(schoolId, classId)
                 .collectList();
 
         // Fetch rankings
-        Mono<List<ClassRanking>> rankingsListMono = rankingRepository.findByClassIdAndTermIdOrderByClassPosition(classId, termId)
+        Mono<List<ClassRanking>> rankingsListMono = subjectsListMono
+                .flatMapMany(subjects -> normalizeExamsForTerm(termId, schoolId)
+                        .thenMany(Flux.fromIterable(subjects)
+                                .concatMap(subject -> computeFinalScores(classId, termId, subject.getId()))))
+                .then(autoComputeRankings(classId, termId, schoolId))
+                .thenMany(rankingRepository.findByClassIdAndTermIdOrderByClassPosition(classId, termId))
                 .collectList();
         Mono<Optional<GradeConfig>> gradeConfigMono = gradeConfigRepository
                 .findBySchoolIdAndIsActiveTrue(schoolId)
@@ -944,7 +1454,8 @@ class ResultServiceImpl implements ResultService {
                     List<Student> students = tuple.getT5();
                     List<ClassRanking> rankings = tuple.getT6();
                     List<GradeBand> gradeBands = resolveGradeBands(
-                            tuple.getT7().map(GradeConfig::getConfig).orElse(null));
+                            tuple.getT7().map(GradeConfig::getConfig).orElse(null),
+                            educationLevelForClass(classEntity));
 
                     List<String> subjectNames = subjects.stream().map(Subject::getName).toList();
 
@@ -1060,22 +1571,102 @@ class ResultServiceImpl implements ResultService {
     }
 
     private List<GradeBand> resolveGradeBands(com.fasterxml.jackson.databind.JsonNode config) {
+        return resolveGradeBands(config, null);
+    }
+
+    private List<GradeBand> resolveGradeBands(com.fasterxml.jackson.databind.JsonNode config, String educationLevel) {
+        com.fasterxml.jackson.databind.JsonNode selectedConfig = selectGradingConfigForLevel(config, educationLevel);
+        if (selectedConfig != null && selectedConfig.path("grades").isArray()) {
+            return gradeBandsFrom(selectedConfig.path("grades"));
+        }
+        if (config != null && config.isArray()) {
+            return gradeBandsFrom(config);
+        }
         if (config != null && config.path("grades").isArray()) {
-            List<GradeBand> configured = new ArrayList<>();
-            config.path("grades").forEach(node -> {
-                String grade = node.path("grade").asText();
-                if (!grade.isBlank() && node.has("minScore") && node.has("maxScore")) {
-                    configured.add(new GradeBand(
-                            grade,
-                            node.path("minScore").asDouble(),
-                            node.path("maxScore").asDouble()));
-                }
-            });
-            if (!configured.isEmpty()) {
-                return configured;
-            }
+            return gradeBandsFrom(config.path("grades"));
         }
         return DEFAULT_GRADE_BANDS;
+    }
+
+    private List<GradeBand> gradeBandsFrom(com.fasterxml.jackson.databind.JsonNode gradesNode) {
+        List<GradeBand> configured = new ArrayList<>();
+        gradesNode.forEach(node -> {
+            String grade = node.path("grade").asText();
+            if (!grade.isBlank() && node.has("minScore") && node.has("maxScore")) {
+                configured.add(new GradeBand(
+                        grade,
+                        node.path("minScore").asDouble(),
+                        node.path("maxScore").asDouble(),
+                        node.path("remark").asText("")));
+            }
+        });
+        return configured.isEmpty() ? DEFAULT_GRADE_BANDS : configured;
+    }
+
+    private int resolvePassMark(com.fasterxml.jackson.databind.JsonNode config, String educationLevel) {
+        com.fasterxml.jackson.databind.JsonNode selectedConfig = selectGradingConfigForLevel(config, educationLevel);
+        if (selectedConfig != null && selectedConfig.has("passMark")) {
+            return selectedConfig.path("passMark").asInt(40);
+        }
+        if (config != null && config.has("passMark")) {
+            return config.path("passMark").asInt(40);
+        }
+        return 40;
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode selectGradingConfigForLevel(
+            com.fasterxml.jackson.databind.JsonNode config,
+            String educationLevel) {
+        if (config == null || educationLevel == null || educationLevel.isBlank()) {
+            return null;
+        }
+        com.fasterxml.jackson.databind.JsonNode byLevel = config.path("byEducationLevel");
+        if (byLevel.isObject()) {
+            com.fasterxml.jackson.databind.JsonNode exact = byLevel.path(educationLevel);
+            if (!exact.isMissingNode() && !exact.isNull()) {
+                return exact;
+            }
+        }
+        return null;
+    }
+
+    private Mono<List<GradeBand>> resolveGradeBandsForStudent(Student student, UUID schoolId) {
+        Mono<Optional<ClassEntity>> classMono = student.getCurrentClassId() == null
+                ? Mono.just(Optional.empty())
+                : classRepository.findByIdAndSchoolId(student.getCurrentClassId(), schoolId)
+                        .map(Optional::of)
+                        .defaultIfEmpty(Optional.empty());
+        return Mono.zip(
+                        gradeConfigRepository.findBySchoolIdAndIsActiveTrue(schoolId)
+                                .map(Optional::of)
+                                .defaultIfEmpty(Optional.empty()),
+                        classMono)
+                .map(tuple -> resolveGradeBands(
+                        tuple.getT1().map(GradeConfig::getConfig).orElse(null),
+                        tuple.getT2().map(this::educationLevelForClass).orElse(null)));
+    }
+
+    private String educationLevelForClass(ClassEntity classEntity) {
+        return classEntity == null ? null : educationLevelForGradeLevel(classEntity.getGradeLevel());
+    }
+
+    private String educationLevelForGradeLevel(String gradeLevel) {
+        String normalized = trimToNull(gradeLevel);
+        if (normalized == null) {
+            return null;
+        }
+        String upper = normalized.toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
+        if (GradeLevel.isValid(upper)) {
+            return GradeLevel.valueOf(upper).getCategory();
+        }
+        if (Set.of("NURSERY", "PRIMARY", "JUNIOR_SECONDARY", "SENIOR_SECONDARY").contains(upper)) {
+            return upper;
+        }
+        if (upper.startsWith("PRIMARY")) return "PRIMARY";
+        if (upper.startsWith("NURSERY")) return "NURSERY";
+        if (upper.startsWith("JSS") || upper.startsWith("JUNIOR")) return "JUNIOR_SECONDARY";
+        if (upper.startsWith("SSS") || upper.startsWith("SENIOR")) return "SENIOR_SECONDARY";
+        return null;
     }
 
     private Mono<MyChildResultResponse> buildMyChildResult(UUID studentId, UUID schoolId) {
@@ -1402,20 +1993,22 @@ class ResultServiceImpl implements ResultService {
 
     private Mono<Void> verifyExamScoreContext(ExamScoreRequest request, UUID schoolId) {
         return loadScoreContext(request.classId(), request.subjectId(), request.termId(), schoolId)
-                .then(examRepository.findByIdAndSchoolIdAndTermId(request.examId(), schoolId, request.termId())
-                        .switchIfEmpty(Mono.error(new SchoolFeeException(
-                                "EXAM_NOT_FOUND",
-                                "Exam not found",
-                                "examId")))
-                        .flatMap(exam -> {
-                            if (exam.getMaxScore() != request.maxScore()) {
-                                return Mono.error(new SchoolFeeException(
-                                        "INVALID_SCORE_BATCH",
-                                        "Exam max score must match the configured exam max score",
-                                        "maxScore"));
-                            }
-                            return Mono.empty();
-                        }))
+                .then(getCaConfig()
+                        .flatMap(caConfig -> examRepository.findByIdAndSchoolIdAndTermId(request.examId(), schoolId, request.termId())
+                                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                        "EXAM_NOT_FOUND",
+                                        "Exam not found",
+                                        "examId")))
+                                .flatMap(exam -> normalizeExamMaxScore(exam, caConfig))
+                                .flatMap(exam -> {
+                                    if (exam.getMaxScore() != request.maxScore()) {
+                                        return Mono.error(new SchoolFeeException(
+                                                "INVALID_SCORE_BATCH",
+                                                "Exam max score must match the configured exam max score",
+                                                "maxScore"));
+                                    }
+                                    return Mono.empty();
+                                })))
                 .then(verifyStudentsBelongToClass(
                         request.scores().stream()
                                 .map(ExamScoreRequest.ScoreEntry::studentId)
@@ -1544,11 +2137,16 @@ class ResultServiceImpl implements ResultService {
     }
 
     private StudentResultResponse.ResultSummary buildResultSummary(
-            List<FinalScore> finalScores, Optional<ClassRanking> ranking) {
+            List<FinalScore> finalScores,
+            Optional<ClassRanking> ranking,
+            List<ClassRanking> classRankings,
+            Optional<ReportComment> comment) {
         if (finalScores.isEmpty()) {
             return new StudentResultResponse.ResultSummary(
                     BigDecimal.ZERO, 0, BigDecimal.ZERO, null,
-                    BigDecimal.ZERO, 0, 0, 0);
+                    BigDecimal.ZERO, 0, 0, 0,
+                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                    comment.map(ReportComment::getPromotionStatus).orElse(null));
         }
         BigDecimal totalScore = finalScores.stream()
                 .map(FinalScore::getFinalScore)
@@ -1574,7 +2172,69 @@ class ResultServiceImpl implements ResultService {
                 totalPoints,
                 subjectsTaken,
                 subjectsPassed,
-                subjectsTaken - subjectsPassed);
+                subjectsTaken - subjectsPassed,
+                averageOfRankings(classRankings),
+                highestAverage(classRankings),
+                lowestAverage(classRankings),
+                comment.map(ReportComment::getPromotionStatus).orElse(null));
+    }
+
+    private BigDecimal averageOfRankings(List<ClassRanking> rankings) {
+        List<BigDecimal> averages = rankings.stream()
+                .map(ClassRanking::getAveragePercentage)
+                .filter(Objects::nonNull)
+                .toList();
+        if (averages.isEmpty()) return BigDecimal.ZERO;
+        return averages.stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(averages.size()), 2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal highestAverage(List<ClassRanking> rankings) {
+        return rankings.stream()
+                .map(ClassRanking::getAveragePercentage)
+                .filter(Objects::nonNull)
+                .max(BigDecimal::compareTo)
+                .orElse(BigDecimal.ZERO);
+    }
+
+    private BigDecimal lowestAverage(List<ClassRanking> rankings) {
+        return rankings.stream()
+                .map(ClassRanking::getAveragePercentage)
+                .filter(Objects::nonNull)
+                .min(BigDecimal::compareTo)
+                .orElse(BigDecimal.ZERO);
+    }
+
+    private List<StudentResultResponse.GradeScaleItem> toGradeScale(List<GradeBand> gradeBands) {
+        return gradeBands.stream()
+                .sorted(Comparator.comparingDouble(GradeBand::maxScore).reversed())
+                .map(band -> new StudentResultResponse.GradeScaleItem(
+                        band.grade(),
+                        BigDecimal.valueOf(band.minScore()),
+                        BigDecimal.valueOf(band.maxScore()),
+                        band.remark()))
+                .toList();
+    }
+
+    private StudentResultResponse.TraitAssessment toTraitAssessment(StudentTraitAssessmentView view) {
+        return new StudentResultResponse.TraitAssessment(
+                view.getName(),
+                view.getCategory(),
+                view.getRating(),
+                view.getComment());
+    }
+
+    private List<StudentResultResponse.TraitAssessment> filterTraitAssessments(
+            List<StudentResultResponse.TraitAssessment> assessments,
+            String... categories) {
+        Set<String> allowed = Arrays.stream(categories)
+                .map(category -> category.toUpperCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        return assessments.stream()
+                .filter(assessment -> assessment.category() != null)
+                .filter(assessment -> allowed.contains(assessment.category().toUpperCase(Locale.ROOT)))
+                .toList();
     }
 
     private StudentResultResponse.RankingInfo buildRankingInfo(Optional<ClassRanking> ranking) {
@@ -1602,6 +2262,16 @@ class ResultServiceImpl implements ResultService {
                 .orElse(null);
     }
 
+    private String effectiveTeacherComment(ReportComment comment) {
+        String finalComment = trimToNull(comment.getTeacherCommentFinal());
+        return finalComment != null ? finalComment : comment.getTeacherComment();
+    }
+
+    private String effectivePrincipalComment(ReportComment comment) {
+        String finalComment = trimToNull(comment.getPrincipalCommentFinal());
+        return finalComment != null ? finalComment : comment.getPrincipalComment();
+    }
+
     private BigDecimal nullToZero(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
     }
@@ -1620,6 +2290,120 @@ class ResultServiceImpl implements ResultService {
                 "A score already exists for one or more students in this batch",
                 "scores",
                 cause);
+    }
+
+    private ReportCardTemplateRequest validateTemplateRequest(ReportCardTemplateRequest request) {
+        if (request == null) {
+            throw new SchoolFeeException(
+                    "INVALID_REPORT_CARD_TEMPLATE",
+                    "Report-card template request is required");
+        }
+        String name = trimToNull(request.name());
+        if (name == null) {
+            throw new SchoolFeeException(
+                    "INVALID_REPORT_CARD_TEMPLATE",
+                    "Template name is required",
+                    "name");
+        }
+        if (name.length() > 100) {
+            throw new SchoolFeeException(
+                    "INVALID_REPORT_CARD_TEMPLATE",
+                    "Template name cannot exceed 100 characters",
+                    "name");
+        }
+        String educationLevel = normalizeEducationLevel(request.educationLevel());
+        if (request.config() == null || request.config().isNull() || request.config().isMissingNode()) {
+            throw new SchoolFeeException(
+                    "INVALID_REPORT_CARD_TEMPLATE",
+                    "Template config is required",
+                    "config");
+        }
+        if (!request.config().isObject()) {
+            throw new SchoolFeeException(
+                    "INVALID_REPORT_CARD_TEMPLATE",
+                    "Template config must be a JSON object",
+                    "config");
+        }
+        return new ReportCardTemplateRequest(
+                name,
+                educationLevel,
+                request.config(),
+                request.isDefault());
+    }
+
+    private String normalizeEducationLevel(String educationLevel) {
+        String normalized = trimToNull(educationLevel);
+        if (normalized == null) {
+            throw new SchoolFeeException(
+                    "INVALID_REPORT_CARD_TEMPLATE",
+                    "Education level is required",
+                    "educationLevel");
+        }
+        String upper = normalized.toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
+        boolean valid = Set.of("NURSERY", "PRIMARY", "JUNIOR_SECONDARY", "SENIOR_SECONDARY").contains(upper);
+        if (!valid && GradeLevel.isValid(upper)) {
+            upper = GradeLevel.valueOf(upper).getCategory();
+            valid = true;
+        }
+        if (!valid) {
+            throw new SchoolFeeException(
+                    "INVALID_REPORT_CARD_TEMPLATE",
+                    "Education level must be one of NURSERY, PRIMARY, JUNIOR_SECONDARY, or SENIOR_SECONDARY",
+                    "educationLevel");
+        }
+        return upper;
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode normalizeGradingConfig(com.fasterxml.jackson.databind.JsonNode config) {
+        if (config == null || config.isNull() || config.isMissingNode()) {
+            com.fasterxml.jackson.databind.node.ObjectNode empty = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+            empty.putObject("byEducationLevel");
+            return empty;
+        }
+        return config;
+    }
+
+    private int countConfiguredGrades(com.fasterxml.jackson.databind.JsonNode config) {
+        if (config == null || config.isNull() || config.isMissingNode()) {
+            return 0;
+        }
+        if (config.isArray()) {
+            return config.size();
+        }
+        if (config.path("byEducationLevel").isObject()) {
+            int count = 0;
+            Iterator<Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>> fields = config.path("byEducationLevel").fields();
+            while (fields.hasNext()) {
+                com.fasterxml.jackson.databind.JsonNode levelConfig = fields.next().getValue();
+                count += levelConfig.path("grades").isArray() ? levelConfig.path("grades").size() : 0;
+            }
+            return count;
+        }
+        return config.path("grades").isArray() ? config.path("grades").size() : 0;
+    }
+
+    private ReportCardTemplateResponse toTemplateResponse(ReportCardTemplate template) {
+        return new ReportCardTemplateResponse(
+                template.getId(),
+                template.getName(),
+                template.getEducationLevel(),
+                template.getConfig(),
+                template.isDefaultTemplate(),
+                template.isActive(),
+                template.getCreatedAt(),
+                template.getUpdatedAt());
+    }
+
+    private Mono<Void> validateReportCardTemplate(UUID templateId, UUID schoolId) {
+        if (templateId == null) {
+            return Mono.empty();
+        }
+        return reportCardTemplateRepository.findActiveByIdAndSchoolId(templateId, schoolId)
+                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                        "REPORT_CARD_TEMPLATE_NOT_FOUND",
+                        "Report-card template not found",
+                        "templateId")))
+                .then();
     }
 
     private UUID requireSchoolId(SchoolFeeUser user) {
@@ -1765,7 +2549,7 @@ class ResultServiceImpl implements ResultService {
     private record ScoreValue(UUID studentId, BigDecimal score) {
     }
 
-    private record GradeBand(String grade, double minScore, double maxScore) {
+    private record GradeBand(String grade, double minScore, double maxScore, String remark) {
     }
 
     private record ReportCardJobState(
@@ -1911,4 +2695,7 @@ class ResultServiceImpl implements ResultService {
         // Phase 2: Use grading config to determine overall grade
         return "N/A";
     }
+
+    private record DefaultTrait(String name, String category, int sortOrder) {}
+    private record GeneratedComment(String text, boolean generated) {}
 }

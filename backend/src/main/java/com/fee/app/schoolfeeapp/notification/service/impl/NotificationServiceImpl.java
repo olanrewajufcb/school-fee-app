@@ -173,9 +173,10 @@ class NotificationServiceImpl implements NotificationService {
                         schoolId,
                         bulkRequest.templateCode(),
                         bulkRequest.channel())
-                .switchIfEmpty(Mono.error(new SchoolFeeException(
-                        "TEMPLATE_NOT_FOUND",
-                        "Active template not found: " + bulkRequest.templateCode())))
+                .switchIfEmpty(Mono.defer(() -> createDefaultBulkTemplateIfSupported(
+                        schoolId,
+                        bulkRequest.templateCode(),
+                        bulkRequest.channel())))
                 .flatMap(template -> Mono.fromCallable(() -> resolveBulkChannels(bulkRequest.channel()))
                         .flatMapMany(channels -> Flux.fromIterable(bulkRequest.studentFeeIds())
                                 .flatMap(feeId -> prepareFeeReminder(
@@ -197,6 +198,37 @@ class NotificationServiceImpl implements NotificationService {
                                         }), concurrency))
                         .collectList()
                         .map(results -> toBulkResponse(batchId, results)));
+    }
+
+    private Mono<NotificationTemplate> createDefaultBulkTemplateIfSupported(
+            UUID schoolId, String templateCode, String channel) {
+        if (!"FEE_REMINDER".equalsIgnoreCase(templateCode)) {
+            return Mono.error(new SchoolFeeException(
+                    "TEMPLATE_NOT_FOUND",
+                    "Active template not found: " + templateCode));
+        }
+
+        String templateChannel = "WHATSAPP".equalsIgnoreCase(channel) ? "WHATSAPP" : "SMS";
+        Instant now = Instant.now();
+        NotificationTemplate template = NotificationTemplate.builder()
+                .id(UUID.randomUUID())
+                .schoolId(schoolId)
+                .templateCode("FEE_REMINDER")
+                .name("Fee Reminder")
+                .channel(templateChannel)
+                .subject(null)
+                .bodyTemplate("Hello {parent_name}, {student_name} has an outstanding fee balance of {balance}. Due date: {due_date}. Please pay as soon as possible.")
+                .variables(null)
+                .isDefault(true)
+                .isActive(true)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+
+        return templateRepository.save(template)
+                .onErrorResume(DuplicateKeyException.class, ex -> templateRepository
+                        .findActiveForBulkSend(schoolId, "FEE_REMINDER", channel)
+                        .switchIfEmpty(Mono.error(ex)));
     }
 
     private SendBulkNotificationResponse toBulkResponse(UUID batchId, List<ChannelResult> results) {
@@ -348,6 +380,8 @@ class NotificationServiceImpl implements NotificationService {
         Map<String, String> vars = new HashMap<>();
         vars.put("parent_name", guardian.getFirstName());
         vars.put("amount", Objects.toString(fee.getTotalAmount(), ""));
+        vars.put("amount_due", Objects.toString(fee.getTotalAmount(), ""));
+        vars.put("balance", Objects.toString(fee.getTotalAmount(), ""));
         vars.put("student_name", student.getFirstName() + " " + student.getLastName());
         vars.put("due_date", Objects.toString(fee.getDueDate(), ""));
         vars.put("days", fee.getDueDate() == null ? "" : String.valueOf(

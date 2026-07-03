@@ -129,6 +129,8 @@ class AttendanceServiceImplTest {
                 });
         org.mockito.Mockito.lenient().when(studentRepository.findById(STUDENT_ID))
                 .thenReturn(Mono.just(student()));
+        org.mockito.Mockito.lenient().when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(student()));
         org.mockito.Mockito.lenient().when(studentRepository.findAllById(any(Iterable.class)))
                 .thenReturn(Flux.just(student()));
         org.mockito.Mockito.lenient().when(sessionRepository.findAllById(any(Iterable.class)))
@@ -203,6 +205,47 @@ class AttendanceServiceImplTest {
         assertThat(event.getPayload().path("schoolId").asText()).isEqualTo(SCHOOL_ID.toString());
         assertThat(event.getPayload().path("schoolName").asText()).isEqualTo("Grace International School");
         assertThat(event.getPayload().path("guardianEmail").asText()).isEqualTo("parent@example.com");
+    }
+
+    @Test
+    @DisplayName("Should reject attendance mark when student is not in the session class")
+    void shouldRejectAttendanceMarkForStudentOutsideSessionClass() {
+        UUID otherStudentId = UUID.fromString("10000000-0000-0000-0000-000000000099");
+        Student otherClassStudent = Student.builder()
+                .id(otherStudentId)
+                .schoolId(SCHOOL_ID)
+                .admissionNumber("STU260099")
+                .firstName("Wrong")
+                .lastName("Class")
+                .currentClassId(UUID.fromString("20000000-0000-0000-0000-000000000099"))
+                .build();
+
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(any(), any()))
+                .thenReturn(Mono.just(otherClassStudent));
+
+        MarkAttendanceRequest request = new MarkAttendanceRequest(List.of(
+                new MarkAttendanceRequest.AttendanceMark(
+                        otherStudentId,
+                        "PRESENT",
+                        "07:55",
+                        "Mother",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null)));
+
+        StepVerifier.create(attendanceService.markAttendance(SESSION_ID, request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("STUDENT_NOT_IN_CLASS");
+                })
+                .verify();
+
+        verify(attendanceRepository, never()).upsertAttendanceMark(
+                any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any());
+        verify(sessionRepository, never()).save(any(AttendanceSession.class));
     }
 
     @Test
@@ -854,7 +897,7 @@ class AttendanceServiceImplTest {
     }
 
     @Test
-    @DisplayName("Should return today class attendance with mixed records and verify all count and mapping fallback branches")
+    @DisplayName("Should return today class attendance with mixed records and ignore orphan class records")
     void shouldGetTodayClassAttendanceWithMixedRecordsAndFallbacks() {
         LocalDate today = LocalDate.now();
         ClassEntity classEntity = ClassEntity.builder()
@@ -953,9 +996,9 @@ class AttendanceServiceImplTest {
                     assertThat(response.totalStudents()).isEqualTo(3);
                     assertThat(response.present()).isEqualTo(2);
                     assertThat(response.late()).isEqualTo(1);
-                    assertThat(response.absent()).isEqualTo(1);
-                    assertThat(response.notMarked()).isEqualTo(0);
-                    assertThat(response.students()).hasSize(5);
+                    assertThat(response.absent()).isZero();
+                    assertThat(response.notMarked()).isEqualTo(1);
+                    assertThat(response.students()).hasSize(4);
 
                     AttendanceResponse student3Response = response.students().stream()
                             .filter(s -> studentId3.equals(s.studentId()))
@@ -964,14 +1007,7 @@ class AttendanceServiceImplTest {
                     assertThat(student3Response.status()).isEqualTo("NOT_MARKED");
                     assertThat(student3Response.studentName()).isEqualTo("Seyi Adebayo");
 
-                    AttendanceResponse unknownResponse = response.students().stream()
-                            .filter(s -> unknownStudentId.equals(s.studentId()))
-                            .findFirst()
-                            .orElseThrow();
-                    assertThat(unknownResponse.studentName()).isEqualTo("Unknown Student");
-                    assertThat(unknownResponse.admissionNumber()).isEqualTo("");
-                    assertThat(unknownResponse.status()).isEqualTo("ABSENT");
-                    assertThat(unknownResponse.sessionType()).isEqualTo("MORNING_ARRIVAL");
+                    assertThat(response.students()).noneMatch(s -> unknownStudentId.equals(s.studentId()));
 
                     AttendanceResponse missingSessionResponse = response.students().stream()
                             .filter(s -> recordId4.equals(s.attendanceId()))
@@ -1027,6 +1063,166 @@ class AttendanceServiceImplTest {
                 })
                 .verify();
     }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException MARK_NOT_FOUND when updating non-existent attendance mark")
+    void shouldThrowMarkNotFoundWhenUpdatingNonExistentMark() {
+        UpdateAttendanceRequest request = new UpdateAttendanceRequest("PRESENT", null, null, null, null, null, null, null);
+        when(attendanceRepository.findById(any(UUID.class))).thenReturn(Mono.empty());
+
+        StepVerifier.create(attendanceService.updateAttendanceMark(UUID.randomUUID(), request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("MARK_NOT_FOUND");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should set arrival and departure time to null when blank on update")
+    void shouldSetArrivalAndDepartureTimeToNullWhenBlank() {
+        UpdateAttendanceRequest request = new UpdateAttendanceRequest("PRESENT", "   ", "Father", "   ", "Uncle", "John Doe", "08099998888", "Notes");
+        StudentAttendance existingMark = StudentAttendance.builder()
+                .id(ATTENDANCE_ID)
+                .sessionId(SESSION_ID)
+                .studentId(STUDENT_ID)
+                .schoolId(SCHOOL_ID)
+                .status("PRESENT")
+                .date(LocalDate.of(2026, 6, 18))
+                .build();
+
+        when(attendanceRepository.findById(ATTENDANCE_ID)).thenReturn(Mono.just(existingMark));
+        when(attendanceRepository.save(any(StudentAttendance.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Mono.just(attendanceSession()));
+
+        StepVerifier.create(attendanceService.updateAttendanceMark(ATTENDANCE_ID, request))
+                .assertNext(response -> {
+                    assertThat(response.arrivalTime()).isNull();
+                    assertThat(response.departureTime()).isNull();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should format departure notification message for AFTERNOON_DISMISSAL session type")
+    void shouldFormatDepartureNotificationMessage() {
+        // Arrange
+        AttendanceSession session = attendanceSession();
+        session.setSessionType("AFTERNOON_DISMISSAL");
+        when(sessionRepository.findByIdForUpdate(SESSION_ID)).thenReturn(Mono.just(session));
+        
+        when(attendanceRepository.findByStudentIdAndSessionId(STUDENT_ID, SESSION_ID))
+                .thenReturn(Mono.empty());
+        when(attendanceRepository.upsertAttendanceMark(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> Mono.just(StudentAttendance.builder()
+                        .id(ATTENDANCE_ID)
+                        .schoolId(SCHOOL_ID)
+                        .studentId(STUDENT_ID)
+                        .departureTime(LocalTime.of(14, 30))
+                        .pickUpPersonName("Uncle John")
+                        .build()));
+
+        stubGuardianAndOutbox();
+
+        MarkAttendanceRequest request = new MarkAttendanceRequest(List.of(new MarkAttendanceRequest.AttendanceMark(
+                STUDENT_ID, "PRESENT", null, null, "14:30", "Uncle", "Uncle John", "08012345678", "Notes"
+        )));
+
+        // Act
+        StepVerifier.create(attendanceService.markAttendance(SESSION_ID, request))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        // Verify outbox message payload
+        ArgumentCaptor<OutboxEvent> eventCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(eventCaptor.capture());
+        OutboxEvent event = eventCaptor.getValue();
+        assertThat(event.getPayload().path("message").asText()).contains("left school at 14:30. Picked up by Uncle John.");
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException INVALID_ATTENDANCE_MARK when studentId is null in markAttendance")
+    void shouldThrowInvalidAttendanceMarkWhenStudentIdIsNull() {
+        MarkAttendanceRequest request = new MarkAttendanceRequest(List.of(new MarkAttendanceRequest.AttendanceMark(
+                null, "PRESENT", "07:55", null, null, null, null, null, null
+        )));
+
+        StepVerifier.create(attendanceService.markAttendance(SESSION_ID, request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_ATTENDANCE_MARK");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException STUDENT_NOT_FOUND when student not found during validation")
+    void shouldThrowStudentNotFoundDuringValidation() {
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID))
+                .thenReturn(Mono.empty());
+
+        MarkAttendanceRequest request = attendanceRequest("PRESENT", "07:55");
+
+        StepVerifier.create(attendanceService.markAttendance(SESSION_ID, request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("STUDENT_NOT_FOUND");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should fallback to 'School' when schoolName is null in current user token")
+    void shouldFallbackToDefaultSchoolName() {
+        SchoolFeeUser userNoSchoolName = SchoolFeeUser.builder()
+                .userId(KEYCLOAK_USER_ID)
+                .schoolId(SCHOOL_ID)
+                .schoolName(null) // null schoolName
+                .userType("TEACHER")
+                .build();
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(userNoSchoolName));
+
+        when(attendanceRepository.findByStudentIdAndSessionId(STUDENT_ID, SESSION_ID))
+                .thenReturn(Mono.empty());
+        when(attendanceRepository.upsertAttendanceMark(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> Mono.just(StudentAttendance.builder()
+                        .id(ATTENDANCE_ID)
+                        .schoolId(SCHOOL_ID)
+                        .studentId(STUDENT_ID)
+                        .status("PRESENT")
+                        .arrivalTime(LocalTime.of(7, 45))
+                        .build()));
+
+        stubGuardianAndOutbox();
+
+        MarkAttendanceRequest request = attendanceRequest("PRESENT", "07:55");
+
+        StepVerifier.create(attendanceService.markAttendance(SESSION_ID, request))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        ArgumentCaptor<OutboxEvent> eventCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(eventCaptor.capture());
+        OutboxEvent event = eventCaptor.getValue();
+        assertThat(event.getPayload().path("schoolName").asText()).isEqualTo("School");
+        assertThat(event.getPayload().path("message").asText()).contains("— School");
+    }
+
+    @Test
+    @DisplayName("Should throw ACCESS_DENIED when non-parent calls getMyChildrenAttendance")
+    void shouldThrowAccessDeniedWhenNonParentCallsGetMyChildrenAttendance() {
+        SchoolFeeUser teacher = SchoolFeeUser.builder()
+                .userId(KEYCLOAK_USER_ID)
+                .schoolId(SCHOOL_ID)
+                .userType("TEACHER")
+                .build();
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(teacher));
+
+        StepVerifier.create(attendanceService.getMyChildrenAttendance(STUDENT_ID, LocalDate.now()))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("ACCESS_DENIED");
+                })
+                .verify();
+    }
 }
-
-

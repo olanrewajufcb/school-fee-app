@@ -183,9 +183,14 @@ class ResultControllerTest {
                 new StudentResultResponse.StudentInfo(studentId, "GIS-001", "Test Student", "Basic 1A", 1, null),
                 new StudentResultResponse.TermInfo(termId, "First Term", "2025/2026"),
                 List.of(),
-                new StudentResultResponse.ResultSummary(BigDecimal.ZERO, 0, BigDecimal.ZERO, null, BigDecimal.ZERO, 0, 0, 0),
+                new StudentResultResponse.ResultSummary(
+                        BigDecimal.ZERO, 0, BigDecimal.ZERO, null, BigDecimal.ZERO,
+                        0, 0, 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null),
                 null,
                 null,
+                List.of(),
+                List.of(),
+                List.of(),
                 null,
                 null);
         when(resultService.getStudentResult(studentId, termId)).thenReturn(Mono.just(serviceResponse));
@@ -283,6 +288,7 @@ class ResultControllerTest {
         ReportCardRequest request = new ReportCardRequest(
                 termId,
                 classId,
+                null,
                 List.of(UUID.randomUUID()),
                 true,
                 true,
@@ -304,6 +310,65 @@ class ResultControllerTest {
                 .verifyComplete();
 
         verify(resultService).generateReportCards(request);
+    }
+
+    @Test
+    @DisplayName("Should create report card template successfully")
+    void shouldCreateReportCardTemplateSuccessfully() {
+        ReportCardTemplateRequest request = new ReportCardTemplateRequest(
+                "Standard Primary",
+                "PRIMARY",
+                new ObjectMapper().createObjectNode().put("layout", "standard"),
+                true);
+        ReportCardTemplateResponse serviceResponse = new ReportCardTemplateResponse(
+                UUID.randomUUID(),
+                "Standard Primary",
+                "PRIMARY",
+                request.config(),
+                true,
+                true,
+                Instant.parse("2026-06-18T10:00:00Z"),
+                Instant.parse("2026-06-18T10:00:00Z"));
+        when(resultService.createReportCardTemplate(request)).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(resultController.createTemplate(request))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+                    ApiResponse<ReportCardTemplateResponse> body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(resultService).createReportCardTemplate(request);
+    }
+
+    @Test
+    @DisplayName("Should get report card templates successfully")
+    void shouldGetReportCardTemplatesSuccessfully() {
+        List<ReportCardTemplateResponse> serviceResponse = List.of(new ReportCardTemplateResponse(
+                UUID.randomUUID(),
+                "Standard Primary",
+                "PRIMARY",
+                new ObjectMapper().createObjectNode().put("layout", "standard"),
+                true,
+                true,
+                Instant.parse("2026-06-18T10:00:00Z"),
+                Instant.parse("2026-06-18T10:00:00Z")));
+        when(resultService.getReportCardTemplates()).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(resultController.getTemplates())
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    ApiResponse<List<ReportCardTemplateResponse>> body = response.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(resultService).getReportCardTemplates();
     }
 
     @Test
@@ -352,7 +417,7 @@ class ResultControllerTest {
                 termId,
                 request.comment(),
                 Instant.now());
-        when(resultService.addTeacherComment(studentId, termId, request.comment()))
+        when(resultService.addTeacherComment(studentId, termId, request.comment(), false))
                 .thenReturn(Mono.just(serviceResponse));
 
         StepVerifier.create(resultController.addTeacherComment(studentId, termId, request))
@@ -365,7 +430,7 @@ class ResultControllerTest {
                 })
                 .verifyComplete();
 
-        verify(resultService).addTeacherComment(studentId, termId, request.comment());
+        verify(resultService).addTeacherComment(studentId, termId, request.comment(), false);
     }
 
     @Test
@@ -379,7 +444,7 @@ class ResultControllerTest {
                 termId,
                 request.comment(),
                 Instant.now());
-        when(resultService.addPrincipalComment(studentId, termId, request.comment()))
+        when(resultService.addPrincipalComment(studentId, termId, request.comment(), false))
                 .thenReturn(Mono.just(serviceResponse));
 
         StepVerifier.create(resultController.addPrincipalComment(studentId, termId, request))
@@ -392,7 +457,7 @@ class ResultControllerTest {
                 })
                 .verifyComplete();
 
-        verify(resultService).addPrincipalComment(studentId, termId, request.comment());
+        verify(resultService).addPrincipalComment(studentId, termId, request.comment(), false);
     }
 
     @Test
@@ -402,13 +467,13 @@ class ResultControllerTest {
         UUID termId = UUID.randomUUID();
         CommentRequest request = new CommentRequest("Any");
         SchoolFeeException expectedError = new SchoolFeeException("STUDENT_NOT_FOUND", "Student not found");
-        when(resultService.addTeacherComment(studentId, termId, request.comment())).thenReturn(Mono.error(expectedError));
+        when(resultService.addTeacherComment(studentId, termId, request.comment(), false)).thenReturn(Mono.error(expectedError));
 
         StepVerifier.create(resultController.addTeacherComment(studentId, termId, request))
                 .expectErrorSatisfies(error -> assertThat(error).isSameAs(expectedError))
                 .verify();
 
-        verify(resultService).addTeacherComment(studentId, termId, request.comment());
+        verify(resultService).addTeacherComment(studentId, termId, request.comment(), false);
     }
 
     @Test
@@ -418,13 +483,13 @@ class ResultControllerTest {
         UUID termId = UUID.randomUUID();
         CommentRequest request = new CommentRequest("Any");
         SchoolFeeException expectedError = new SchoolFeeException("TERM_NOT_FOUND", "Term not found");
-        when(resultService.addPrincipalComment(studentId, termId, request.comment())).thenReturn(Mono.error(expectedError));
+        when(resultService.addPrincipalComment(studentId, termId, request.comment(), false)).thenReturn(Mono.error(expectedError));
 
         StepVerifier.create(resultController.addPrincipalComment(studentId, termId, request))
                 .expectErrorSatisfies(error -> assertThat(error).isSameAs(expectedError))
                 .verify();
 
-        verify(resultService).addPrincipalComment(studentId, termId, request.comment());
+        verify(resultService).addPrincipalComment(studentId, termId, request.comment(), false);
     }
 
     @Test

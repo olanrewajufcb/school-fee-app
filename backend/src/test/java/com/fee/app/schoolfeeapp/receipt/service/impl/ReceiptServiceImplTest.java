@@ -593,6 +593,49 @@ class ReceiptServiceImplTest {
         }
 
         @Test
+        @DisplayName("Should allow parent to access multi-student receipt when paid by them")
+        void shouldAllowParentAccessToMultiStudentReceiptWhenPaidByThem() {
+            SchoolFeeUser parent = SchoolFeeUser.builder()
+                    .userId(PARENT_USER_ID)
+                    .userType("PARENT")
+                    .roles(Set.of("PARENT"))
+                    .schoolId(SCHOOL_ID)
+                    .build();
+
+            Receipt multiStudentReceipt = Receipt.builder()
+                    .id(UUID.randomUUID())
+                    .paymentId(PAYMENT_ID)
+                    .receiptNumber(RECEIPT_NUMBER)
+                    .studentId(null) // Null studentId for multi-student payment
+                    .schoolId(SCHOOL_ID)
+                    .amount(BigDecimal.valueOf(280000))
+                    .smsSent(false)
+                    .emailSent(false)
+                    .build();
+
+            Payment payment = Payment.builder()
+                    .id(PAYMENT_ID)
+                    .studentId(null)
+                    .schoolId(SCHOOL_ID)
+                    .amount(BigDecimal.valueOf(280000))
+                    .status("COMPLETED")
+                    .paidBy(PARENT_USER_ID) // Paid by this parent
+                    .paymentMethod("PAYSTACK")
+                    .paymentMode("ONLINE")
+                    .build();
+
+            when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parent));
+            when(receiptRepository.findByReceiptNumber(RECEIPT_NUMBER)).thenReturn(Mono.just(multiStudentReceipt));
+            when(paymentRepository.findByIdAndSchoolId(PAYMENT_ID, SCHOOL_ID)).thenReturn(Mono.just(payment));
+            when(schoolRepository.findById(SCHOOL_ID)).thenReturn(Mono.just(School.builder().id(SCHOOL_ID).build()));
+            when(allocationRepository.findByPaymentId(PAYMENT_ID)).thenReturn(Flux.empty());
+
+            StepVerifier.create(receiptService.getReceiptDetails(RECEIPT_NUMBER))
+                    .expectNextCount(1)
+                    .verifyComplete();
+        }
+
+        @Test
         @DisplayName("Should reject null receipt number (trimToNull null-path)")
         void shouldRejectNullReceiptNumber() {
             // Covers the `value == null` branch in trimToNull

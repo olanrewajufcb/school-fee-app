@@ -345,14 +345,15 @@ public class FeeReportingRepository {
     }
 
     public Flux<UUID> getOutstandingFeeIds(UUID schoolId, UUID termId, String filter, LocalDate today) {
-        String deadlineCondition = switch (filter.toUpperCase()) {
+        String normalizedFilter = filter == null ? "" : filter.toUpperCase();
+        String deadlineCondition = switch (normalizedFilter) {
             case "DUE_IN_3_DAYS" -> "sf.due_date = :dueInThreeDays";
             case "DUE_TODAY" -> "sf.due_date = :today";
             case "OVERDUE" -> "sf.due_date < :today";
             default -> "1=1";
         };
 
-        return databaseClient.sql(String.format("""
+        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(String.format("""
                 WITH payment_totals AS (
                     SELECT
                         le.student_fee_id,
@@ -394,9 +395,17 @@ public class FeeReportingRepository {
                   AND %s
                 """, deadlineCondition))
                 .bind("schoolId", schoolId)
-                .bind("termId", termId)
-                .bind("today", today)
-                .bind("dueInThreeDays", today.plusDays(3))
+                .bind("termId", termId);
+
+        if ("DUE_IN_3_DAYS".equals(normalizedFilter)) {
+            spec = spec
+                    .bind("today", today)
+                    .bind("dueInThreeDays", today.plusDays(3));
+        } else if ("DUE_TODAY".equals(normalizedFilter) || "OVERDUE".equals(normalizedFilter)) {
+            spec = spec.bind("today", today);
+        }
+
+        return spec
                 .map((row, metadata) -> row.get("student_fee_id", UUID.class))
                 .all();
     }

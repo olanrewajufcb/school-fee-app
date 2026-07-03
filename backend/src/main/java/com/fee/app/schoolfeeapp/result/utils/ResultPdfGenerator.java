@@ -19,6 +19,7 @@ import java.awt.Color;
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 @Component
 public class ResultPdfGenerator {
@@ -38,6 +39,8 @@ public class ResultPdfGenerator {
             addHeader(document, result, schoolName);
             addSummary(document, result);
             addSubjectTable(document, result);
+            addGradingScale(document, result);
+            addAssessments(document, result);
             addComments(document, result);
             addFooter(document);
 
@@ -93,7 +96,7 @@ public class ResultPdfGenerator {
     private void addSummary(Document document, StudentResultResponse result)
             throws DocumentException {
         StudentResultResponse.ResultSummary summary = result.summary();
-        PdfPTable table = new PdfPTable(5);
+        PdfPTable table = new PdfPTable(4);
         table.setWidthPercentage(100);
         table.setSpacingAfter(12);
         table.addCell(summaryCell("Total Score", summary == null
@@ -102,15 +105,18 @@ public class ResultPdfGenerator {
         table.addCell(summaryCell("Average", summary == null
                 ? "-"
                 : decimal(summary.average()) + "%"));
-        table.addCell(summaryCell("Overall Grade", summary == null
+        table.addCell(summaryCell("Position", result.ranking() == null
                 ? "-"
-                : safe(summary.overallGrade())));
-        table.addCell(summaryCell("Subjects Passed", summary == null
+                : ordinal(result.ranking().classPosition()) + " of " + result.ranking().outOf()));
+        table.addCell(summaryCell("No. in Class", result.ranking() == null
                 ? "-"
-                : summary.subjectsPassed() + " / " + summary.subjectsTaken()));
-        table.addCell(summaryCell("Attendance", result.attendance() == null
-                ? "-"
-                : String.format("%.1f%%", result.attendance().attendanceRate())));
+                : String.valueOf(result.ranking().outOf())));
+        table.addCell(summaryCell("Class Average", summary == null ? "-" : decimal(summary.classAverage()) + "%"));
+        table.addCell(summaryCell("Highest Score", summary == null ? "-" : decimal(summary.highestScore()) + "%"));
+        table.addCell(summaryCell("Lowest Score", summary == null ? "-" : decimal(summary.lowestScore()) + "%"));
+        table.addCell(summaryCell("Promotion", summary == null ? "-" : safe(summary.promotionStatus())));
+        table.addCell(summaryCell("Overall Grade", summary == null ? "-" : safe(summary.overallGrade())));
+        table.addCell(summaryCell("Subjects Passed", summary == null ? "-" : summary.subjectsPassed() + " / " + summary.subjectsTaken()));
         document.add(table);
     }
 
@@ -139,6 +145,39 @@ public class ResultPdfGenerator {
                     Element.ALIGN_CENTER);
         }
         table.setSpacingAfter(12);
+        document.add(table);
+    }
+
+    private void addGradingScale(Document document, StudentResultResponse result)
+            throws DocumentException {
+        if (result.gradingScale() == null || result.gradingScale().isEmpty()) {
+            return;
+        }
+        Paragraph title = new Paragraph("Grading Scale", FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, NAVY));
+        title.setSpacingBefore(4);
+        title.setSpacingAfter(4);
+        document.add(title);
+        PdfPTable table = new PdfPTable(new float[]{0.8f, 1.2f, 2f});
+        table.setWidthPercentage(100);
+        addHeaderCell(table, "Grade");
+        addHeaderCell(table, "Range");
+        addHeaderCell(table, "Remark");
+        for (StudentResultResponse.GradeScaleItem item : result.gradingScale()) {
+            addBodyCell(table, item.grade(), Element.ALIGN_CENTER);
+            addBodyCell(table, decimal(item.minScore()) + " - " + decimal(item.maxScore()), Element.ALIGN_CENTER);
+            addBodyCell(table, item.remark(), Element.ALIGN_LEFT);
+        }
+        table.setSpacingAfter(12);
+        document.add(table);
+    }
+
+    private void addAssessments(Document document, StudentResultResponse result)
+            throws DocumentException {
+        PdfPTable table = new PdfPTable(2);
+        table.setWidthPercentage(100);
+        table.setSpacingAfter(12);
+        table.addCell(assessmentCell("Behavioural Assessment", result.behaviouralAssessments()));
+        table.addCell(assessmentCell("Psychomotor Assessment", result.psychomotorAssessments()));
         document.add(table);
     }
 
@@ -183,6 +222,24 @@ public class ResultPdfGenerator {
         cell.addElement(new Phrase(
                 text == null || text.isBlank() ? "No comment provided." : text,
                 FontFactory.getFont(FontFactory.HELVETICA, 9, SLATE)));
+        return cell;
+    }
+
+    private PdfPCell assessmentCell(String title, List<StudentResultResponse.TraitAssessment> assessments) {
+        PdfPCell cell = new PdfPCell();
+        cell.setPadding(10);
+        cell.setBorderColor(BORDER);
+        cell.addElement(new Phrase(title, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, NAVY)));
+        if (assessments == null || assessments.isEmpty()) {
+            cell.addElement(new Phrase("Not recorded yet.", FontFactory.getFont(FontFactory.HELVETICA, 9, SLATE)));
+            return cell;
+        }
+        assessments.forEach(assessment -> cell.addElement(new Phrase(
+                safe(assessment.name()) + ": " + safe(assessment.rating())
+                        + (assessment.comment() == null || assessment.comment().isBlank()
+                        ? ""
+                        : " — " + assessment.comment()),
+                FontFactory.getFont(FontFactory.HELVETICA, 8, SLATE))));
         return cell;
     }
 

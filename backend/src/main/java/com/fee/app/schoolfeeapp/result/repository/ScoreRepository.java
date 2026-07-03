@@ -9,8 +9,6 @@ import reactor.core.publisher.Mono;
 import java.util.UUID;
 
 public interface ScoreRepository extends ReactiveCrudRepository<ResultScore, UUID> {
-    Flux<ResultScore> findByStudentIdAndTermId(UUID studentId, UUID termId);
-    Flux<ResultScore> findByClassIdAndSubjectIdAndTermId(UUID classId, UUID subjectId, UUID termId);
 
     @Query("""
             INSERT INTO result.scores (
@@ -60,9 +58,19 @@ public interface ScoreRepository extends ReactiveCrudRepository<ResultScore, UUI
             """)
     Mono<ResultScore> findByIdAndSchoolIdForUpdate(UUID scoreId, UUID schoolId);
 
-    Flux<ResultScore> findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(
-            UUID studentId, UUID termId, UUID schoolId);
-
-    @Query("SELECT EXISTS (SELECT 1 FROM result.scores WHERE student_id = :studentId AND subject_id = :subjectId AND term_id = :termId AND exam_id = :examId)")
-    Mono<Boolean> existsByStudentIdAndSubjectIdAndTermIdAndExamId(UUID studentId, UUID subjectId, UUID termId, UUID examId);
+    @Query("""
+            SELECT *
+            FROM result.scores
+            WHERE student_id = :studentId
+              AND subject_id = :subjectId
+              AND term_id = :termId
+              AND school_id = :schoolId
+            ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+            LIMIT 1
+            """)
+    Mono<ResultScore> findLatestByStudentIdAndSubjectIdAndTermIdAndSchoolId(
+            UUID studentId,
+            UUID subjectId,
+            UUID termId,
+            UUID schoolId);
 }

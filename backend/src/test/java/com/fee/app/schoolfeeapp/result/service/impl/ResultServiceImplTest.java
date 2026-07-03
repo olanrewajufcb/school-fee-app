@@ -9,6 +9,7 @@ import com.fee.app.schoolfeeapp.auth.repository.StudentGuardianRepository;
 import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
 import com.fee.app.schoolfeeapp.auth.util.JwtUtils;
 import com.fee.app.schoolfeeapp.auth.util.SchoolFeeUser;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.notification.service.SmsService;
 import com.fee.app.schoolfeeapp.result.domain.*;
@@ -16,10 +17,12 @@ import com.fee.app.schoolfeeapp.result.dto.request.CaConfigRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.ExamScoreRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.GradingRuleRequest;
 import com.fee.app.schoolfeeapp.result.dto.request.ReportCardRequest;
+import com.fee.app.schoolfeeapp.result.dto.request.ReportCardTemplateRequest;
 import com.fee.app.schoolfeeapp.result.dto.response.MyChildResultResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.PublishResultResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.ReportCardJobResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.ReportCommentResponse;
+import com.fee.app.schoolfeeapp.result.dto.response.StudentResultResponse;
 import com.fee.app.schoolfeeapp.result.dto.response.UpdateScoreRequest;
 import com.fee.app.schoolfeeapp.result.dto.response.CaScoreRequest;
 import com.fee.app.schoolfeeapp.result.dto.response.SubjectLookupResponse;
@@ -55,6 +58,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.Collections;
 import com.fee.app.schoolfeeapp.result.dto.request.ShareResultRequest;
+import com.fee.app.schoolfeeapp.result.dto.request.TraitAssessmentRequest;
+import com.fee.app.schoolfeeapp.result.dto.response.TraitAssessmentSaveResponse;
+import com.fee.app.schoolfeeapp.result.dto.response.AssessmentTraitResponse;
+import com.fee.app.schoolfeeapp.result.dto.response.TraitAssessmentValueResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -87,6 +94,12 @@ class ResultServiceImplTest {
     private PublishedResultRepository publishedResultRepository;
     @Mock
     private ScoreAuditLogRepository auditLogRepository;
+    @Mock
+    private ReportCardTemplateRepository reportCardTemplateRepository;
+    @Mock
+    private AssessmentTraitRepository assessmentTraitRepository;
+    @Mock
+    private StudentTraitAssessmentRepository studentTraitAssessmentRepository;
     @Mock
     private SubjectRepository subjectRepository;
     @Mock
@@ -132,6 +145,8 @@ class ResultServiceImplTest {
     private static final UUID EXAM_ID = UUID.fromString("99999999-aaaa-bbbb-cccc-dddddddddddd");
     private static final UUID COMPONENT_ID = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
     private static final UUID STUDENT_ID = UUID.fromString("bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+    private static final UUID TEMPLATE_ID = UUID.fromString("12121212-3434-5656-7878-909090909090");
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
@@ -145,6 +160,9 @@ class ResultServiceImplTest {
                 commentRepository,
                 publishedResultRepository,
                 auditLogRepository,
+                reportCardTemplateRepository,
+                assessmentTraitRepository,
+                studentTraitAssessmentRepository,
                 subjectRepository,
                 classSubjectRepository,
                 examRepository,
@@ -169,6 +187,42 @@ class ResultServiceImplTest {
                 });
         org.mockito.Mockito.lenient().when(gradeConfigRepository.findBySchoolIdAndIsActiveTrue(any(UUID.class)))
                 .thenReturn(Mono.empty());
+        org.mockito.Mockito.lenient()
+                .when(rankingRepository.findByClassIdAndTermIdOrderByAveragePercentageDesc(any(UUID.class), any(UUID.class)))
+                .thenReturn(Flux.empty());
+        org.mockito.Mockito.lenient()
+                .when(studentTraitAssessmentRepository.findForStudentResult(any(UUID.class), any(UUID.class), any(UUID.class)))
+                .thenReturn(Flux.empty());
+        org.mockito.Mockito.lenient()
+                .when(examRepository.save(any(Exam.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        org.mockito.Mockito.lenient()
+                .when(examRepository.findByTermId(any(UUID.class)))
+                .thenReturn(Flux.empty());
+        org.mockito.Mockito.lenient()
+                .when(scoreRepository.findLatestByStudentIdAndSubjectIdAndTermIdAndSchoolId(any(UUID.class), any(UUID.class), any(UUID.class), any(UUID.class)))
+                .thenReturn(Mono.empty());
+        org.mockito.Mockito.lenient()
+                .when(classSubjectRepository.findByClassIdAndSubjectIdAndSchoolIdAndIsActiveTrue(any(UUID.class), any(UUID.class), any(UUID.class)))
+                .thenReturn(Mono.just(classSubject()));
+        org.mockito.Mockito.lenient()
+                .when(examRepository.findByIdAndSchoolIdAndTermId(any(UUID.class), any(UUID.class), any(UUID.class)))
+                .thenReturn(Mono.just(exam()));
+        org.mockito.Mockito.lenient()
+                .when(computationEngine.computeFinalScores(any(UUID.class), any(UUID.class), any(UUID.class)))
+                .thenReturn(Mono.empty());
+        org.mockito.Mockito.lenient()
+                .when(computationEngine.computeSubjectPositions(any(UUID.class), any(UUID.class)))
+                .thenReturn(Mono.empty());
+        org.mockito.Mockito.lenient()
+                .when(computationEngine.computeClassRankings(any(UUID.class), any(UUID.class), any(UUID.class), any()))
+                .thenReturn(Mono.empty());
+        org.mockito.Mockito.lenient()
+                .when(caComponentRepository.findBySchoolIdAndIsActiveTrue(any(UUID.class)))
+                .thenReturn(Flux.empty());
+        org.mockito.Mockito.lenient()
+                .when(classSubjectRepository.findByClassIdAndIsActiveTrue(any(UUID.class)))
+                .thenReturn(Flux.empty());
     }
 
     @Test
@@ -319,6 +373,9 @@ class ResultServiceImplTest {
         when(publishedResultRepository.findBySchoolIdAndTermId(SCHOOL_ID, TERM_ID)).thenReturn(Mono.empty());
         when(caScoreRepository.insert(any(CaScore.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(computationEngine.computeFinalScores(CLASS_ID, TERM_ID, SUBJECT_ID)).thenReturn(Mono.empty());
+        when(computationEngine.computeSubjectPositions(CLASS_ID, TERM_ID)).thenReturn(Mono.empty());
+        when(computationEngine.computeClassRankings(any(), any(), any(), any())).thenReturn(Mono.empty());
 
         CaScoreRequest request = validCaScoreRequest();
 
@@ -333,6 +390,7 @@ class ResultServiceImplTest {
         verify(caScoreRepository).insert(captor.capture());
         assertThat(captor.getValue().getSchoolId()).isEqualTo(SCHOOL_ID);
         assertThat(captor.getValue().getRecordedBy()).isEqualTo(USER_ID);
+        verify(computationEngine).computeFinalScores(CLASS_ID, TERM_ID, SUBJECT_ID);
     }
 
     @Test
@@ -421,6 +479,7 @@ class ResultServiceImplTest {
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         when(auditLogRepository.insert(any(ScoreAuditLog.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(classEntity()));
         when(computationEngine.computeFinalScores(CLASS_ID, TERM_ID, SUBJECT_ID)).thenReturn(Mono.empty());
         when(computationEngine.computeSubjectPositions(CLASS_ID, TERM_ID)).thenReturn(Mono.empty());
         when(computationEngine.computeClassRankings(any(), any(), any(), any())).thenReturn(Mono.empty());
@@ -499,6 +558,10 @@ class ResultServiceImplTest {
                         .build()));
         when(publishedResultRepository.findBySchoolIdAndTermId(SCHOOL_ID, TERM_ID))
                 .thenReturn(Mono.just(PublishedResult.builder().schoolId(SCHOOL_ID).termId(TERM_ID).build()));
+        when(studentTraitAssessmentRepository.findForStudentResult(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(
+                        new StudentTraitAssessmentView("Punctuality", "AFFECTIVE", "A", "Always early"),
+                        new StudentTraitAssessmentView("Handwriting", "PSYCHOMOTOR", "B", "Neat work")));
 
         StepVerifier.create(resultService.getStudentResult(STUDENT_ID, TERM_ID))
                 .assertNext(result -> {
@@ -508,6 +571,12 @@ class ResultServiceImplTest {
                     assertThat(result.subjects()).hasSize(1);
                     assertThat(result.summary().subjectsTaken()).isEqualTo(1);
                     assertThat(result.teacherComment()).isEqualTo("Doing well");
+                    assertThat(result.behaviouralAssessments())
+                            .extracting(StudentResultResponse.TraitAssessment::name)
+                            .containsExactly("Punctuality");
+                    assertThat(result.psychomotorAssessments())
+                            .extracting(StudentResultResponse.TraitAssessment::name)
+                            .containsExactly("Handwriting");
                 })
                 .verifyComplete();
     }
@@ -1031,6 +1100,51 @@ class ResultServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should configure independent grading schemes by education level")
+    void shouldConfigureIndependentGradingSchemesByEducationLevel() throws Exception {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        com.fasterxml.jackson.databind.JsonNode configJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree("""
+                        {
+                          "byEducationLevel": {
+                            "NURSERY": {
+                              "passMark": 50,
+                              "grades": [
+                                {"grade": "Excellent", "minScore": 80, "maxScore": 100, "remark": "Excellent"},
+                                {"grade": "Developing", "minScore": 0, "maxScore": 79, "remark": "Developing"}
+                              ]
+                            },
+                            "PRIMARY": {
+                              "passMark": 40,
+                              "grades": [
+                                {"grade": "A", "minScore": 70, "maxScore": 100, "remark": "Excellent"},
+                                {"grade": "C", "minScore": 40, "maxScore": 69, "remark": "Pass"},
+                                {"grade": "F", "minScore": 0, "maxScore": 39, "remark": "Fail"}
+                              ]
+                            }
+                          }
+                        }
+                        """);
+        GradingRuleRequest request = new GradingRuleRequest(configJson);
+        when(gradeConfigRepository.findBySchoolId(SCHOOL_ID)).thenReturn(Mono.empty());
+        when(gradeConfigRepository.save(any(GradeConfig.class)))
+                .thenAnswer(invocation -> {
+                    GradeConfig saved = invocation.getArgument(0);
+                    saved.setId(UUID.randomUUID());
+                    return Mono.just(saved);
+                });
+
+        StepVerifier.create(resultService.configureGradingRules(request))
+                .assertNext(response -> {
+                    assertThat(response.schoolId()).isEqualTo(SCHOOL_ID);
+                    assertThat(response.gradesCount()).isEqualTo(5);
+                    assertThat(response.config().path("byEducationLevel").path("NURSERY").path("passMark").asInt()).isEqualTo(50);
+                    assertThat(response.config().path("byEducationLevel").path("PRIMARY").path("grades")).hasSize(3);
+                })
+                .verifyComplete();
+    }
+
+    @Test
     @DisplayName("Should reject configure grading rules when user has no school context")
     void shouldRejectConfigureGradingRulesWhenUserHasNoSchoolContext() throws Exception {
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(SchoolFeeUser.builder()
@@ -1292,6 +1406,68 @@ class ResultServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should auto-generate teacher comment from student grading")
+    void shouldAutoGenerateTeacherCommentFromStudentGrading() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID)).thenReturn(Mono.just(student()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(finalScore()));
+        when(rankingRepository.findByStudentIdAndTermIdAndSchoolId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(ranking()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(classEntity()));
+        when(commentRepository.findByStudentIdAndTermIdAndSchoolId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Mono.empty());
+        when(commentRepository.save(any(ReportComment.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(resultService.addTeacherComment(STUDENT_ID, TERM_ID, "", true))
+                .assertNext(response -> {
+                    assertThat(response.comment()).contains("Test");
+                    assertThat(response.comment()).contains("78.0%");
+                    assertThat(response.comment()).contains("B2");
+                    assertThat(response.comment()).contains("excellent performance");
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<ReportComment> captor = ArgumentCaptor.forClass(ReportComment.class);
+        verify(commentRepository).save(captor.capture());
+        assertThat(captor.getValue().getTeacherCommentAuto()).contains("78.0%");
+        assertThat(captor.getValue().getTeacherCommentFinal()).isEqualTo(captor.getValue().getTeacherComment());
+        assertThat(captor.getValue().getCommentsGeneratedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Should auto-generate principal comment when request comment is AUTO")
+    void shouldAutoGeneratePrincipalCommentWhenRequestCommentIsAuto() {
+        ReportComment existing = comment();
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID)).thenReturn(Mono.just(student()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(finalScore()));
+        when(rankingRepository.findByStudentIdAndTermIdAndSchoolId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Mono.empty());
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(classEntity()));
+        when(commentRepository.findByStudentIdAndTermIdAndSchoolId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(existing));
+        when(commentRepository.save(any(ReportComment.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(resultService.addPrincipalComment(STUDENT_ID, TERM_ID, "AUTO"))
+                .assertNext(response -> {
+                    assertThat(response.comment()).contains("78.0%");
+                    assertThat(response.comment()).contains("A1");
+                    assertThat(response.comment()).contains("excellent standard");
+                })
+                .verifyComplete();
+
+        assertThat(existing.getPrincipalCommentAuto()).contains("78.0%");
+        assertThat(existing.getPrincipalCommentFinal()).isEqualTo(existing.getPrincipalComment());
+        assertThat(existing.getCommentsGeneratedAt()).isNotNull();
+    }
+
+    @Test
     @DisplayName("Should reject teacher comment when student does not exist in school")
     void shouldRejectTeacherCommentWhenStudentNotFound() {
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
@@ -1335,6 +1511,7 @@ class ResultServiceImplTest {
         ReportCardRequest request = new ReportCardRequest(
                 TERM_ID,
                 CLASS_ID,
+                null,
                 List.of(STUDENT_ID, STUDENT_ID),
                 true,
                 true,
@@ -1370,6 +1547,7 @@ class ResultServiceImplTest {
         ReportCardRequest request = new ReportCardRequest(
                 TERM_ID,
                 CLASS_ID,
+                null,
                 List.of(),
                 false,
                 false,
@@ -1387,6 +1565,34 @@ class ResultServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should reject report card generation when template is missing")
+    void shouldRejectReportCardGenerationWhenTemplateIsMissing() {
+        ReportCardRequest request = new ReportCardRequest(
+                TERM_ID,
+                CLASS_ID,
+                TEMPLATE_ID,
+                List.of(STUDENT_ID),
+                true,
+                true,
+                true,
+                null,
+                "PDF");
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(classEntity()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
+        when(reportCardTemplateRepository.findActiveByIdAndSchoolId(TEMPLATE_ID, SCHOOL_ID)).thenReturn(Mono.empty());
+
+        StepVerifier.create(resultService.generateReportCards(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("REPORT_CARD_TEMPLATE_NOT_FOUND");
+                })
+                .verify();
+
+        verify(studentRepository, never()).findByIdAndSchoolIdAndDeletedAtIsNull(any(UUID.class), any(UUID.class));
+    }
+
+    @Test
     @DisplayName("Should reject fetching report card job when job does not exist")
     void shouldRejectFetchingReportCardJobWhenNotFound() {
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
@@ -1397,6 +1603,108 @@ class ResultServiceImplTest {
                     assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("REPORT_CARD_JOB_NOT_FOUND");
                 })
                 .verify();
+    }
+
+    @Test
+    @DisplayName("Should create report card template and clear existing default")
+    void shouldCreateReportCardTemplateAndClearExistingDefault() {
+        passThroughTransaction();
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(reportCardTemplateRepository.existsActiveByNormalizedName(SCHOOL_ID, "PRIMARY", "Standard Primary"))
+                .thenReturn(Mono.just(false));
+        when(reportCardTemplateRepository.clearDefaultForLevel(eq(SCHOOL_ID), eq("PRIMARY"), any(Instant.class)))
+                .thenReturn(Mono.just(1));
+        when(reportCardTemplateRepository.insert(
+                eq(SCHOOL_ID),
+                eq("Standard Primary"),
+                eq("PRIMARY"),
+                any(),
+                eq(true),
+                any(Instant.class),
+                any(Instant.class)))
+                .thenReturn(Mono.just(reportCardTemplate("Standard Primary", "PRIMARY", true)));
+
+        ReportCardTemplateRequest request = new ReportCardTemplateRequest(
+                " Standard Primary ",
+                "primary_1",
+                OBJECT_MAPPER.createObjectNode().put("layout", "standard"),
+                true);
+
+        StepVerifier.create(resultService.createReportCardTemplate(request))
+                .assertNext(response -> {
+                    assertThat(response.templateId()).isEqualTo(TEMPLATE_ID);
+                    assertThat(response.name()).isEqualTo("Standard Primary");
+                    assertThat(response.educationLevel()).isEqualTo("PRIMARY");
+                    assertThat(response.isDefault()).isTrue();
+                    assertThat(response.isActive()).isTrue();
+                })
+                .verifyComplete();
+
+        verify(reportCardTemplateRepository).clearDefaultForLevel(eq(SCHOOL_ID), eq("PRIMARY"), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("Should reject duplicate report card template names")
+    void shouldRejectDuplicateReportCardTemplateNames() {
+        passThroughTransaction();
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(reportCardTemplateRepository.existsActiveByNormalizedName(SCHOOL_ID, "PRIMARY", "Standard Primary"))
+                .thenReturn(Mono.just(true));
+
+        ReportCardTemplateRequest request = new ReportCardTemplateRequest(
+                "Standard Primary",
+                "PRIMARY",
+                OBJECT_MAPPER.createObjectNode().put("layout", "standard"),
+                false);
+
+        StepVerifier.create(resultService.createReportCardTemplate(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("REPORT_CARD_TEMPLATE_EXISTS");
+                })
+                .verify();
+
+        verify(reportCardTemplateRepository, never()).insert(
+                any(),
+                anyString(),
+                anyString(),
+                any(),
+                any(Boolean.class),
+                any(Instant.class),
+                any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("Should list active report card templates")
+    void shouldListActiveReportCardTemplates() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(reportCardTemplateRepository.findActiveBySchoolId(SCHOOL_ID))
+                .thenReturn(Flux.just(reportCardTemplate("Standard Primary", "PRIMARY", true)));
+
+        StepVerifier.create(resultService.getReportCardTemplates())
+                .assertNext(response -> {
+                    assertThat(response).hasSize(1);
+                    assertThat(response.get(0).name()).isEqualTo("Standard Primary");
+                    assertThat(response.get(0).educationLevel()).isEqualTo("PRIMARY");
+                })
+                .verifyComplete();
+
+        verify(reportCardTemplateRepository).findActiveBySchoolId(SCHOOL_ID);
+    }
+
+    private ReportCardTemplate reportCardTemplate(String name, String educationLevel, boolean isDefault) {
+        ReportCardTemplate template = new ReportCardTemplate();
+        template.setId(TEMPLATE_ID);
+        template.setSchoolId(SCHOOL_ID);
+        template.setName(name);
+        template.setEducationLevel(educationLevel);
+        template.setConfig(OBJECT_MAPPER.createObjectNode().put("layout", "standard"));
+        template.setDefaultTemplate(isDefault);
+        template.setActive(true);
+        template.setCreatedAt(Instant.parse("2026-06-18T10:00:00Z"));
+        template.setUpdatedAt(Instant.parse("2026-06-18T10:00:00Z"));
+        template.setVersion(0);
+        return template;
     }
 
     private void passThroughTransaction() {
@@ -1726,6 +2034,15 @@ class ResultServiceImplTest {
                 .termId(TERM_ID)
                 .name("Mid Term Exam")
                 .maxScore(40)
+                .weightPercentage(BigDecimal.valueOf(40))
+                .build();
+
+        CaComponent caComponent = CaComponent.builder()
+                .id(UUID.randomUUID())
+                .schoolId(SCHOOL_ID)
+                .name("CA")
+                .weightPercentage(BigDecimal.valueOf(60))
+                .isActive(true)
                 .build();
 
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
@@ -1733,6 +2050,8 @@ class ResultServiceImplTest {
                 .thenReturn(Mono.just(term()));
         when(examRepository.findByTermId(TERM_ID))
                 .thenReturn(Flux.just(exam));
+        when(caComponentRepository.findBySchoolIdAndIsActiveTrue(SCHOOL_ID))
+                .thenReturn(Flux.just(caComponent));
 
         StepVerifier.create(resultService.getExamsForTerm(TERM_ID))
                 .assertNext(results -> {
@@ -2306,8 +2625,6 @@ class ResultServiceImplTest {
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
         when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.empty());
         when(termRepository.findByIdAndSchoolId(any(), any())).thenReturn(Mono.empty());
-        when(computationEngine.computeSubjectPositions(CLASS_ID, TERM_ID)).thenReturn(Mono.empty());
-        when(computationEngine.computeClassRankings(any(), any(), any(), any())).thenReturn(Mono.empty());
 
         StepVerifier.create(resultService.recomputeRankings(CLASS_ID, TERM_ID, SCHOOL_ID))
                 .expectErrorSatisfies(error -> {
@@ -2323,8 +2640,6 @@ class ResultServiceImplTest {
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
         when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(classEntity()));
         when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.empty());
-        when(computationEngine.computeSubjectPositions(CLASS_ID, TERM_ID)).thenReturn(Mono.empty());
-        when(computationEngine.computeClassRankings(any(), any(), any(), any())).thenReturn(Mono.empty());
 
         StepVerifier.create(resultService.recomputeRankings(CLASS_ID, TERM_ID, SCHOOL_ID))
                 .expectErrorSatisfies(error -> {
@@ -2342,7 +2657,7 @@ class ResultServiceImplTest {
     @DisplayName("Should reject generateReportCards when student IDs are empty")
     void shouldRejectGenerateReportCardsWhenStudentIdsEmpty() {
         when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
-        ReportCardRequest request = new ReportCardRequest(TERM_ID, CLASS_ID, List.of(), false, false, false, null, null);
+        ReportCardRequest request = new ReportCardRequest(TERM_ID, CLASS_ID, null, List.of(), false, false, false, null, null);
 
         StepVerifier.create(resultService.generateReportCards(request))
                 .expectErrorSatisfies(error -> {
@@ -3261,6 +3576,391 @@ class ResultServiceImplTest {
                 .assertNext(response -> {
                     assertThat(response.students().get(0).subjects().get(0).finalScore()).isZero();
                     assertThat(response.students().get(0).subjects().get(0).grade()).isNull();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should validate TraitAssessmentRequest validation exceptions")
+    void shouldValidateTraitAssessmentRequestExceptions() {
+        // null request
+        StepVerifier.create(resultService.saveTraitAssessments(null))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(SchoolFeeException.class)
+                        .hasMessageContaining("Trait assessment request is required"))
+                .verify();
+
+        // null classId
+        TraitAssessmentRequest r1 = new TraitAssessmentRequest(null, TERM_ID, List.of());
+        StepVerifier.create(resultService.saveTraitAssessments(r1))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(SchoolFeeException.class)
+                        .hasMessageContaining("Class is required"))
+                .verify();
+
+        // null termId
+        TraitAssessmentRequest r2 = new TraitAssessmentRequest(CLASS_ID, null, List.of());
+        StepVerifier.create(resultService.saveTraitAssessments(r2))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(SchoolFeeException.class)
+                        .hasMessageContaining("Term is required"))
+                .verify();
+
+        // null entries
+        TraitAssessmentRequest r3 = new TraitAssessmentRequest(CLASS_ID, TERM_ID, null);
+        StepVerifier.create(resultService.saveTraitAssessments(r3))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(SchoolFeeException.class)
+                        .hasMessageContaining("At least one assessment rating is required"))
+                .verify();
+
+        // empty entries
+        TraitAssessmentRequest r4 = new TraitAssessmentRequest(CLASS_ID, TERM_ID, List.of());
+        StepVerifier.create(resultService.saveTraitAssessments(r4))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(SchoolFeeException.class)
+                        .hasMessageContaining("At least one assessment rating is required"))
+                .verify();
+
+        // studentId or traitId null in entry
+        TraitAssessmentRequest.Entry entry1 = new TraitAssessmentRequest.Entry(null, UUID.randomUUID(), "A", "Good");
+        TraitAssessmentRequest r5 = new TraitAssessmentRequest(CLASS_ID, TERM_ID, List.of(entry1));
+        StepVerifier.create(resultService.saveTraitAssessments(r5))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(SchoolFeeException.class)
+                        .hasMessageContaining("Student and trait are required"))
+                .verify();
+
+        // rating null or blank
+        TraitAssessmentRequest.Entry entry2 = new TraitAssessmentRequest.Entry(STUDENT_ID, UUID.randomUUID(), "   ", "Good");
+        TraitAssessmentRequest r6 = new TraitAssessmentRequest(CLASS_ID, TERM_ID, List.of(entry2));
+        StepVerifier.create(resultService.saveTraitAssessments(r6))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(SchoolFeeException.class)
+                        .hasMessageContaining("Rating is required"))
+                .verify();
+
+        // duplicate entry
+        UUID traitId = UUID.randomUUID();
+        TraitAssessmentRequest.Entry entry3 = new TraitAssessmentRequest.Entry(STUDENT_ID, traitId, "A", "Good");
+        TraitAssessmentRequest.Entry entry4 = new TraitAssessmentRequest.Entry(STUDENT_ID, traitId, "B", "Nice");
+        TraitAssessmentRequest r7 = new TraitAssessmentRequest(CLASS_ID, TERM_ID, List.of(entry3, entry4));
+        StepVerifier.create(resultService.saveTraitAssessments(r7))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(SchoolFeeException.class)
+                        .hasMessageContaining("Each student/trait can appear only once"))
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should fail when class or term is not found during trait assessment save")
+    void shouldFailWhenClassOrTermNotFoundInTraitAssessmentSave() {
+        passThroughTransaction();
+        UUID traitId = UUID.randomUUID();
+        TraitAssessmentRequest.Entry entry = new TraitAssessmentRequest.Entry(STUDENT_ID, traitId, "A", "Good");
+        TraitAssessmentRequest request = new TraitAssessmentRequest(CLASS_ID, TERM_ID, List.of(entry));
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(userRepository.findByKeycloakIdAndDeletedAtIsNull(USER_ID))
+                .thenReturn(Mono.just(User.builder().id(USER_ID).build()));
+
+        // Class not found
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.empty());
+        StepVerifier.create(resultService.saveTraitAssessments(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("CLASS_NOT_FOUND");
+                })
+                .verify();
+
+        // Term not found
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(classEntity()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.empty());
+        StepVerifier.create(resultService.saveTraitAssessments(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("TERM_NOT_FOUND");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should fail when student or trait is not found or student not in class during verification")
+    void shouldFailWhenStudentOrTraitNotFoundDuringVerification() {
+        passThroughTransaction();
+        UUID traitId = UUID.randomUUID();
+        TraitAssessmentRequest.Entry entry = new TraitAssessmentRequest.Entry(STUDENT_ID, traitId, "A", "Good");
+        TraitAssessmentRequest request = new TraitAssessmentRequest(CLASS_ID, TERM_ID, List.of(entry));
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(userRepository.findByKeycloakIdAndDeletedAtIsNull(USER_ID))
+                .thenReturn(Mono.just(User.builder().id(USER_ID).build()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(classEntity()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
+
+        // Student not found
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID)).thenReturn(Mono.empty());
+        StepVerifier.create(resultService.saveTraitAssessments(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("STUDENT_NOT_FOUND");
+                })
+                .verify();
+
+        // Student not in class
+        Student wrongClassStudent = student();
+        wrongClassStudent.setCurrentClassId(UUID.randomUUID());
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID)).thenReturn(Mono.just(wrongClassStudent));
+        StepVerifier.create(resultService.saveTraitAssessments(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("STUDENT_NOT_IN_CLASS");
+                })
+                .verify();
+
+        // Trait not found
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID)).thenReturn(Mono.just(student()));
+        when(assessmentTraitRepository.findActiveByIdAndSchoolId(traitId, SCHOOL_ID)).thenReturn(Mono.empty());
+        StepVerifier.create(resultService.saveTraitAssessments(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("ASSESSMENT_TRAIT_NOT_FOUND");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should save trait assessments successfully")
+    void shouldSaveTraitAssessmentsSuccessfully() {
+        passThroughTransaction();
+        UUID traitId1 = UUID.randomUUID();
+        UUID traitId2 = UUID.randomUUID();
+        TraitAssessmentRequest.Entry entry = new TraitAssessmentRequest.Entry(STUDENT_ID, traitId1, "A", "Good");
+        TraitAssessmentRequest.Entry entryWithNoComment = new TraitAssessmentRequest.Entry(STUDENT_ID, traitId2, "B", "");
+        TraitAssessmentRequest request = new TraitAssessmentRequest(CLASS_ID, TERM_ID, List.of(entry, entryWithNoComment));
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(userRepository.findByKeycloakIdAndDeletedAtIsNull(USER_ID))
+                .thenReturn(Mono.just(User.builder().id(USER_ID).build()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(classEntity()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID)).thenReturn(Mono.just(student()));
+        when(assessmentTraitRepository.findActiveByIdAndSchoolId(traitId1, SCHOOL_ID))
+                .thenReturn(Mono.just(AssessmentTrait.builder().id(traitId1).build()));
+        when(assessmentTraitRepository.findActiveByIdAndSchoolId(traitId2, SCHOOL_ID))
+                .thenReturn(Mono.just(AssessmentTrait.builder().id(traitId2).build()));
+        when(studentTraitAssessmentRepository.upsert(any(StudentTraitAssessment.class)))
+                .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+
+        StepVerifier.create(resultService.saveTraitAssessments(request))
+                .assertNext(response -> {
+                    assertThat(response.assessmentsSaved()).isEqualTo(2);
+                    assertThat(response.message()).isEqualTo("Trait assessments saved");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should get assessment traits and default them if missing")
+    void shouldGetAssessmentTraitsAndDefaultIfMissing() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        
+        ClassEntity cEntity = classEntity();
+        cEntity.setGradeLevel("JUNIOR_SECONDARY");
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(cEntity));
+
+        // Traits exist
+        AssessmentTrait existingTrait = AssessmentTrait.builder()
+                .id(UUID.randomUUID())
+                .name("Punctuality")
+                .category("AFFECTIVE")
+                .sortOrder(1)
+                .build();
+        when(assessmentTraitRepository.findActiveForLevel(SCHOOL_ID, "JUNIOR_SECONDARY"))
+                .thenReturn(Flux.just(existingTrait));
+
+        StepVerifier.create(resultService.getAssessmentTraits(CLASS_ID))
+                .assertNext(list -> {
+                    assertThat(list).hasSize(1);
+                    assertThat(list.get(0).name()).isEqualTo("Punctuality");
+                })
+                .verifyComplete();
+
+        // Traits missing, insert default ones (using ClassEntity with null gradeLevel to hit fallback)
+        ClassEntity nullGradeClass = classEntity();
+        nullGradeClass.setGradeLevel(null);
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(nullGradeClass));
+        when(assessmentTraitRepository.findActiveForLevel(SCHOOL_ID, "PRIMARY"))
+                .thenReturn(Flux.empty()) // First call returns empty
+                .thenReturn(Flux.just(existingTrait)); // Second call returns the populated list
+        when(assessmentTraitRepository.insertDefaultIfMissing(eq(SCHOOL_ID), eq("PRIMARY"), anyString(), anyString(), any(Integer.class), any(Instant.class)))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(resultService.getAssessmentTraits(CLASS_ID))
+                .assertNext(list -> {
+                    assertThat(list).hasSize(1);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should get trait assessment values successfully")
+    void shouldGetTraitAssessmentValuesSuccessfully() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(classEntity()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
+
+        StudentTraitAssessmentValueView val = new StudentTraitAssessmentValueView(
+                STUDENT_ID, UUID.randomUUID(), "A", "Good work"
+        );
+        when(studentTraitAssessmentRepository.findValuesForClass(CLASS_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(val));
+
+        StepVerifier.create(resultService.getTraitAssessmentValues(CLASS_ID, TERM_ID))
+                .assertNext(list -> {
+                    assertThat(list).hasSize(1);
+                    assertThat(list.get(0).studentId()).isEqualTo(STUDENT_ID);
+                    assertThat(list.get(0).rating()).isEqualTo("A");
+                    assertThat(list.get(0).comment()).isEqualTo("Good work");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should generate automatic comments for various averages")
+    void shouldGenerateAutomaticCommentsForVariousAverages() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(userRepository.findByKeycloakIdAndDeletedAtIsNull(USER_ID))
+                .thenReturn(Mono.just(User.builder().id(USER_ID).build()));
+        
+        when(studentRepository.findByIdAndSchoolIdAndDeletedAtIsNull(STUDENT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(student()));
+        when(termRepository.findByIdAndSchoolId(TERM_ID, SCHOOL_ID)).thenReturn(Mono.just(term()));
+        when(classRepository.findByIdAndSchoolId(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(classEntity()));
+        when(rankingRepository.findByStudentIdAndTermIdAndSchoolId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Mono.empty()); // empty ranking to force average calculation from final scores
+        when(gradeConfigRepository.findBySchoolIdAndIsActiveTrue(SCHOOL_ID)).thenReturn(Mono.empty());
+
+        when(commentRepository.findByStudentIdAndTermIdAndSchoolId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Mono.empty());
+        when(commentRepository.save(any(ReportComment.class)))
+                .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+
+        // Test case 1: average 80 (excellent)
+        FinalScore fs1 = finalScore();
+        fs1.setFinalScore(BigDecimal.valueOf(80));
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(fs1));
+
+        StepVerifier.create(resultService.addTeacherComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("excellent performance");
+                    assertThat(res.comment()).contains("Encourage this learner");
+                })
+                .verifyComplete();
+
+        StepVerifier.create(resultService.addPrincipalComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("This is commendable");
+                })
+                .verifyComplete();
+
+        // Test case 2: average 70 (very well)
+        FinalScore fs2 = finalScore();
+        fs2.setFinalScore(BigDecimal.valueOf(70));
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(fs2));
+
+        StepVerifier.create(resultService.addTeacherComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("performed very well");
+                    assertThat(res.comment()).contains("continued focus");
+                })
+                .verifyComplete();
+
+        StepVerifier.create(resultService.addPrincipalComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("very good result");
+                })
+                .verifyComplete();
+
+        // Test case 3: average 55 (satisfactory)
+        FinalScore fs3 = finalScore();
+        fs3.setFinalScore(BigDecimal.valueOf(55));
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(fs3));
+
+        StepVerifier.create(resultService.addTeacherComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("satisfactory progress");
+                    assertThat(res.comment()).contains("consistent revision");
+                })
+                .verifyComplete();
+
+        StepVerifier.create(resultService.addPrincipalComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("fair result");
+                })
+                .verifyComplete();
+
+        // Test case 4: average 45 (progress but needs consistency)
+        FinalScore fs4 = finalScore();
+        fs4.setFinalScore(BigDecimal.valueOf(45));
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(fs4));
+
+        StepVerifier.create(resultService.addTeacherComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("needs more consistency");
+                    assertThat(res.comment()).contains("Close monitoring");
+                })
+                .verifyComplete();
+
+        StepVerifier.create(resultService.addPrincipalComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("Promotion should be supported");
+                })
+                .verifyComplete();
+
+        // Test case 5: average 30 (urgent support)
+        FinalScore fs5 = finalScore();
+        fs5.setFinalScore(BigDecimal.valueOf(30));
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(fs5));
+
+        StepVerifier.create(resultService.addTeacherComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("needs urgent academic support");
+                    assertThat(res.comment()).contains("improvement plan");
+                })
+                .verifyComplete();
+
+        StepVerifier.create(resultService.addPrincipalComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("Immediate intervention");
+                })
+                .verifyComplete();
+
+        // Test case 6: average empty (averageScore returns 0) - throws exception because ranking is also empty
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.empty());
+
+        StepVerifier.create(resultService.addTeacherComment(STUDENT_ID, TERM_ID, null, true))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("RESULT_SCORES_NOT_FOUND");
+                })
+                .verify();
+
+        // Test case 7: average list has null final scores
+        FinalScore fsNull = finalScore();
+        fsNull.setFinalScore(null);
+        when(finalScoreRepository.findByStudentIdAndTermIdAndSchoolIdOrderBySubjectId(STUDENT_ID, TERM_ID, SCHOOL_ID))
+                .thenReturn(Flux.just(fsNull));
+
+        StepVerifier.create(resultService.addTeacherComment(STUDENT_ID, TERM_ID, null, true))
+                .assertNext(res -> {
+                    assertThat(res.comment()).contains("needs urgent academic support");
                 })
                 .verifyComplete();
     }

@@ -7,7 +7,9 @@ import {
   CalendarCheck,
   CheckCircle2,
   ChevronRight,
+  ClipboardList,
   CircleDollarSign,
+  Download,
   GraduationCap,
   LayoutDashboard,
   Loader2,
@@ -21,6 +23,9 @@ import {
   Users,
   XCircle,
   FileText,
+  FileSpreadsheet,
+  Sparkles,
+  Upload,
 } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -41,10 +46,12 @@ import {
   type ClassRoom,
   type CreateFeeStructurePayload,
   type DailySummary,
+  type EnrollStudentPayload,
   type ExamLookupResponse,
   type FeeDashboard,
   type FeeStructure,
   type GradeLevel,
+  type GradingScheme,
   type GradingRulesResponse,
   type NotificationBalance,
   type NotificationTemplate,
@@ -55,6 +62,8 @@ import {
   schoolAdminService,
   type SubjectResponse,
   type ClassSubjectResponse,
+  type ReportCardTemplate,
+  type BatchEnrollResponse,
 } from '@/services/schoolAdminService';
 import { StudentDetailsView } from '@/components/admin/students/StudentDetailsView';
 import { AttendanceMonitoringSection } from '@/components/admin/AttendanceMonitoringSection';
@@ -99,6 +108,17 @@ interface StudentForm {
   medicalNotes: string;
 }
 
+interface BatchStudentRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  gender: 'MALE' | 'FEMALE';
+  dateOfBirth: string;
+  guardianName: string;
+  guardianPhone: string;
+  medicalNotes: string;
+}
+
 interface FeeItemForm {
   description: string;
   amount: string;
@@ -116,12 +136,45 @@ interface FeeForm {
   items: FeeItemForm[];
 }
 
+type EducationLevel = ReportCardTemplate['educationLevel'];
+type GradingEducationLevel = 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
+
+const EDUCATION_LEVEL_LABELS: Record<GradingEducationLevel, string> = {
+  NURSERY: 'Nursery',
+  PRIMARY: 'Primary',
+  JUNIOR_SECONDARY: 'Junior Secondary',
+  SENIOR_SECONDARY: 'Senior Secondary',
+};
+
+interface ReportCardTemplateForm {
+  name: string;
+  educationLevel: EducationLevel;
+  isDefault: boolean;
+  configJson: string;
+}
+
 const emptyClassForm: ClassForm = {
   name: '',
   gradeLevel: '',
   section: 'A',
   academicSessionId: '',
   capacity: '40',
+};
+
+const defaultReportTemplateConfig = {
+  layout: 'standard',
+  showSchoolLogo: true,
+  showAttendance: true,
+  showTeacherComment: true,
+  showPrincipalComment: true,
+  sections: ['studentInfo', 'scores', 'summary', 'comments'],
+};
+
+const emptyReportTemplateForm: ReportCardTemplateForm = {
+  name: '',
+  educationLevel: 'PRIMARY',
+  isDefault: false,
+  configJson: JSON.stringify(defaultReportTemplateConfig, null, 2),
 };
 
 const emptyStaffForm: StaffForm = {
@@ -237,6 +290,7 @@ export const AdminDashboard: React.FC = () => {
   const [studentForm, setStudentForm] = useState<StudentForm>(emptyStudentForm);
   const [feeForm, setFeeForm] = useState<FeeForm>(emptyFeeForm);
   const [createDialog, setCreateDialog] = useState<'class' | 'staff' | 'student' | 'fee' | null>(null);
+  const [batchEnrollDialogOpen, setBatchEnrollDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -276,10 +330,15 @@ export const AdminDashboard: React.FC = () => {
   const [selectedClassForResults, setSelectedClassForResults] = useState<string>('');
   const [selectedTermForResults, setSelectedTermForResults] = useState<string>('');
   const [classResults, setClassResults] = useState<any>(null);
+  const [classResultDetails, setClassResultDetails] = useState<Record<string, any>>({});
   const [isResultsLoading, setIsResultsLoading] = useState(false);
   const [commentDialogOpen, setCommentDialogOpen] = useState(false);
-  const [selectedStudentForComment, setSelectedStudentForComment] = useState<{ id: string; name: string; termId: string; comment: string } | null>(null);
+  const [selectedStudentForComment, setSelectedStudentForComment] = useState<{ id: string; name: string; termId: string; comment: string; autoGenerate?: boolean } | null>(null);
   const [reportCardJob, setReportCardJob] = useState<{ id: string; status: string; progress?: number } | null>(null);
+  const [reportCardTemplates, setReportCardTemplates] = useState<ReportCardTemplate[]>([]);
+  const [selectedReportTemplateId, setSelectedReportTemplateId] = useState<string>('');
+  const [reportTemplateDialogOpen, setReportTemplateDialogOpen] = useState(false);
+  const [reportTemplateForm, setReportTemplateForm] = useState<ReportCardTemplateForm>(emptyReportTemplateForm);
 
   // Payments / offline payments state
   const [payments, setPayments] = useState<any[]>([]);
@@ -385,6 +444,7 @@ export const AdminDashboard: React.FC = () => {
       caComponentsResult,
       paymentsResult,
       gradingRulesResult,
+      reportCardTemplatesResult,
     ] = await Promise.allSettled([
       schoolAdminService.getCurrentSchool(),
       schoolAdminService.getAvailableGradeLevels(),
@@ -403,6 +463,7 @@ export const AdminDashboard: React.FC = () => {
       schoolAdminService.getCaComponents(),
       schoolAdminService.getPaymentHistory(),
       schoolAdminService.getGradingRules(),
+      schoolAdminService.listReportCardTemplates(),
     ]);
 
     if (schoolResult.status === 'fulfilled') setSchool(schoolResult.value);
@@ -445,6 +506,10 @@ export const AdminDashboard: React.FC = () => {
     if (gradingRulesResult.status === 'fulfilled') {
       setGradingRules(gradingRulesResult.value);
     }
+    if (reportCardTemplatesResult.status === 'fulfilled') {
+      setReportCardTemplates(reportCardTemplatesResult.value);
+      setSelectedReportTemplateId((current) => current || reportCardTemplatesResult.value.find((template) => template.isDefault)?.templateId || reportCardTemplatesResult.value[0]?.templateId || '');
+    }
 
     const failed = [
       schoolResult,
@@ -460,6 +525,7 @@ export const AdminDashboard: React.FC = () => {
       balanceResult,
       templatesResult,
       paymentsResult,
+      reportCardTemplatesResult,
     ].some((result) => result.status === 'rejected');
 
     if (failed) {
@@ -551,12 +617,11 @@ export const AdminDashboard: React.FC = () => {
   };
 
   const handleSaveGradingRules = async (
-    grades: Array<{ grade: string; minScore: number; maxScore: number; remark: string }>,
-    passMark: number
+    schemes: Partial<Record<GradingEducationLevel, GradingScheme>>
   ) => {
     await runAction(async () => {
       await schoolAdminService.configureGradingRules({
-        config: { grades, passMark },
+        config: { byEducationLevel: schemes },
       });
       setNotice('Grading rules saved successfully.');
       await loadDashboard();
@@ -589,10 +654,23 @@ export const AdminDashboard: React.FC = () => {
     if (!selectedClassForResults || !selectedTermForResults) return;
     setIsResultsLoading(true);
     try {
-      const res = await schoolAdminService.getClassResults(selectedClassForResults, selectedTermForResults);
+      const res: any = await schoolAdminService.getClassResults(selectedClassForResults, selectedTermForResults);
       setClassResults(res);
+      const detailResults = await Promise.allSettled(
+        (res?.students ?? []).map((student: any) =>
+          schoolAdminService.getStudentResult(student.studentId, selectedTermForResults),
+        ),
+      );
+      const detailsByStudent: Record<string, any> = {};
+      detailResults.forEach((result: PromiseSettledResult<any>, index: number) => {
+        const student = res?.students?.[index];
+        if (!student || result.status !== 'fulfilled') return;
+        detailsByStudent[student.studentId] = result.value;
+      });
+      setClassResultDetails(detailsByStudent);
     } catch (err) {
       console.error(err);
+      setClassResultDetails({});
     } finally {
       setIsResultsLoading(false);
     }
@@ -654,7 +732,7 @@ export const AdminDashboard: React.FC = () => {
   }, [reportCardJob, selectedClassForResults]);
 
   const handleOpenCommentDialog = async (studentId: string, studentName: string) => {
-    setSelectedStudentForComment({ id: studentId, name: studentName, termId: selectedTermForResults, comment: '' });
+    setSelectedStudentForComment({ id: studentId, name: studentName, termId: selectedTermForResults, comment: '', autoGenerate: false });
     setCommentDialogOpen(true);
     try {
       const resultData = await schoolAdminService.getStudentResult(studentId, selectedTermForResults);
@@ -663,6 +741,7 @@ export const AdminDashboard: React.FC = () => {
         name: studentName,
         termId: selectedTermForResults,
         comment: resultData.principalComment || '',
+        autoGenerate: false,
       });
     } catch (err) {
       console.error('Failed to load existing principal comment', err);
@@ -677,9 +756,10 @@ export const AdminDashboard: React.FC = () => {
       await schoolAdminService.addPrincipalComment(
         selectedStudentForComment.id,
         selectedStudentForComment.termId,
-        selectedStudentForComment.comment
+        selectedStudentForComment.autoGenerate ? '' : selectedStudentForComment.comment,
+        selectedStudentForComment.autoGenerate === true
       );
-      setNotice(`Principal comment saved for student.`);
+      setNotice(selectedStudentForComment.autoGenerate ? 'Principal comment auto-generated from result.' : 'Principal comment saved for student.');
       setCommentDialogOpen(false);
       await fetchResults();
     } catch (err) {
@@ -742,7 +822,11 @@ export const AdminDashboard: React.FC = () => {
       const res = await schoolAdminService.generateReportCards({
         classId: selectedClassForResults,
         termId: selectedTermForResults,
+        templateId: selectedReportTemplateId || undefined,
         studentIds: studentIds ?? classResults?.students?.map((s: any) => s.studentId),
+        includeAttendance: true,
+        includeTeacherComment: true,
+        includePrincipalComment: true,
         format: 'PDF',
       });
       setReportCardJob({ id: res.jobId, status: 'PENDING', progress: 0 });
@@ -750,6 +834,34 @@ export const AdminDashboard: React.FC = () => {
     } catch (err) {
       console.error(err);
       setNotice(err instanceof Error ? err.message : 'Failed to generate report cards.');
+      setIsSaving(false);
+    }
+  };
+
+  const handleCreateReportTemplate = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSaving(true);
+    try {
+      const config = JSON.parse(reportTemplateForm.configJson) as Record<string, unknown>;
+      if (!config || Array.isArray(config) || typeof config !== 'object') {
+        throw new Error('Template config must be a JSON object.');
+      }
+      const created = await schoolAdminService.createReportCardTemplate({
+        name: reportTemplateForm.name.trim(),
+        educationLevel: reportTemplateForm.educationLevel,
+        config,
+        isDefault: reportTemplateForm.isDefault,
+      });
+      const nextTemplates = await schoolAdminService.listReportCardTemplates();
+      setReportCardTemplates(nextTemplates);
+      setSelectedReportTemplateId(created.templateId);
+      setReportTemplateDialogOpen(false);
+      setReportTemplateForm(emptyReportTemplateForm);
+      setNotice('Report-card template created.');
+    } catch (err) {
+      console.error(err);
+      setNotice(err instanceof Error ? err.message : 'Failed to create report-card template.');
+    } finally {
       setIsSaving(false);
     }
   };
@@ -968,6 +1080,23 @@ export const AdminDashboard: React.FC = () => {
       setNotice('Student enrolled.');
       await loadDashboard();
     });
+  };
+
+  const enrollStudentsBatch = async (studentsToEnroll: EnrollStudentPayload[]) => {
+    setIsSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await schoolAdminService.enrollStudentsBatch({ students: studentsToEnroll });
+      setNotice(`Batch enrollment complete: ${response.enrolled} enrolled, ${response.failed} failed.`);
+      await loadDashboard();
+      return response;
+    } catch (err) {
+      setError(readError(err, 'Batch enrollment failed. Please try again.'));
+      throw err;
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const createFeeStructure = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1363,6 +1492,7 @@ export const AdminDashboard: React.FC = () => {
                     onSearch={setStudentSearch}
                     onClassFilter={setSelectedClassFilter}
                     onCreate={() => setCreateDialog('student')}
+                    onBatchCreate={() => setBatchEnrollDialogOpen(true)}
                     onStudentClick={(id) => setSelectedStudentId(id)}
                   />
                 )
@@ -1451,6 +1581,7 @@ export const AdminDashboard: React.FC = () => {
                   selectedClassId={selectedClassForResults}
                   selectedTermId={selectedTermForResults}
                   classResults={classResults}
+                  classResultDetails={classResultDetails}
                   isLoading={isResultsLoading}
                   onClassChange={setSelectedClassForResults}
                   onTermChange={setSelectedTermForResults}
@@ -1459,6 +1590,13 @@ export const AdminDashboard: React.FC = () => {
                   onPublish={handlePublishResults}
                   onUnpublish={handleUnpublishResults}
                   onGenerateReportCards={handleGenerateReportCards}
+                  reportCardTemplates={reportCardTemplates}
+                  selectedTemplateId={selectedReportTemplateId}
+                  onTemplateChange={setSelectedReportTemplateId}
+                  onCreateTemplate={() => {
+                    setReportTemplateForm(emptyReportTemplateForm);
+                    setReportTemplateDialogOpen(true);
+                  }}
                   reportCardJob={reportCardJob}
                   isSaving={isSaving}
                 />
@@ -1496,6 +1634,14 @@ export const AdminDashboard: React.FC = () => {
         onOpenChange={(open) => setCreateDialog(open ? 'student' : null)}
         onChange={setStudentForm}
         onSubmit={enrollStudent}
+      />
+
+      <BatchStudentDialog
+        open={batchEnrollDialogOpen}
+        classes={classes}
+        isSaving={isSaving}
+        onOpenChange={setBatchEnrollDialogOpen}
+        onSubmit={enrollStudentsBatch}
       />
 
       <FeeDialog
@@ -1571,6 +1717,15 @@ export const AdminDashboard: React.FC = () => {
         onOpenChange={setEditTemplateDialogOpen}
         onChange={setSelectedTemplate}
         onSubmit={handleUpdateTemplate}
+      />
+
+      <ReportCardTemplateDialog
+        open={reportTemplateDialogOpen}
+        form={reportTemplateForm}
+        isSaving={isSaving}
+        onOpenChange={setReportTemplateDialogOpen}
+        onChange={setReportTemplateForm}
+        onSubmit={handleCreateReportTemplate}
       />
     </div>
   );
@@ -1714,8 +1869,7 @@ function SetupSection({
   ) => Promise<void>;
   gradingRules: GradingRulesResponse | null;
   onSaveGradingRules: (
-    grades: Array<{ grade: string; minScore: number; maxScore: number; remark: string }>,
-    passMark: number
+    schemes: Partial<Record<GradingEducationLevel, GradingScheme>>
   ) => Promise<void>;
   termExams: ExamLookupResponse[];
 }) {
@@ -1732,47 +1886,90 @@ function SetupSection({
   ], []);
 
   const grouped = groupGradeLevels(availableLevels);
+  const enabledEducationLevels = useMemo(() => {
+    const selected = new Set(selectedLevelCodes);
+    const levels = availableLevels
+      .filter((level) => selected.has(level.code))
+      .map((level) => level.category as GradingEducationLevel)
+      .filter((category): category is GradingEducationLevel => category in EDUCATION_LEVEL_LABELS);
+    const unique = Array.from(new Set(levels));
+    return unique.length ? unique : (['PRIMARY'] as GradingEducationLevel[]);
+  }, [availableLevels, selectedLevelCodes]);
 
   const [localComps, setLocalComps] = useState<Array<{ name: string; maxScore: number; weightPercentage: number }>>([]);
   const [localExamWeight, setLocalExamWeight] = useState<number>(60);
 
   // Grading Rules local state
-  const [localGrades, setLocalGrades] = useState<Array<{ grade: string; minScore: number; maxScore: number; remark: string }>>([]);
-  const [localPassMark, setLocalPassMark] = useState<number>(40);
+  const [activeGradingLevel, setActiveGradingLevel] = useState<GradingEducationLevel>('PRIMARY');
+  const [localSchemes, setLocalSchemes] = useState<Partial<Record<GradingEducationLevel, GradingScheme>>>({});
+
+  const defaultScheme = useCallback((): GradingScheme => ({
+    grades: WAEC_DEFAULTS.map((g) => ({ ...g })),
+    passMark: 40,
+  }), [WAEC_DEFAULTS]);
+
+  const currentScheme = localSchemes[activeGradingLevel] ?? defaultScheme();
+  const localGrades = currentScheme.grades;
+  const localPassMark = currentScheme.passMark;
+
+  const updateActiveScheme = useCallback((updater: (scheme: GradingScheme) => GradingScheme) => {
+    setLocalSchemes((prev) => ({
+      ...prev,
+      [activeGradingLevel]: updater(prev[activeGradingLevel] ?? defaultScheme()),
+    }));
+  }, [activeGradingLevel, defaultScheme]);
 
   useEffect(() => {
-    if (gradingRules?.config?.grades && gradingRules.config.grades.length > 0) {
-      setLocalGrades(
-        gradingRules.config.grades.map((g) => ({
-          grade: g.grade,
-          minScore: g.minScore,
-          maxScore: g.maxScore,
-          remark: g.remark,
-        }))
-      );
-      setLocalPassMark(gradingRules.config.passMark);
-    } else {
-      setLocalGrades(
-        WAEC_DEFAULTS.map((g) => ({
-          grade: g.grade,
-          minScore: g.minScore,
-          maxScore: g.maxScore,
-          remark: g.remark,
-        }))
-      );
-      setLocalPassMark(40);
-    }
-  }, [gradingRules, WAEC_DEFAULTS]);
+    setActiveGradingLevel((current) => enabledEducationLevels.includes(current) ? current : enabledEducationLevels[0]);
+  }, [enabledEducationLevels]);
+
+  useEffect(() => {
+    const legacyScheme: GradingScheme | null = gradingRules?.config?.grades?.length
+      ? {
+          grades: gradingRules.config.grades.map((g) => ({
+            grade: g.grade,
+            minScore: g.minScore,
+            maxScore: g.maxScore,
+            remark: g.remark,
+            points: g.points,
+          })),
+          passMark: gradingRules.config.passMark ?? 40,
+        }
+      : null;
+    const next: Partial<Record<GradingEducationLevel, GradingScheme>> = {};
+    enabledEducationLevels.forEach((level) => {
+      const configured = gradingRules?.config?.byEducationLevel?.[level];
+      next[level] = configured?.grades?.length
+        ? {
+            grades: configured.grades.map((g) => ({
+              grade: g.grade,
+              minScore: g.minScore,
+              maxScore: g.maxScore,
+              remark: g.remark,
+              points: g.points,
+            })),
+            passMark: configured.passMark ?? 40,
+          }
+        : legacyScheme ?? defaultScheme();
+    });
+    setLocalSchemes(next);
+  }, [defaultScheme, enabledEducationLevels, gradingRules]);
 
   const handleAddGradeRow = () => {
-    setLocalGrades((prev) => [
-      ...prev,
-      { grade: '', minScore: 0, maxScore: 0, remark: '' },
-    ]);
+    updateActiveScheme((scheme) => ({
+      ...scheme,
+      grades: [
+        ...scheme.grades,
+        { grade: '', minScore: 0, maxScore: 0, remark: '' },
+      ],
+    }));
   };
 
   const handleRemoveGradeRow = (index: number) => {
-    setLocalGrades((prev) => prev.filter((_, i) => i !== index));
+    updateActiveScheme((scheme) => ({
+      ...scheme,
+      grades: scheme.grades.filter((_, i) => i !== index),
+    }));
   };
 
   const handleUpdateGradeRow = (
@@ -1780,72 +1977,81 @@ function SetupSection({
     field: 'grade' | 'minScore' | 'maxScore' | 'remark',
     value: any
   ) => {
-    setLocalGrades((prev) =>
-      prev.map((g, i) => {
+    updateActiveScheme((scheme) => ({
+      ...scheme,
+      grades: scheme.grades.map((g, i) => {
         if (i !== index) return g;
         if (field === 'grade' || field === 'remark') return { ...g, [field]: value };
         return { ...g, [field]: Number(value) || 0 };
-      })
-    );
+      }),
+    }));
   };
 
   const handleResetToWaec = () => {
-    setLocalGrades(
-      WAEC_DEFAULTS.map((g) => ({
-        grade: g.grade,
-        minScore: g.minScore,
-        maxScore: g.maxScore,
-        remark: g.remark,
-      }))
-    );
-    setLocalPassMark(40);
+    updateActiveScheme(() => defaultScheme());
   };
 
-  const gradingRulesError = useMemo(() => {
-    if (localGrades.length === 0) {
-      return 'At least one grade boundary is required.';
+  const validateGradingScheme = useCallback((scheme: GradingScheme, levelLabel: string) => {
+    const grades = scheme.grades;
+    if (grades.length === 0) {
+      return `${levelLabel}: at least one grade boundary is required.`;
     }
-    for (let i = 0; i < localGrades.length; i++) {
-      const g = localGrades[i];
+    for (let i = 0; i < grades.length; i++) {
+      const g = grades[i];
       if (!g.grade.trim()) {
-        return `Grade label at row ${i + 1} cannot be empty.`;
+        return `${levelLabel}: grade label at row ${i + 1} cannot be empty.`;
       }
       if (g.minScore < 0 || g.minScore > 100 || g.maxScore < 0 || g.maxScore > 100) {
-        return `Score range for grade ${g.grade} must be between 0 and 100.`;
+        return `${levelLabel}: score range for grade ${g.grade} must be between 0 and 100.`;
       }
       if (g.minScore > g.maxScore) {
-        return `Min score (${g.minScore}) cannot be greater than Max score (${g.maxScore}) for grade ${g.grade}.`;
+        return `${levelLabel}: min score (${g.minScore}) cannot be greater than Max score (${g.maxScore}) for grade ${g.grade}.`;
       }
     }
 
-    // Check overlap
-    for (let i = 0; i < localGrades.length; i++) {
-      for (let j = i + 1; j < localGrades.length; j++) {
-        const g1 = localGrades[i];
-        const g2 = localGrades[j];
+    for (let i = 0; i < grades.length; i++) {
+      for (let j = i + 1; j < grades.length; j++) {
+        const g1 = grades[i];
+        const g2 = grades[j];
         const overlap = Math.max(g1.minScore, g2.minScore) <= Math.min(g1.maxScore, g2.maxScore);
         if (overlap) {
-          return `Overlap detected between grade ${g1.grade} (${g1.minScore}-${g1.maxScore}) and grade ${g2.grade} (${g2.minScore}-${g2.maxScore}).`;
+          return `${levelLabel}: overlap detected between grade ${g1.grade} (${g1.minScore}-${g1.maxScore}) and grade ${g2.grade} (${g2.minScore}-${g2.maxScore}).`;
         }
       }
     }
 
-    if (localPassMark < 0 || localPassMark > 100) {
-      return 'Pass mark must be between 0 and 100.';
+    if (scheme.passMark < 0 || scheme.passMark > 100) {
+      return `${levelLabel}: pass mark must be between 0 and 100.`;
     }
 
     return null;
-  }, [localGrades, localPassMark]);
+  }, []);
+
+  const gradingRulesError = useMemo(() => {
+    for (const level of enabledEducationLevels) {
+      const error = validateGradingScheme(localSchemes[level] ?? defaultScheme(), EDUCATION_LEVEL_LABELS[level]);
+      if (error) return error;
+    }
+    return null;
+  }, [defaultScheme, enabledEducationLevels, localSchemes, validateGradingScheme]);
 
   const handleSaveGradingRulesClick = async () => {
     if (gradingRulesError) return;
-    const payload = localGrades.map((g) => ({
-      grade: g.grade.trim().toUpperCase(),
-      minScore: g.minScore,
-      maxScore: g.maxScore,
-      remark: g.remark.trim(),
-    }));
-    await onSaveGradingRules(payload, localPassMark);
+    const schemes = enabledEducationLevels.reduce<Partial<Record<GradingEducationLevel, GradingScheme>>>((acc, level) => {
+      const scheme = localSchemes[level] ?? defaultScheme();
+      acc[level] = {
+        passMark: scheme.passMark,
+        grades: scheme.grades.map((g) => ({
+          grade: g.grade.trim().toUpperCase(),
+          minScore: g.minScore,
+          maxScore: g.maxScore,
+          remark: g.remark.trim(),
+          points: g.points,
+        })),
+      };
+      return acc;
+    }, {});
+    await onSaveGradingRules(schemes);
   };
 
   useEffect(() => {
@@ -2101,10 +2307,33 @@ function SetupSection({
             </div>
           </div>
           <p className="mt-2 text-sm text-slate-500">
-            Configure score ranges, grade labels, and remarks for student result computations. Ensure there are no overlapping score ranges and the pass mark is set.
+            Configure score ranges, grade labels, and remarks separately for each school section. Ensure there are no overlapping score ranges and the pass mark is set.
           </p>
 
           <div className="mt-6 space-y-4">
+            <div className="rounded-md border border-slate-200 bg-slate-50/70 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education level</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {enabledEducationLevels.map((level) => (
+                  <Button
+                    key={level}
+                    type="button"
+                    size="sm"
+                    variant={activeGradingLevel === level ? 'default' : 'outline'}
+                    onClick={() => setActiveGradingLevel(level)}
+                    className={activeGradingLevel === level
+                      ? 'bg-slate-950 text-white hover:bg-slate-800'
+                      : 'border-slate-200 text-slate-700 hover:bg-white'}
+                  >
+                    {EDUCATION_LEVEL_LABELS[level]}
+                  </Button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                Editing {EDUCATION_LEVEL_LABELS[activeGradingLevel]} grading rules. Schools can now keep nursery, primary, junior secondary, and senior secondary schemes independent.
+              </p>
+            </div>
+
             <div className="overflow-x-auto rounded-md border border-slate-200">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
@@ -2200,7 +2429,10 @@ function SetupSection({
                   max="100"
                   placeholder="40"
                   value={localPassMark}
-                  onChange={(e) => setLocalPassMark(Number(e.target.value) || 0)}
+                  onChange={(e) => updateActiveScheme((scheme) => ({
+                    ...scheme,
+                    passMark: Number(e.target.value) || 0,
+                  }))}
                   className="mt-1 h-9 bg-white"
                 />
                 <p className="mt-1 text-xs text-slate-400 font-normal">
@@ -2411,6 +2643,7 @@ function StudentsSection({
   onSearch,
   onClassFilter,
   onCreate,
+  onBatchCreate,
   onStudentClick,
 }: {
   students: StudentSummary[];
@@ -2420,6 +2653,7 @@ function StudentsSection({
   onSearch: (value: string) => void;
   onClassFilter: (value: string) => void;
   onCreate: () => void;
+  onBatchCreate: () => void;
   onStudentClick: (studentId: string) => void;
 }) {
   return (
@@ -2444,9 +2678,13 @@ function StudentsSection({
                 {allClasses.map((item) => <SelectItem key={item.classId} value={item.classId}>{item.name}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Button onClick={onCreate} className="bg-slate-950 text-white hover:bg-slate-800">
+            <Button onClick={onCreate} variant="outline">
               <Plus className="mr-2 h-4 w-4" />
-              Enroll
+              Enroll Single
+            </Button>
+            <Button onClick={onBatchCreate} className="bg-slate-950 text-white hover:bg-slate-800">
+              <ClipboardList className="mr-2 h-4 w-4" />
+              Batch Enroll
             </Button>
           </div>
         </div>
@@ -2686,6 +2924,7 @@ function ResultsSection({
   selectedClassId,
   selectedTermId,
   classResults,
+  classResultDetails,
   isLoading,
   onClassChange,
   onTermChange,
@@ -2694,6 +2933,10 @@ function ResultsSection({
   onPublish,
   onUnpublish,
   onGenerateReportCards,
+  reportCardTemplates,
+  selectedTemplateId,
+  onTemplateChange,
+  onCreateTemplate,
   reportCardJob,
   isSaving,
 }: {
@@ -2702,6 +2945,7 @@ function ResultsSection({
   selectedClassId: string;
   selectedTermId: string;
   classResults: any;
+  classResultDetails: Record<string, any>;
   isLoading: boolean;
   onClassChange: (classId: string) => void;
   onTermChange: (termId: string) => void;
@@ -2710,6 +2954,10 @@ function ResultsSection({
   onPublish: () => void;
   onUnpublish: () => void;
   onGenerateReportCards: (studentIds?: string[]) => void;
+  reportCardTemplates: ReportCardTemplate[];
+  selectedTemplateId: string;
+  onTemplateChange: (templateId: string) => void;
+  onCreateTemplate: () => void;
   reportCardJob: { id: string; status: string; progress?: number } | null;
   isSaving: boolean;
 }) {
@@ -2748,10 +2996,36 @@ function ResultsSection({
               </SelectContent>
             </Select>
           </div>
+
+          <div className="w-[220px]">
+            <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Report Template</Label>
+            <Select value={selectedTemplateId} onValueChange={onTemplateChange}>
+              <SelectTrigger className="w-full bg-white">
+                <SelectValue placeholder="Default template" />
+              </SelectTrigger>
+              <SelectContent className="bg-white">
+                {reportCardTemplates.map((template) => (
+                  <SelectItem key={template.templateId} value={template.templateId}>
+                    {template.name}{template.isDefault ? ' · Default' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {selectedClassId && selectedTermId && (
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onCreateTemplate}
+              disabled={isSaving || isLoading}
+              className="gap-2"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New Template
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -2855,12 +3129,22 @@ function ResultsSection({
                     {/*</td>*/}
                     {classResults.subjects.map((subName: string) => {
                       const score = student.subjects.find((s: any) => s.subject === subName);
+                      const detailedSubject = classResultDetails[student.studentId]?.subjects?.find(
+                        (subject: any) => subject.subjectName === subName || subject.subject === subName,
+                      );
+                      const caTotal = detailedSubject?.caTotal;
+                      const examScore = detailedSubject?.examScore;
                       return (
                         <td key={subName} className="px-4 py-4 border-r border-slate-100 text-center text-xs">
                           {score ? (
                             <div className="inline-block">
                               <span className="font-semibold text-slate-900">{score.finalScore.toFixed(0)}</span>
                               <span className="text-slate-400 ml-1">({score.grade})</span>
+                              {(caTotal !== undefined || examScore !== undefined) && (
+                                <p className="mt-1 whitespace-nowrap text-[11px] font-medium text-slate-500">
+                                  CA {caTotal ?? 0} + Exam {examScore ?? 0}
+                                </p>
+                              )}
                             </div>
                           ) : (
                             <span className="text-slate-300">—</span>
@@ -2910,7 +3194,7 @@ function CommentDialog({
   onSubmit,
 }: {
   open: boolean;
-  form: { id: string; name: string; termId: string; comment: string } | null;
+  form: { id: string; name: string; termId: string; comment: string; autoGenerate?: boolean } | null;
   isSaving: boolean;
   onOpenChange: (open: boolean) => void;
   onChange: (form: any) => void;
@@ -2932,11 +3216,29 @@ function CommentDialog({
             <Textarea
               className="min-h-[100px]"
               value={form.comment}
-              onChange={(e) => onChange({ ...form, comment: e.target.value })}
-              required
-              placeholder="An excellent performance this term. Keep up the good work!"
+              onChange={(e) => onChange({ ...form, comment: e.target.value, autoGenerate: false })}
+              disabled={form.autoGenerate === true}
+              placeholder={form.autoGenerate ? 'The system will generate this from the student result.' : 'An excellent performance this term. Keep up the good work!'}
             />
           </div>
+          <label className="flex items-center gap-3 rounded-md border border-slate-200 p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded border-slate-300 text-slate-900 focus:ring-slate-950"
+              checked={form.autoGenerate === true}
+              onChange={(e) => onChange({ ...form, autoGenerate: e.target.checked })}
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-900">Auto-generate from result</span>
+              <span className="text-xs text-slate-500">Use the student’s average, grade, subjects passed, and class position.</span>
+            </span>
+          </label>
+          {form.autoGenerate === true && (
+            <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              <Sparkles className="mr-1 inline h-3.5 w-3.5" />
+              The saved principal comment will be generated by the backend from computed result data.
+            </div>
+          )}
           <DialogActions disabled={isSaving} submitLabel="Save Comment" />
         </form>
       </DialogContent>
@@ -3197,6 +3499,88 @@ function EditTemplateDialog({
   );
 }
 
+function ReportCardTemplateDialog({
+  open,
+  form,
+  isSaving,
+  onOpenChange,
+  onChange,
+  onSubmit,
+}: {
+  open: boolean;
+  form: ReportCardTemplateForm;
+  isSaving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChange: (form: ReportCardTemplateForm) => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto bg-white sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Create Report-Card Template</DialogTitle>
+          <DialogDescription>
+            Save a reusable report-card layout for an education level. The config is stored as JSON so layout options can grow over time.
+          </DialogDescription>
+        </DialogHeader>
+        <form className="space-y-4" onSubmit={onSubmit}>
+          <Field
+            label="Template Name"
+            value={form.name}
+            onChange={(value) => onChange({ ...form, name: value })}
+            placeholder="Standard Primary Report Card"
+            required
+          />
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-sm font-medium text-slate-900">Education Level</Label>
+              <Select value={form.educationLevel} onValueChange={(value) => onChange({ ...form, educationLevel: value as EducationLevel })}>
+                <SelectTrigger className="bg-white">
+                  <SelectValue placeholder="Select level" />
+                </SelectTrigger>
+                <SelectContent className="bg-white">
+                  <SelectItem value="NURSERY">Nursery</SelectItem>
+                  <SelectItem value="PRIMARY">Primary</SelectItem>
+                  <SelectItem value="JUNIOR_SECONDARY">Junior Secondary</SelectItem>
+                  <SelectItem value="SENIOR_SECONDARY">Senior Secondary</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <label className="mt-6 flex items-center gap-3 rounded-md border border-slate-200 p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300 text-slate-900 focus:ring-slate-950"
+                checked={form.isDefault}
+                onChange={(e) => onChange({ ...form, isDefault: e.target.checked })}
+              />
+              <span>
+                <span className="block text-sm font-medium text-slate-900">Make default</span>
+                <span className="text-xs text-slate-500">Use this first for its education level.</span>
+              </span>
+            </label>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-sm font-medium text-slate-900">Template Config JSON</Label>
+            <Textarea
+              className="min-h-[220px] font-mono text-xs"
+              value={form.configJson}
+              onChange={(e) => onChange({ ...form, configJson: e.target.value })}
+              required
+            />
+            <p className="text-[11px] text-slate-500">
+              Example sections: studentInfo, scores, summary, attendance, comments.
+            </p>
+          </div>
+
+          <DialogActions disabled={isSaving || !form.name.trim() || !form.configJson.trim()} submitLabel="Create Template" />
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ClassDialog({
   open,
   form,
@@ -3341,6 +3725,457 @@ function StudentDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function BatchStudentDialog({
+  open,
+  classes,
+  isSaving,
+  onOpenChange,
+  onSubmit,
+}: {
+  open: boolean;
+  classes: ClassRoom[];
+  isSaving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (students: EnrollStudentPayload[]) => Promise<BatchEnrollResponse>;
+}) {
+  const [step, setStep] = useState<'choose' | 'manual' | 'review' | 'results'>('choose');
+  const [targetClassId, setTargetClassId] = useState('');
+  const [rows, setRows] = useState<BatchStudentRow[]>(() => createEmptyBatchRows(5));
+  const [guardianRelationship, setGuardianRelationship] = useState('MOTHER');
+  const [canViewFees, setCanViewFees] = useState(true);
+  const [canViewResults, setCanViewResults] = useState(true);
+  const [result, setResult] = useState<BatchEnrollResponse | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const selectedClass = classes.find((item) => item.classId === targetClassId);
+  const activeRows = useMemo(
+    () => rows.filter((row) => hasBatchRowContent(row)),
+    [rows],
+  );
+  const failedResults = result?.results.filter((item) => item.status === 'FAILED') ?? [];
+  const enrolledResults = result?.results.filter((item) => item.status === 'ENROLLED') ?? [];
+  const capacityOverflow = selectedClass && activeRows.length > selectedClass.availableSpots;
+
+  useEffect(() => {
+    if (!open) return;
+    setStep('choose');
+    setTargetClassId('');
+    setRows(createEmptyBatchRows(5));
+    setGuardianRelationship('MOTHER');
+    setCanViewFees(true);
+    setCanViewResults(true);
+    setResult(null);
+    setLocalError(null);
+  }, [open]);
+
+  const updateRow = (rowId: string, patch: Partial<BatchStudentRow>) => {
+    setRows((current) => current.map((row) => row.id === rowId ? { ...row, ...patch } : row));
+  };
+
+  const addRows = (count = 5) => {
+    setRows((current) => [...current, ...createEmptyBatchRows(count)]);
+  };
+
+  const removeRow = (rowId: string) => {
+    setRows((current) => current.length > 1 ? current.filter((row) => row.id !== rowId) : current);
+  };
+
+  const validateForReview = () => {
+    if (!targetClassId) {
+      setLocalError('Choose the target class before reviewing students.');
+      return false;
+    }
+    if (!activeRows.length) {
+      setLocalError('Add at least one student before reviewing.');
+      return false;
+    }
+    const invalidIndex = activeRows.findIndex((row) =>
+      !row.firstName.trim() || !row.lastName.trim() || !row.dateOfBirth.trim()
+    );
+    if (invalidIndex >= 0) {
+      setLocalError(`Row ${invalidIndex + 1} is missing first name, last name, or date of birth.`);
+      return false;
+    }
+    setLocalError(null);
+    return true;
+  };
+
+  const handleReview = () => {
+    if (validateForReview()) setStep('review');
+  };
+
+  const handleSubmit = async () => {
+    if (!validateForReview()) return;
+    try {
+      setLocalError(null);
+      const payload = activeRows.map((row) =>
+        buildBatchStudentPayload(row, targetClassId, guardianRelationship, canViewFees, canViewResults)
+      );
+      const response = await onSubmit(payload);
+      setResult(response);
+      setStep('results');
+    } catch (err) {
+      setLocalError(readError(err, 'Unable to enroll this batch.'));
+    }
+  };
+
+  const handleUpload = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsedRows = parseBatchCsv(text);
+      if (!parsedRows.length) {
+        setLocalError('No student rows were found in the uploaded file.');
+        return;
+      }
+      setRows(parsedRows);
+      setLocalError(null);
+      setStep('manual');
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : 'Unable to read uploaded file.');
+    }
+  };
+
+  const retryFailed = () => {
+    if (!result) return;
+    const failedNames = new Set(failedResults.map((item) => `${item.firstName ?? ''}::${item.lastName ?? ''}`));
+    const retryRows = activeRows.filter((row) => failedNames.has(`${row.firstName}::${row.lastName}`));
+    setRows(retryRows.length ? retryRows : createEmptyBatchRows(1));
+    setResult(null);
+    setStep('manual');
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto bg-white sm:max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>Batch Enroll Students</DialogTitle>
+          <DialogDescription>Upload a CSV template or enter students manually, then review before submitting.</DialogDescription>
+        </DialogHeader>
+
+        {localError && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {localError}
+          </div>
+        )}
+
+        {step !== 'results' && (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+            <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+              <SelectField
+                label="Target class"
+                value={targetClassId}
+                onChange={setTargetClassId}
+                options={classes.map((item) => ({
+                  value: item.classId,
+                  label: `${item.name} (${item.currentEnrollment}/${item.capacity})`,
+                }))}
+              />
+              <Button type="button" variant="outline" onClick={downloadBatchTemplate}>
+                <Download className="mr-2 h-4 w-4" />
+                Download Template
+              </Button>
+            </div>
+            {selectedClass && (
+              <p className="mt-3 text-sm text-slate-600">
+                Current enrollment: {formatNumber(selectedClass.currentEnrollment)}/{formatNumber(selectedClass.capacity)} · Available spots: {formatNumber(selectedClass.availableSpots)}
+              </p>
+            )}
+          </div>
+        )}
+
+        {step === 'choose' && (
+          <div className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="cursor-pointer rounded-lg border border-slate-200 p-5 transition hover:border-slate-400 hover:bg-slate-50">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-md bg-blue-50 p-2 text-blue-600">
+                    <FileSpreadsheet className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-950">Upload Spreadsheet</h3>
+                    <p className="mt-1 text-sm text-slate-500">Upload the CSV template after filling it in Excel or Numbers.</p>
+                    <span className="mt-4 inline-flex items-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700">
+                      <Upload className="mr-2 h-4 w-4" />
+                      Choose CSV File
+                    </span>
+                  </div>
+                </div>
+                <input
+                  className="hidden"
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) => {
+                    void handleUpload(event.target.files?.[0] ?? null);
+                    event.target.value = '';
+                  }}
+                />
+              </label>
+
+              <button
+                type="button"
+                className="rounded-lg border border-slate-200 p-5 text-left transition hover:border-slate-400 hover:bg-slate-50"
+                onClick={() => setStep('manual')}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="rounded-md bg-emerald-50 p-2 text-emerald-600">
+                    <ClipboardList className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-950">Manual Entry</h3>
+                    <p className="mt-1 text-sm text-slate-500">Fill a table row by row. Best for 10–30 students.</p>
+                    <span className="mt-4 inline-flex rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white">Start Manual Entry</span>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Tip: for 80 students, download the CSV template, fill it in a spreadsheet app, then upload it here.
+            </div>
+          </div>
+        )}
+
+        {step === 'manual' && (
+          <div className="space-y-5">
+            <BatchRowsEditor
+              rows={rows}
+              onUpdateRow={updateRow}
+              onRemoveRow={removeRow}
+            />
+            <div className="flex flex-col gap-4 rounded-md border border-slate-200 p-4 md:flex-row md:items-center md:justify-between">
+              <div className="grid gap-3 md:grid-cols-3">
+                <SelectField
+                  label="Guardian relationship"
+                  value={guardianRelationship}
+                  onChange={setGuardianRelationship}
+                  options={[
+                    { value: 'MOTHER', label: 'Mother' },
+                    { value: 'FATHER', label: 'Father' },
+                    { value: 'GUARDIAN', label: 'Guardian' },
+                    { value: 'AUNT', label: 'Aunt' },
+                    { value: 'UNCLE', label: 'Uncle' },
+                  ]}
+                />
+                <label className="mt-7 flex items-center gap-2 text-sm text-slate-700">
+                  <Checkbox checked={canViewFees} onCheckedChange={(checked) => setCanViewFees(checked === true)} />
+                  Can view fees
+                </label>
+                <label className="mt-7 flex items-center gap-2 text-sm text-slate-700">
+                  <Checkbox checked={canViewResults} onCheckedChange={(checked) => setCanViewResults(checked === true)} />
+                  Can view results
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => addRows(5)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Rows
+                </Button>
+                <Button type="button" className="bg-slate-950 text-white hover:bg-slate-800" onClick={handleReview}>
+                  Review & Submit ({formatNumber(activeRows.length)})
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === 'review' && (
+          <div className="space-y-5">
+            <div className={`rounded-md border px-4 py-3 text-sm ${capacityOverflow ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+              <p className="font-semibold">Target Class: {selectedClass?.name ?? 'Selected class'}</p>
+              <p className="mt-1">
+                Current: {formatNumber(selectedClass?.currentEnrollment ?? 0)}/{formatNumber(selectedClass?.capacity ?? 0)} ·
+                After: {formatNumber((selectedClass?.currentEnrollment ?? 0) + activeRows.length)}/{formatNumber(selectedClass?.capacity ?? 0)}
+              </p>
+              {capacityOverflow && (
+                <p className="mt-2">Capacity warning: you are enrolling {formatNumber(activeRows.length)} student(s), but only {formatNumber(selectedClass?.availableSpots ?? 0)} spot(s) are available.</p>
+              )}
+            </div>
+
+            <BatchReviewTable rows={activeRows} />
+
+            <div className="flex flex-col gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => setStep('manual')} disabled={isSaving}>
+                Back to edit
+              </Button>
+              <Button type="button" onClick={handleSubmit} disabled={isSaving} className="bg-slate-950 text-white hover:bg-slate-800">
+                {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Confirm & Enroll {formatNumber(activeRows.length)} Students
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {step === 'results' && result && (
+          <div className="space-y-5">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-6 text-center">
+              <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-600" />
+              <h3 className="mt-3 text-lg font-semibold text-slate-950">Batch Enrollment Complete</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                {formatNumber(result.totalSubmitted)} submitted · {formatNumber(result.enrolled)} enrolled · {formatNumber(result.failed)} failed
+              </p>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-md border border-slate-200 p-4">
+                <h4 className="font-semibold text-emerald-700">Enrolled ({formatNumber(enrolledResults.length)})</h4>
+                <div className="mt-3 max-h-56 space-y-2 overflow-y-auto text-sm">
+                  {enrolledResults.slice(0, 20).map((item, index) => (
+                    <p key={`${item.studentId ?? index}`} className="text-slate-700">
+                      {item.firstName} {item.lastName} — {item.admissionNumber ?? 'Admission pending'}
+                    </p>
+                  ))}
+                  {enrolledResults.length > 20 && <p className="text-slate-500">...and {formatNumber(enrolledResults.length - 20)} more</p>}
+                  {!enrolledResults.length && <p className="text-slate-500">No students were enrolled.</p>}
+                </div>
+              </div>
+
+              <div className="rounded-md border border-slate-200 p-4">
+                <h4 className="font-semibold text-red-700">Failed ({formatNumber(failedResults.length)})</h4>
+                <div className="mt-3 max-h-56 overflow-y-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="py-2">Name</th>
+                        <th className="py-2">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {failedResults.map((item, index) => (
+                        <tr key={`${item.firstName}-${item.lastName}-${index}`} className="border-t border-slate-100">
+                          <td className="py-2 pr-3 text-slate-700">{item.firstName} {item.lastName}</td>
+                          <td className="py-2 text-slate-500">{item.reason ?? 'Not enrolled'}</td>
+                        </tr>
+                      ))}
+                      {!failedResults.length && (
+                        <tr>
+                          <td className="py-4 text-sm text-slate-500" colSpan={2}>No failed rows.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-between">
+              <Button type="button" variant="outline" onClick={() => downloadFailedEnrollments(failedResults)} disabled={!failedResults.length}>
+                <Download className="mr-2 h-4 w-4" />
+                Download Failed CSV
+              </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={retryFailed} disabled={!failedResults.length}>
+                  Retry Failed
+                </Button>
+                <Button type="button" className="bg-slate-950 text-white hover:bg-slate-800" onClick={() => onOpenChange(false)}>
+                  Done
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              Next step: send guardian invitations to newly enrolled parents from the student detail pages.
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BatchRowsEditor({
+  rows,
+  onUpdateRow,
+  onRemoveRow,
+}: {
+  rows: BatchStudentRow[];
+  onUpdateRow: (rowId: string, patch: Partial<BatchStudentRow>) => void;
+  onRemoveRow: (rowId: string) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-md border border-slate-200">
+      <table className="w-full min-w-[980px] text-left text-sm">
+        <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+          <tr>
+            <th className="px-3 py-3">#</th>
+            <th className="px-3 py-3">First Name</th>
+            <th className="px-3 py-3">Last Name</th>
+            <th className="px-3 py-3">Gender</th>
+            <th className="px-3 py-3">DOB</th>
+            <th className="px-3 py-3">Guardian Name</th>
+            <th className="px-3 py-3">Guardian Phone</th>
+            <th className="px-3 py-3">Medical Notes</th>
+            <th className="px-3 py-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={row.id} className="border-b border-slate-100">
+              <td className="px-3 py-2 text-slate-500">{index + 1}</td>
+              <td className="px-3 py-2"><Input value={row.firstName} onChange={(event) => onUpdateRow(row.id, { firstName: event.target.value })} /></td>
+              <td className="px-3 py-2"><Input value={row.lastName} onChange={(event) => onUpdateRow(row.id, { lastName: event.target.value })} /></td>
+              <td className="px-3 py-2">
+                <Select value={row.gender} onValueChange={(value) => onUpdateRow(row.id, { gender: value as 'MALE' | 'FEMALE' })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="MALE">M</SelectItem>
+                    <SelectItem value="FEMALE">F</SelectItem>
+                  </SelectContent>
+                </Select>
+              </td>
+              <td className="px-3 py-2"><Input type="date" value={row.dateOfBirth} onChange={(event) => onUpdateRow(row.id, { dateOfBirth: event.target.value })} /></td>
+              <td className="px-3 py-2"><Input value={row.guardianName} onChange={(event) => onUpdateRow(row.id, { guardianName: event.target.value })} placeholder="Funke Adebayo" /></td>
+              <td className="px-3 py-2"><Input value={row.guardianPhone} onChange={(event) => onUpdateRow(row.id, { guardianPhone: event.target.value })} placeholder="+234..." /></td>
+              <td className="px-3 py-2"><Input value={row.medicalNotes} onChange={(event) => onUpdateRow(row.id, { medicalNotes: event.target.value })} /></td>
+              <td className="px-3 py-2">
+                <Button type="button" size="icon" variant="ghost" onClick={() => onRemoveRow(row.id)}>
+                  <XCircle className="h-4 w-4 text-red-500" />
+                </Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function BatchReviewTable({ rows }: { rows: BatchStudentRow[] }) {
+  return (
+    <div className="overflow-x-auto rounded-md border border-slate-200">
+      <table className="w-full text-left text-sm">
+        <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+          <tr>
+            <th className="px-4 py-3">#</th>
+            <th className="px-4 py-3">First Name</th>
+            <th className="px-4 py-3">Last Name</th>
+            <th className="px-4 py-3">Gender</th>
+            <th className="px-4 py-3">DOB</th>
+            <th className="px-4 py-3">Guardian Phone</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 20).map((row, index) => (
+            <tr key={row.id} className="border-b border-slate-100">
+              <td className="px-4 py-3 text-slate-500">{index + 1}</td>
+              <td className="px-4 py-3 font-medium text-slate-900">{row.firstName}</td>
+              <td className="px-4 py-3 text-slate-700">{row.lastName}</td>
+              <td className="px-4 py-3 text-slate-700">{row.gender === 'MALE' ? 'M' : 'F'}</td>
+              <td className="px-4 py-3 text-slate-700">{row.dateOfBirth}</td>
+              <td className="px-4 py-3 text-slate-700">{row.guardianPhone || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length > 20 && (
+        <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-500">
+          Showing first 20 of {formatNumber(rows.length)} students.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -3569,6 +4404,199 @@ function readError(error: unknown, fallback: string) {
     return response?.data?.errors?.[0]?.message || response?.data?.message || fallback;
   }
   return fallback;
+}
+
+function createBatchRow(patch: Partial<BatchStudentRow> = {}): BatchStudentRow {
+  return {
+    id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    firstName: '',
+    lastName: '',
+    gender: 'MALE',
+    dateOfBirth: '',
+    guardianName: '',
+    guardianPhone: '',
+    medicalNotes: '',
+    ...patch,
+  };
+}
+
+function createEmptyBatchRows(count: number) {
+  return Array.from({ length: count }, () => createBatchRow());
+}
+
+function hasBatchRowContent(row: BatchStudentRow) {
+  return [
+    row.firstName,
+    row.lastName,
+    row.dateOfBirth,
+    row.guardianName,
+    row.guardianPhone,
+    row.medicalNotes,
+  ].some((value) => value.trim().length > 0);
+}
+
+function buildBatchStudentPayload(
+  row: BatchStudentRow,
+  classId: string,
+  relationship: string,
+  canViewFees: boolean,
+  canViewResults: boolean,
+): EnrollStudentPayload {
+  const guardianName = splitGuardianName(row.guardianName, row.lastName);
+  const guardians = row.guardianPhone.trim()
+    ? [{
+        firstName: guardianName.firstName,
+        lastName: guardianName.lastName,
+        phone: row.guardianPhone.trim(),
+        relationship,
+        isPrimaryContact: true,
+        canPickUpChild: true,
+        canViewFees,
+        canViewResults,
+        canViewAttendance: true,
+        canReceiveSms: true,
+        contactPriority: 1,
+      }]
+    : [];
+
+  return {
+    firstName: row.firstName.trim(),
+    lastName: row.lastName.trim(),
+    gender: row.gender,
+    dateOfBirth: row.dateOfBirth,
+    classId,
+    medicalNotes: trimOptional(row.medicalNotes),
+    guardians,
+  };
+}
+
+function splitGuardianName(fullName: string, fallbackLastName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) {
+    return { firstName: 'Guardian', lastName: fallbackLastName.trim() || 'Contact' };
+  }
+  if (parts.length === 1) {
+    return { firstName: parts[0], lastName: fallbackLastName.trim() || 'Contact' };
+  }
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' '),
+  };
+}
+
+function parseBatchCsv(text: string): BatchStudentRow[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+
+  const headers = parseCsvLine(lines[0]).map((header) => normalizeHeader(header));
+  const indexOf = (...names: string[]) => names.map(normalizeHeader).map((name) => headers.indexOf(name)).find((index) => index >= 0) ?? -1;
+  const firstNameIndex = indexOf('First Name', 'FirstName');
+  const lastNameIndex = indexOf('Last Name', 'LastName');
+  const genderIndex = indexOf('Gender');
+  const dobIndex = indexOf('Date of Birth', 'DOB', 'Birth Date');
+  const guardianNameIndex = indexOf('Guardian Name', 'Parent Name');
+  const guardianPhoneIndex = indexOf('Guardian Phone', 'Parent Phone', 'Phone');
+  const medicalNotesIndex = indexOf('Medical Notes', 'Notes');
+
+  return lines.slice(1)
+    .map((line) => parseCsvLine(line))
+    .filter((columns) => columns.some((column) => column.trim()))
+    .map((columns) => createBatchRow({
+      firstName: readCsvCell(columns, firstNameIndex),
+      lastName: readCsvCell(columns, lastNameIndex),
+      gender: normalizeGender(readCsvCell(columns, genderIndex)),
+      dateOfBirth: normalizeBatchDate(readCsvCell(columns, dobIndex)),
+      guardianName: readCsvCell(columns, guardianNameIndex),
+      guardianPhone: readCsvCell(columns, guardianPhoneIndex),
+      medicalNotes: readCsvCell(columns, medicalNotesIndex),
+    }));
+}
+
+function parseCsvLine(line: string) {
+  const cells: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"' && next === '"') {
+      current += '"';
+      index += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      cells.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function normalizeHeader(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function readCsvCell(columns: string[], index: number) {
+  return index >= 0 ? (columns[index] ?? '').trim() : '';
+}
+
+function normalizeGender(value: string): 'MALE' | 'FEMALE' {
+  return value.trim().toUpperCase().startsWith('F') ? 'FEMALE' : 'MALE';
+}
+
+function normalizeBatchDate(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const [, day, month, year] = slashMatch;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  return trimmed;
+}
+
+function downloadBatchTemplate() {
+  const csv = [
+    ['First Name', 'Last Name', 'Gender', 'Date of Birth', 'Guardian Name', 'Guardian Phone', 'Guardian Relationship', 'Medical Notes'],
+    ['Tolu', 'Adebayo', 'M', '15/03/2018', 'Funke Adebayo', '+2348031234567', 'Mother', ''],
+    ['Emeka', 'Okafor', 'M', '22/07/2019', 'Chioma Okafor', '+2348067890123', 'Mother', 'Allergic to peanuts'],
+  ].map((row) => row.map(escapeCsvCell).join(',')).join('\n');
+  downloadTextFile('student-batch-enrollment-template.csv', csv, 'text/csv');
+}
+
+function downloadFailedEnrollments(results: Array<{ firstName?: string | null; lastName?: string | null; reason?: string | null }>) {
+  const csv = [
+    ['First Name', 'Last Name', 'Reason'],
+    ...results.map((item) => [item.firstName ?? '', item.lastName ?? '', item.reason ?? 'Not enrolled']),
+  ].map((row) => row.map(escapeCsvCell).join(',')).join('\n');
+  downloadTextFile('failed-student-enrollments.csv', csv, 'text/csv');
+}
+
+function downloadTextFile(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function escapeCsvCell(value: string) {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
 
 function daysAgo(days: number) {

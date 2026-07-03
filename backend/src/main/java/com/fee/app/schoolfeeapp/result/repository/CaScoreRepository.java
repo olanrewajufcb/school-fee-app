@@ -40,6 +40,14 @@ public interface CaScoreRepository extends ReactiveCrudRepository<CaScore, UUID>
                 :#{#score.createdAt},
                 :#{#score.updatedAt}
             )
+            ON CONFLICT (student_id, subject_id, term_id, ca_component_id)
+            DO UPDATE SET
+                school_id = EXCLUDED.school_id,
+                class_id = EXCLUDED.class_id,
+                score = EXCLUDED.score,
+                max_score = EXCLUDED.max_score,
+                recorded_by = EXCLUDED.recorded_by,
+                updated_at = EXCLUDED.updated_at
             RETURNING *
             """)
     Mono<CaScore> insert(@Param("score") CaScore score);

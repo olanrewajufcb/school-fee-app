@@ -15,6 +15,7 @@ import com.fee.app.schoolfeeapp.school.domain.ClassEntity;
 import com.fee.app.schoolfeeapp.school.repository.AcademicSessionRepository;
 import com.fee.app.schoolfeeapp.school.repository.ClassRepository;
 import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
+import com.fee.app.schoolfeeapp.student.dto.request.BatchEnrollRequest;
 import com.fee.app.schoolfeeapp.student.dto.request.UpdateStudentRequest;
 import com.fee.app.schoolfeeapp.student.dto.response.*;
 import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
@@ -428,6 +429,100 @@ class StudentServiceImpl implements StudentService {
                                                     this::staleStudentUpdateException))
                             .flatMap(savedStudent -> toUpdateStudentResponse(savedStudent, schoolId));
                 }));
+    }
+
+    @Override
+    public Mono<BatchEnrollResponse> enrollStudentsBatch(BatchEnrollRequest request) {
+        return Mono.fromCallable(() -> validateBatchEnrollRequest(request))
+                .flatMap(students -> jwtUtils.getCurrentUser()
+                        .flatMap(adminUser -> {
+                            UUID schoolId = adminUser.getSchoolId();
+                            UUID userId = adminUser.getUserId();
+
+                            return schoolRepository.findByIdAndIsActiveTrue(schoolId)
+                                    .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                            "SCHOOL_NOT_FOUND",
+                                            "School not found or inactive")))
+                                    .thenMany(Flux.fromIterable(students))
+                                    .concatMap(studentRequest ->
+                                            enrollSingleStudentSafely(studentRequest, schoolId, userId))
+                                    .collectList()
+                                    .map(results -> {
+                                        int enrolled = (int) results.stream()
+                                                .filter(r -> "ENROLLED".equals(r.status())).count();
+                                        return new BatchEnrollResponse(
+                                                students.size(), enrolled,
+                                                students.size() - enrolled, results);
+                                    });
+                        }));
+    }
+
+    /**
+     * Enroll a single student and catch all errors.
+     * One failure doesn't stop the batch.
+     */
+    private Mono<BatchEnrollResponse.EnrollmentResult> enrollSingleStudentSafely(
+            EnrollStudentRequest request, UUID schoolId, UUID userId) {
+
+        return Mono.fromCallable(() -> validateAndNormalizeEnrollRequest(request))
+                .flatMap(normalized -> transactionalOperator.transactional(
+                        classRepository
+                                .findByIdAndSchoolIdForUpdate(normalized.classId(), schoolId)
+                                .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                        "CLASS_NOT_FOUND",
+                                        "Class not found or does not belong to your school",
+                                        "classId")))
+                                .flatMap(cls -> validateClassCanReceiveStudent(cls, schoolId)
+                                        .then(Mono.defer(() -> validateClassCapacity(cls)))
+                                        .then(Mono.defer(() -> saveEnrollment(normalized, schoolId, userId, cls))))
+                                .flatMap(enrollment ->
+                                        createGuardiansIfPresent(
+                                                enrollment.student(),
+                                                normalized.guardians(),
+                                                schoolId, userId)
+                                                .thenReturn(new BatchEnrollment(normalized, enrollment)))))
+                .map(batchEnrollment -> new BatchEnrollResponse.EnrollmentResult(
+                        "ENROLLED",
+                        batchEnrollment.enrollment().student().getId(),
+                        batchEnrollment.enrollment().student().getAdmissionNumber(),
+                        batchEnrollment.request().firstName(),
+                        batchEnrollment.request().lastName(),
+                        null))
+                .onErrorResume(error ->
+                        Mono.just(buildFailedResult(request, error)));
+    }
+
+    private BatchEnrollResponse.EnrollmentResult buildFailedResult(
+            EnrollStudentRequest request, Throwable error) {
+        String reason = error instanceof SchoolFeeException se
+                ? se.getMessage()
+                : "Unexpected error during enrollment";
+        return new BatchEnrollResponse.EnrollmentResult(
+                "FAILED", null, null,
+                request == null ? null : request.firstName(),
+                request == null ? null : request.lastName(),
+                reason);
+    }
+
+    private List<EnrollStudentRequest> validateBatchEnrollRequest(BatchEnrollRequest request) {
+        if (request == null) {
+            throw new SchoolFeeException(
+                    "INVALID_STUDENT_BATCH_ENROLLMENT",
+                    "Batch enrollment request is required");
+        }
+        if (request.students() == null || request.students().isEmpty()) {
+            throw new SchoolFeeException(
+                    "INVALID_STUDENT_BATCH_ENROLLMENT",
+                    "At least one student is required",
+                    "students");
+        }
+        if (request.students().size() > 100) {
+            throw new SchoolFeeException(
+                    "INVALID_STUDENT_BATCH_ENROLLMENT",
+                    "Maximum 100 students per batch",
+                    "students");
+        }
+        return List.copyOf(request.students());
     }
 
     private Mono<Optional<ClassEntity>> resolveTargetClassForUpdate(
@@ -963,6 +1058,9 @@ class StudentServiceImpl implements StudentService {
     }
 
     private record Enrollment(Student student, ClassEntity cls) {
+    }
+
+    private record BatchEnrollment(EnrollStudentRequest request, Enrollment enrollment) {
     }
 
     private record ValidatedUpdateStudentRequest(UUID studentId, UpdateStudentRequest request) {

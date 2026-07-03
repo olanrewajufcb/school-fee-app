@@ -1360,6 +1360,133 @@ class ClassServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should throw SchoolFeeException on null CreateClassRequest")
+    void shouldThrowOnNullCreateClassRequest() {
+        StepVerifier.create(classService.createClass(null))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CLASS_CONFIG");
+                    assertThat(error.getMessage()).contains("Class request is required");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException on blank class name")
+    void shouldThrowOnBlankClassName() {
+        CreateClassRequest request = new CreateClassRequest("   ", "Grade 1", "A", SESSION_ID, TEACHER_ID, 35);
+        StepVerifier.create(classService.createClass(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CLASS_CONFIG");
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("name");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException on blank grade level")
+    void shouldThrowOnBlankGradeLevel() {
+        CreateClassRequest request = new CreateClassRequest("Primary 1", "   ", "A", SESSION_ID, TEACHER_ID, 35);
+        StepVerifier.create(classService.createClass(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CLASS_CONFIG");
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("gradeLevel");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException on null academic session ID")
+    void shouldThrowOnNullAcademicSessionId() {
+        CreateClassRequest request = new CreateClassRequest("Primary 1", "Grade 1", "A", null, TEACHER_ID, 35);
+        StepVerifier.create(classService.createClass(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CLASS_CONFIG");
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("academicSessionId");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException on invalid capacity")
+    void shouldThrowOnInvalidCapacity() {
+        CreateClassRequest request = new CreateClassRequest("Primary 1", "Grade 1", "A", SESSION_ID, TEACHER_ID, 0);
+        StepVerifier.create(classService.createClass(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CLASS_CONFIG");
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("capacity");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException on null UpdateClassRequest")
+    void shouldThrowOnNullUpdateClassRequest() {
+        StepVerifier.create(classService.updateClass(CLASS_ID, null))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CLASS_UPDATE");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException on empty UpdateClassRequest")
+    void shouldThrowOnEmptyUpdateClassRequest() {
+        UpdateClassRequest request = new UpdateClassRequest(null, null, null, null);
+        StepVerifier.create(classService.updateClass(CLASS_ID, request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CLASS_UPDATE");
+                    assertThat(error.getMessage()).contains("At least one class field must be provided");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException on blank name in UpdateClassRequest")
+    void shouldThrowOnBlankNameInUpdateClassRequest() {
+        UpdateClassRequest request = new UpdateClassRequest("   ", null, null, null);
+        StepVerifier.create(classService.updateClass(CLASS_ID, request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CLASS_UPDATE");
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("name");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException on blank grade level in UpdateClassRequest")
+    void shouldThrowOnBlankGradeLevelInUpdateClassRequest() {
+        UpdateClassRequest request = new UpdateClassRequest(null, "   ", null, null);
+        StepVerifier.create(classService.updateClass(CLASS_ID, request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CLASS_UPDATE");
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("gradeLevel");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw SchoolFeeException on invalid capacity in UpdateClassRequest")
+    void shouldThrowOnInvalidCapacityInUpdateClassRequest() {
+        UpdateClassRequest request = new UpdateClassRequest(null, null, null, 0);
+        StepVerifier.create(classService.updateClass(CLASS_ID, request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CLASS_UPDATE");
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("capacity");
+                })
+                .verify();
+    }
+
+    @Test
     @DisplayName("Should pass valid class creation request")
     void shouldPassValidClassCreationRequest() {
         // This request contains valid values for every field that has a validation check.

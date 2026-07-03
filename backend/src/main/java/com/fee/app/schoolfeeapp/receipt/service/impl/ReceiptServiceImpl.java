@@ -135,12 +135,24 @@ class ReceiptServiceImpl implements ReceiptService {
                 .flatMap(payment -> {
                     Mono<Payment> authCheck = Mono.just(payment);
                     if (user.isParent()) {
-                        authCheck = guardianLinkRepository.findFeeAccessByGuardianUserIdAndStudentIdAndSchoolId(
-                                        user.getUserId(), receipt.getStudentId(), receipt.getSchoolId())
-                                .switchIfEmpty(Mono.error(new SchoolFeeException(
-                                        "ACCESS_DENIED",
-                                        "You do not have access to view this receipt")))
-                                .thenReturn(payment);
+                        if (receipt.getStudentId() == null) {
+                            authCheck = resolveLocalUserId(user.getUserId())
+                                    .flatMap(localUserId -> {
+                                        if (Objects.equals(payment.getPaidBy(), localUserId)) {
+                                            return Mono.just(payment);
+                                        }
+                                        return Mono.error(new SchoolFeeException(
+                                                "ACCESS_DENIED",
+                                                "You do not have access to view this receipt"));
+                                    });
+                        } else {
+                            authCheck = guardianLinkRepository.findFeeAccessByGuardianUserIdAndStudentIdAndSchoolId(
+                                            user.getUserId(), receipt.getStudentId(), receipt.getSchoolId())
+                                    .switchIfEmpty(Mono.error(new SchoolFeeException(
+                                            "ACCESS_DENIED",
+                                            "You do not have access to view this receipt")))
+                                    .thenReturn(payment);
+                        }
                     }
                     return authCheck.flatMap(p -> schoolRepository.findById(receipt.getSchoolId())
                             .switchIfEmpty(Mono.error(new SchoolFeeException(

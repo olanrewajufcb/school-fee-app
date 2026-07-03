@@ -777,6 +777,158 @@ class OutboxEventProcessorTest {
         }
     }
 
+    @Nested
+    @DisplayName("handleAttendanceNotification - Attendance Notification Processing")
+    class HandleAttendanceNotificationTests {
+
+        @Test
+        @DisplayName("should successfully process attendance notification event and send email")
+        void shouldSuccessfullyProcessAttendanceNotification() {
+            UUID eventId = UUID.randomUUID();
+            java.util.Map<String, Object> payload = java.util.Map.of(
+                    "schoolId", UUID.randomUUID().toString(),
+                    "guardianId", UUID.randomUUID().toString(),
+                    "guardianEmail", "guardian@test.com",
+                    "schoolName", "Test School",
+                    "message", "Student was present today"
+            );
+
+            OutboxEvent event = createOutboxEventWithPayload(eventId, "ATTENDANCE_NOTIFICATION", payload);
+
+            when(emailService.sendAttendanceNotificationEmail("guardian@test.com", "Test School", "Student was present today"))
+                    .thenReturn(Mono.empty());
+            when(outboxRepository.markAsCompleted(eq(eventId), any(Instant.class)))
+                    .thenReturn(Mono.empty());
+
+            Mono<String> result = invokeProcessClaimedEvent(event);
+
+            StepVerifier.create(result)
+                    .expectNext(eventId.toString())
+                    .verifyComplete();
+
+            verify(emailService).sendAttendanceNotificationEmail("guardian@test.com", "Test School", "Student was present today");
+        }
+
+        @Test
+        @DisplayName("should skip email sending when guardian email is missing in payload")
+        void shouldSkipEmailWhenGuardianEmailMissing() {
+            UUID eventId = UUID.randomUUID();
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("schoolId", UUID.randomUUID().toString());
+            payload.put("guardianId", UUID.randomUUID().toString());
+            payload.put("guardianEmail", null);
+
+            OutboxEvent event = createOutboxEventWithPayload(eventId, "ATTENDANCE_NOTIFICATION", payload);
+
+            when(outboxRepository.markAsCompleted(eq(eventId), any(Instant.class)))
+                    .thenReturn(Mono.empty());
+
+            Mono<String> result = invokeProcessClaimedEvent(event);
+
+            StepVerifier.create(result)
+                    .expectNext(eventId.toString())
+                    .verifyComplete();
+
+            verify(emailService, never()).sendAttendanceNotificationEmail(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should skip email sending when schoolName or message is missing")
+        void shouldSkipEmailWhenCriticalFieldsMissing() {
+            UUID eventId = UUID.randomUUID();
+            
+            // Missing schoolName
+            java.util.Map<String, Object> payload1 = new java.util.HashMap<>();
+            payload1.put("guardianEmail", "guardian@test.com");
+            payload1.put("schoolName", null);
+            payload1.put("message", "Message");
+            
+            OutboxEvent event1 = createOutboxEventWithPayload(eventId, "ATTENDANCE_NOTIFICATION", payload1);
+            when(outboxRepository.markAsCompleted(eq(eventId), any(Instant.class)))
+                    .thenReturn(Mono.empty());
+
+            Mono<String> result1 = invokeProcessClaimedEvent(event1);
+            StepVerifier.create(result1)
+                    .expectNext(eventId.toString())
+                    .verifyComplete();
+
+            verify(emailService, never()).sendAttendanceNotificationEmail(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should handle JSON deserialization failure gracefully")
+        void shouldHandleJsonDeserializationFailure() throws Exception {
+            UUID eventId = UUID.randomUUID();
+            
+            JsonNode corruptPayload = objectMapper.readTree("\"corrupt string representing map\"");
+
+            OutboxEvent event = OutboxEvent.builder()
+                    .id(eventId)
+                    .eventType("ATTENDANCE_NOTIFICATION")
+                    .payload(corruptPayload)
+                    .retryCount(0)
+                    .build();
+
+            when(outboxRepository.markAsCompleted(eq(eventId), any(Instant.class)))
+                    .thenReturn(Mono.empty());
+
+            Mono<String> result = invokeProcessClaimedEvent(event);
+
+            StepVerifier.create(result)
+                    .expectNext(eventId.toString())
+                    .verifyComplete();
+
+            verify(emailService, never()).sendAttendanceNotificationEmail(any(), any(), any());
+        }
+    }
+
+    @Nested
+    @DisplayName("SCHOOL_CREATED concurrent categories")
+    class SchoolCreatedConcurrentCategories {
+        @Test
+        @DisplayName("should handle concurrent category creation gracefully")
+        void shouldHandleConcurrentCategoryCreationGracefully() {
+            // Arrange
+            UUID eventId = UUID.randomUUID();
+            UUID schoolId = UUID.randomUUID();
+            UUID adminKeycloakId = UUID.randomUUID();
+
+            SchoolCreatedEvent payload = new SchoolCreatedEvent(
+                    schoolId,
+                    "Test School",
+                    "TS001",
+                    adminKeycloakId,
+                    "tempPassword",
+                    "admin@school.com"
+            );
+
+            OutboxEvent event = createOutboxEventWithPayload(eventId, "SCHOOL_CREATED", payload);
+
+            when(emailService.sendAdminWelcomeEmail("admin@school.com", "Test School", "tempPassword")).thenReturn(Mono.empty());
+
+            when(notificationTemplateRepository.existsBySchoolIdAndTemplateCodeAndChannel(any(), anyString(), anyString()))
+                    .thenReturn(Mono.just(true));
+
+            when(feeCategoryRepository.existsBySchoolIdAndName(any(), anyString()))
+                    .thenReturn(Mono.just(false));
+            when(feeCategoryRepository.save(any(FeeCategory.class)))
+                    .thenReturn(Mono.error(new org.springframework.dao.DuplicateKeyException("Concurrent insert")));
+
+            when(outboxRepository.markAsCompleted(eq(eventId), any(Instant.class)))
+                    .thenReturn(Mono.empty());
+
+            // Act
+            Mono<String> result = invokeProcessClaimedEvent(event);
+
+            // Assert
+            StepVerifier.create(result)
+                    .expectNext(eventId.toString())
+                    .verifyComplete();
+
+            verify(feeCategoryRepository, times(8)).save(any(FeeCategory.class));
+        }
+    }
+
     // ========================================================================
     // Helper Methods
     // ========================================================================
