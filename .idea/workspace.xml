@@ -5,81 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="1a85b514-b835-4829-ac06-34fe4ad5f22f" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/common/exceptions/GatewayException.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/dto/request/BankTransferRequest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/dto/response/BankTransferResponse.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/dto/request/BatchEnrollRequest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/dto/response/BatchEnrollResponse.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/resources/db/migration/V14__make_student_id_nullable.sql" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/backend/src/main/resources/db/migration/V15__add_more_result_tables.sql" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/executionHistory/executionHistory.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/executionHistory/executionHistory.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/executionHistory/executionHistory.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/executionHistory/executionHistory.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/fileHashes.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/fileHashes.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/fileHashes.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/fileHashes.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/resourceHashesCache.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/9.0.0/fileHashes/resourceHashesCache.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/buildOutputCleanup/buildOutputCleanup.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/buildOutputCleanup/buildOutputCleanup.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/file-system.probe" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/file-system.probe" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/compiler.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/compiler.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/build.gradle" beforeDir="false" afterPath="$PROJECT_DIR$/backend/build.gradle" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/impl/UserManagementServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/service/impl/UserManagementServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/util/JwtUtils.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/auth/util/JwtUtils.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/domain/StudentFee.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/domain/StudentFee.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/repository/FeeReportingRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/fee/repository/FeeReportingRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/service/impl/NotificationServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/notification/service/impl/NotificationServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/controller/PaymentController.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/controller/PaymentController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/gateway/service/PaymentGateway.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/gateway/service/PaymentGateway.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/gateway/service/impl/PaystackGateway.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/gateway/service/impl/PaystackGateway.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/repository/PaymentRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/repository/PaymentRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/service/PaymentService.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/service/PaymentService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/receipt/service/impl/ReceiptServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/receipt/service/impl/ReceiptServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/controller/ResultController.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/controller/ResultController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/domain/ReportComment.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/domain/ReportComment.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/dto/request/CommentRequest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/dto/request/CommentRequest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/dto/request/ReportCardRequest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/dto/request/ReportCardRequest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/dto/response/StudentResultResponse.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/dto/response/StudentResultResponse.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/repository/CaScoreRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/repository/CaScoreRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/repository/ClassRankingRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/repository/ClassRankingRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/repository/ScoreRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/repository/ScoreRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/ResultService.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/ResultService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/ScoreComputationEngine.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/ScoreComputationEngine.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/utils/ResultPdfGenerator.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/result/utils/ResultPdfGenerator.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/controller/StudentController.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/controller/StudentController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/service/StudentService.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/service/StudentService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/service/impl/AttendanceServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/service/impl/AttendanceServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/service/impl/StudentServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/main/java/com/fee/app/schoolfeeapp/student/service/impl/StudentServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/UserManagementServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/auth/service/impl/UserManagementServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/common/scheduler/OutboxEventProcessorTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/common/scheduler/OutboxEventProcessorTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/service/impl/NotificationServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/notification/service/impl/NotificationServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/controller/PaymentControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/controller/PaymentControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/controller/PaymentControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/controller/PaymentControllerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/controller/PaystackWebhookControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/controller/PaystackWebhookControllerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/gateway/service/impl/PaystackGatewayTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/gateway/service/impl/PaystackGatewayTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImplIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImplIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/payment/service/impl/PaymentServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/receipt/service/impl/ReceiptServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/receipt/service/impl/ReceiptServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/controller/ResultControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/controller/ResultControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/controller/ResultControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/controller/ResultControllerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImplIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImplIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/service/impl/ResultServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/service/impl/SubjectServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/service/impl/SubjectServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/utils/ResultPdfGeneratorTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/result/utils/ResultPdfGeneratorTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/service/impl/ClassServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/school/service/impl/ClassServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/controller/StudentControllerIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/controller/StudentControllerIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/controller/StudentControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/controller/StudentControllerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/service/impl/AttendanceServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/service/impl/AttendanceServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/service/impl/StudentServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/backend/src/test/java/com/fee/app/schoolfeeapp/student/service/impl/StudentServiceImplTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/build/reports/problems/problems-report.html" beforeDir="false" afterPath="$PROJECT_DIR$/build/reports/problems/problems-report.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/admin/AdminDashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/admin/AdminDashboard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/parent/ParentDashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/parent/ParentDashboard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/components/teacher/TeacherDashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/teacher/TeacherDashboard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/pages/auth/LoginPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/pages/auth/LoginPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/services/parentService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/services/parentService.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/services/schoolAdminService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/services/schoolAdminService.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/services/superAdminService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/services/superAdminService.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/services/teacherService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/services/teacherService.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -87,7 +13,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="581" />
+    <option name="cachedIndexableFilesCount" value="582" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="ExternalProjectsData">
@@ -128,6 +54,9 @@
     &quot;assignee&quot;: &quot;olanrewajufcb&quot;
   }
 }</component>
+  <component name="GithubDefaultAccount">
+    <option name="defaultAccountId" value="f48c9bb1-ae49-40e4-8a1d-d052f390983e" />
+  </component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
     &quot;url&quot;: &quot;https://github.com/olanrewajufcb/school-fee-app.git&quot;,
@@ -144,61 +73,61 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
+      <entry key="MS100" value="1.2829341634783649" />
+      <entry key="MS500" value="2.7530843009405706" />
+      <entry key="S2" value="4.645128925329859" />
+      <entry key="S5" value="5.801141658182637" />
+      <entry key="S10" value="6.345279861039" />
+      <entry key="S30" value="6.768014450899817" />
+      <entry key="S60" value="6.882188804553443" />
+      <entry key="M2" value="6.94063191116335" />
+      <entry key="M5" value="6.976140741130476" />
+      <entry key="M10" value="6.988051630338515" />
+      <entry key="M15" value="6.992048337444129" />
+      <entry key="M30" value="7.015953147852637" />
+      <entry key="H1" value="7.660206159114484" />
+      <entry key="H2" value="10.815675185460558" />
+      <entry key="H4" value="16.162730551929076" />
+      <entry key="D1" value="26.794935907056143" />
+      <entry key="W1" value="178.59341455215997" />
+    </decayedCancelled>
+    <decayedSelected>
       <entry key="MS100" value="0.0" />
       <entry key="MS500" value="0.0" />
       <entry key="S2" value="0.0" />
       <entry key="S5" value="0.0" />
       <entry key="S10" value="0.0" />
-      <entry key="S30" value="0.0" />
-      <entry key="S60" value="0.0" />
-      <entry key="M2" value="0.0" />
-      <entry key="M5" value="0.0" />
-      <entry key="M10" value="4.352553557916623E-264" />
-      <entry key="M15" value="2.665811369475994E-176" />
-      <entry key="M30" value="1.632731260645529E-88" />
-      <entry key="H1" value="1.2777922280212293E-44" />
-      <entry key="H2" value="1.151079527060288E-22" />
-      <entry key="H4" value="2.244372699507817E-11" />
-      <entry key="D1" value="0.9066793608514592" />
-      <entry key="W1" value="153.22183459022327" />
-    </decayedCancelled>
-    <decayedSelected>
-      <entry key="MS100" value="1.0" />
-      <entry key="MS500" value="1.0" />
-      <entry key="S2" value="1.0" />
-      <entry key="S5" value="1.0" />
-      <entry key="S10" value="1.0" />
-      <entry key="S30" value="1.0" />
-      <entry key="S60" value="1.0" />
-      <entry key="M2" value="1.0" />
-      <entry key="M5" value="1.0" />
-      <entry key="M10" value="1.0" />
-      <entry key="M15" value="1.0" />
-      <entry key="M30" value="1.0" />
-      <entry key="H1" value="1.0" />
-      <entry key="H2" value="1.0" />
-      <entry key="H4" value="1.0000000000029148" />
-      <entry key="D1" value="1.4604766102186673" />
-      <entry key="W1" value="146.13764621029082" />
+      <entry key="S30" value="8.450735750065974E-180" />
+      <entry key="S60" value="2.92944218631218E-90" />
+      <entry key="M2" value="1.8550196432779424E-45" />
+      <entry key="M5" value="1.7061692856919924E-18" />
+      <entry key="M10" value="1.7969105583496659E-9" />
+      <entry key="M15" value="1.8502717732417888E-6" />
+      <entry key="M30" value="0.0019174254038150681" />
+      <entry key="H1" value="0.06187548832211421" />
+      <entry key="H2" value="0.35171046498661623" />
+      <entry key="H4" value="0.8386589354741841" />
+      <entry key="D1" value="2.127999464980965" />
+      <entry key="W1" value="144.0897905933688" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="9.514077328632238E-166" />
-      <entry key="MS500" value="9.900869480194038E-34" />
-      <entry key="S2" value="5.6094248465860665E-9" />
-      <entry key="S5" value="5.006881738085728E-4" />
-      <entry key="S10" value="0.02237606251798052" />
-      <entry key="S30" value="0.28179150004836295" />
-      <entry key="S60" value="0.5308403715321235" />
-      <entry key="M2" value="0.7285879298561866" />
-      <entry key="M5" value="0.8810342440274191" />
-      <entry key="M10" value="0.9386342440095712" />
-      <entry key="M15" value="0.9586592409031184" />
-      <entry key="M30" value="0.9791114547910867" />
-      <entry key="H1" value="0.9895006087876281" />
-      <entry key="H2" value="0.9947364519246433" />
-      <entry key="H4" value="0.9973647537261507" />
-      <entry key="D1" value="2.3667027051509066" />
-      <entry key="W1" value="299.3588550786513" />
+      <entry key="MS100" value="1.2306497636431803" />
+      <entry key="MS500" value="2.703777687609046" />
+      <entry key="S2" value="4.621614362386493" />
+      <entry key="S5" value="5.789901544143068" />
+      <entry key="S10" value="6.33927360874821" />
+      <entry key="S30" value="6.7659167890631124" />
+      <entry key="S60" value="6.881127344969439" />
+      <entry key="M2" value="6.940097970135637" />
+      <entry key="M5" value="6.975926386971659" />
+      <entry key="M10" value="6.987944324788583" />
+      <entry key="M15" value="6.991978583397803" />
+      <entry key="M30" value="7.0178138941747905" />
+      <entry key="H1" value="7.7217132683900696" />
+      <entry key="H2" value="11.166361142138244" />
+      <entry key="H4" value="17.000162544358293" />
+      <entry key="D1" value="28.92249919216717" />
+      <entry key="W1" value="322.68258517875995" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -340,7 +269,7 @@
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;Qoder CN&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;org.jetbrains.plugins.github.ui.GithubSettingsConfigurable&quot;,
     &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
     &quot;ts.external.directory.path&quot;: &quot;/Users/sulaiman/IdeaProjects/school-fee-app/frontend/node_modules/typescript/lib&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
@@ -535,8 +464,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-jdk-30f59d01ecdd-37e91769500f-intellij.indexing.shared.core-IU-261.25134.95" />
-        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-IU-261.25134.95" />
+        <option value="bundled-jdk-30f59d01ecdd-37e91769500f-intellij.indexing.shared.core-IU-261.26222.65" />
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-IU-261.26222.65" />
       </set>
     </attachedChunks>
   </component>
@@ -595,12 +524,24 @@
       <workItem from="1782315320133" duration="900000" />
       <workItem from="1782376304164" duration="45614000" />
       <workItem from="1782998794908" duration="109000" />
-      <workItem from="1782998920259" duration="2915000" />
+      <workItem from="1782998920259" duration="7103000" />
+      <workItem from="1783162796553" duration="3140000" />
     </task>
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
