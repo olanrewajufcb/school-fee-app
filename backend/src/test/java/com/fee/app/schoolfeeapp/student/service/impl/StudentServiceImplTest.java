@@ -13,9 +13,11 @@ import com.fee.app.schoolfeeapp.school.domain.School;
 import com.fee.app.schoolfeeapp.school.repository.AcademicSessionRepository;
 import com.fee.app.schoolfeeapp.school.repository.ClassRepository;
 import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
+import com.fee.app.schoolfeeapp.student.dto.request.BatchEnrollRequest;
 import com.fee.app.schoolfeeapp.student.domain.Student;
 import com.fee.app.schoolfeeapp.student.dto.request.EnrollStudentRequest;
 import com.fee.app.schoolfeeapp.student.dto.request.UpdateStudentRequest;
+import com.fee.app.schoolfeeapp.student.dto.response.BatchEnrollResponse;
 import com.fee.app.schoolfeeapp.student.dto.response.MyChildrenResponse;
 import com.fee.app.schoolfeeapp.student.dto.response.StudentDetailResponse;
 import com.fee.app.schoolfeeapp.student.dto.response.StudentListResponse;
@@ -382,6 +384,109 @@ class StudentServiceImplTest {
                     assertThat(exception.getCause()).isInstanceOf(DuplicateKeyException.class);
                 })
                 .verify();
+    }
+
+    @Test
+    @DisplayName("Should enroll valid students in batch and keep invalid rows as failures")
+    void shouldEnrollValidStudentsInBatchAndKeepInvalidRowsAsFailures() {
+        EnrollStudentRequest validStudent = validRequestWithoutGuardians();
+        EnrollStudentRequest invalidStudent = new EnrollStudentRequest(
+                "Bad",
+                "Gender",
+                null,
+                "UNKNOWN",
+                LocalDate.of(2018, 1, 1),
+                CLASS_ID,
+                List.of(),
+                null);
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(schoolRepository.findByIdAndIsActiveTrue(SCHOOL_ID)).thenReturn(Mono.just(activeSchool()));
+        when(classRepository.findByIdAndSchoolIdForUpdate(CLASS_ID, SCHOOL_ID)).thenReturn(Mono.just(activeClass(10)));
+        when(sessionRepository.findByIdAndDeletedAtIsNull(SESSION_ID)).thenReturn(Mono.just(activeSession()));
+        when(studentRepository.countActiveByCurrentClassId(CLASS_ID)).thenReturn(Mono.just(0L));
+        when(studentRepository.countBySchoolIdAndDeletedAtIsNull(SCHOOL_ID)).thenReturn(Mono.just(0L));
+        when(studentRepository.save(any(Student.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        StepVerifier.create(studentService.enrollStudentsBatch(new BatchEnrollRequest(List.of(validStudent, invalidStudent))))
+                .assertNext(response -> {
+                    assertThat(response.totalSubmitted()).isEqualTo(2);
+                    assertThat(response.enrolled()).isEqualTo(1);
+                    assertThat(response.failed()).isEqualTo(1);
+                    assertThat(response.results()).extracting(BatchEnrollResponse.EnrollmentResult::status)
+                            .containsExactly("ENROLLED", "FAILED");
+                    assertThat(response.results().get(0).studentId()).isNotNull();
+                    assertThat(response.results().get(1).reason()).contains("Gender must be MALE or FEMALE");
+                })
+                .verifyComplete();
+
+        verify(studentRepository).save(any(Student.class));
+        verify(transactionalOperator).transactional(any(Mono.class));
+    }
+
+    @Test
+    @DisplayName("Should enforce class capacity sequentially within batch")
+    void shouldEnforceClassCapacitySequentiallyWithinBatch() {
+        EnrollStudentRequest first = batchRequest("Ada", "Lovelace", CLASS_ID);
+        EnrollStudentRequest second = batchRequest("Marie", "Curie", CLASS_ID);
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(schoolRepository.findByIdAndIsActiveTrue(SCHOOL_ID)).thenReturn(Mono.just(activeSchool()));
+        when(classRepository.findByIdAndSchoolIdForUpdate(CLASS_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(activeClass(1)), Mono.just(activeClass(1)));
+        when(sessionRepository.findByIdAndDeletedAtIsNull(SESSION_ID))
+                .thenReturn(Mono.just(activeSession()), Mono.just(activeSession()));
+        when(studentRepository.countActiveByCurrentClassId(CLASS_ID))
+                .thenReturn(Mono.just(0L), Mono.just(1L));
+        when(studentRepository.countBySchoolIdAndDeletedAtIsNull(SCHOOL_ID)).thenReturn(Mono.just(0L));
+        when(studentRepository.save(any(Student.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        StepVerifier.create(studentService.enrollStudentsBatch(new BatchEnrollRequest(List.of(first, second))))
+                .assertNext(response -> {
+                    assertThat(response.totalSubmitted()).isEqualTo(2);
+                    assertThat(response.enrolled()).isEqualTo(1);
+                    assertThat(response.failed()).isEqualTo(1);
+                    assertThat(response.results()).extracting(BatchEnrollResponse.EnrollmentResult::status)
+                            .containsExactly("ENROLLED", "FAILED");
+                    assertThat(response.results().get(1).firstName()).isEqualTo("Marie");
+                    assertThat(response.results().get(1).reason()).contains("is full");
+                })
+                .verifyComplete();
+
+        verify(studentRepository).save(any(Student.class));
+    }
+
+    @Test
+    @DisplayName("Should reject null batch before auth lookup")
+    void shouldRejectNullBatchBeforeAuthLookup() {
+        StepVerifier.create(studentService.enrollStudentsBatch(null))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_STUDENT_BATCH_ENROLLMENT");
+                })
+                .verify();
+
+        verify(jwtUtils, never()).getCurrentUser();
+    }
+
+    @Test
+    @DisplayName("Should reject batch enrollment for inactive school")
+    void shouldRejectBatchEnrollmentForInactiveSchool() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(currentUser()));
+        when(schoolRepository.findByIdAndIsActiveTrue(SCHOOL_ID)).thenReturn(Mono.empty());
+
+        StepVerifier.create(studentService.enrollStudentsBatch(
+                        new BatchEnrollRequest(List.of(validRequestWithoutGuardians()))))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("SCHOOL_NOT_FOUND");
+                })
+                .verify();
+
+        verify(classRepository, never()).findByIdAndSchoolIdForUpdate(any(UUID.class), any(UUID.class));
+        verify(studentRepository, never()).save(any(Student.class));
     }
 
     @Test
@@ -758,6 +863,18 @@ class StudentServiceImplTest {
                 "FEMALE",
                 LocalDate.of(2018, 1, 1),
                 CLASS_ID,
+                List.of(),
+                null);
+    }
+
+    private EnrollStudentRequest batchRequest(String firstName, String lastName, UUID classId) {
+        return new EnrollStudentRequest(
+                firstName,
+                lastName,
+                null,
+                "FEMALE",
+                LocalDate.of(2018, 1, 1),
+                classId,
                 List.of(),
                 null);
     }

@@ -5,10 +5,12 @@ import com.fee.app.schoolfeeapp.common.dto.PageResponse;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.payment.dto.request.InitiatePaymentRequest;
 import com.fee.app.schoolfeeapp.payment.dto.request.OfflinePaymentRequest;
+import com.fee.app.schoolfeeapp.payment.dto.request.BankTransferRequest;
 import com.fee.app.schoolfeeapp.payment.dto.response.InitiatePaymentResponse;
 import com.fee.app.schoolfeeapp.payment.dto.response.OfflinePaymentResponse;
 import com.fee.app.schoolfeeapp.payment.dto.response.PaymentHistoryResponse;
 import com.fee.app.schoolfeeapp.payment.dto.response.PaymentStatusResponse;
+import com.fee.app.schoolfeeapp.payment.dto.response.BankTransferResponse;
 import com.fee.app.schoolfeeapp.payment.service.PaymentService;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -117,6 +119,32 @@ class PaymentControllerTest {
     }
 
     @Test
+    @DisplayName("Should get payment status by gateway reference successfully")
+    void shouldGetPaymentStatusByReferenceSuccessfully() {
+        String reference = "paystack-ref-123";
+        PaymentStatusResponse serviceResponse = new PaymentStatusResponse(
+                PAYMENT_ID,
+                "COMPLETED",
+                BigDecimal.valueOf(5000),
+                "PAYSTACK",
+                reference,
+                Instant.now(),
+                null);
+        when(paymentService.getPaymentStatusByReference(reference)).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(paymentController.getPaymentStatusByReference(reference))
+                .assertNext(responseEntity -> {
+                    assertThat(responseEntity.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    assertThat(responseEntity.getBody()).isNotNull();
+                    assertThat(responseEntity.getBody().isSuccess()).isTrue();
+                    assertThat(responseEntity.getBody().getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(paymentService).getPaymentStatusByReference(reference);
+    }
+
+    @Test
     @DisplayName("Should get payment history successfully")
     void shouldGetPaymentHistorySuccessfully() {
         PageResponse<PaymentHistoryResponse> serviceResponse = new PageResponse<>(
@@ -188,6 +216,79 @@ class PaymentControllerTest {
                 .verify();
 
         verify(paymentService).recordOfflinePayment(request);
+    }
+
+    @Test
+    @DisplayName("Should initiate bank transfer successfully")
+    void shouldInitiateBankTransferSuccessfully() {
+        BankTransferRequest request = new BankTransferRequest(
+                List.of(STUDENT_FEE_ID), BigDecimal.valueOf(5000), "parent@gis.edu", "Parent User");
+        BankTransferResponse serviceResponse = BankTransferResponse.builder()
+                .reference("paystack-ref-123")
+                .accountNumber("9901234567")
+                .accountName("Grace School - Parent")
+                .bankName("Wema Bank")
+                .amount(BigDecimal.valueOf(5000))
+                .status("READY")
+                .message("Transfer to account below")
+                .build();
+        when(paymentService.initiateBankTransfer(request)).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(paymentController.initiateBankTransfer(request))
+                .assertNext(responseEntity -> {
+                    assertThat(responseEntity.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+                    ApiResponse<BankTransferResponse> body = responseEntity.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(paymentService).initiateBankTransfer(request);
+    }
+
+    @Test
+    @DisplayName("Should get bank transfer details successfully")
+    void shouldGetBankTransferDetailsSuccessfully() {
+        BankTransferResponse serviceResponse = BankTransferResponse.builder()
+                .reference("paystack-ref-123")
+                .accountNumber("9901234567")
+                .accountName("Grace School - Parent")
+                .bankName("Wema Bank")
+                .amount(BigDecimal.valueOf(5000))
+                .status("READY")
+                .message("Transfer to account below")
+                .build();
+        when(paymentService.getBankTransferDetails(PAYMENT_ID)).thenReturn(Mono.just(serviceResponse));
+
+        StepVerifier.create(paymentController.getBankTransferDetails(PAYMENT_ID))
+                .assertNext(responseEntity -> {
+                    assertThat(responseEntity.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    ApiResponse<BankTransferResponse> body = responseEntity.getBody();
+                    assertThat(body).isNotNull();
+                    assertThat(body.isSuccess()).isTrue();
+                    assertThat(body.getData()).isEqualTo(serviceResponse);
+                })
+                .verifyComplete();
+
+        verify(paymentService).getBankTransferDetails(PAYMENT_ID);
+    }
+
+    @Test
+    @DisplayName("Should propagate bank transfer errors")
+    void shouldPropagateBankTransferErrors() {
+        BankTransferRequest request = new BankTransferRequest(
+                List.of(STUDENT_FEE_ID), BigDecimal.valueOf(5000), "parent@gis.edu", "Parent User");
+        SchoolFeeException expectedError = new SchoolFeeException(
+                "PAYMENT_GATEWAY_UNAVAILABLE",
+                "Paystack is not available");
+        when(paymentService.initiateBankTransfer(request)).thenReturn(Mono.error(expectedError));
+
+        StepVerifier.create(paymentController.initiateBankTransfer(request))
+                .expectErrorSatisfies(error -> assertThat(error).isSameAs(expectedError))
+                .verify();
+
+        verify(paymentService).initiateBankTransfer(request);
     }
 
     private InitiatePaymentRequest validRequest() {

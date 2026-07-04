@@ -8,6 +8,7 @@ import java.util.UUID;
 public record ReportCardRequest(
         @NotNull UUID termId,
         @NotNull UUID classId,
+        UUID templateId,
         @NotEmpty List<UUID> studentIds,
         boolean includeAttendance,
         boolean includeTeacherComment,

@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BadgeCheck,
   CalendarDays,
+  Clock,
   CreditCard,
   Download,
   FileText,
@@ -15,8 +16,13 @@ import {
   Receipt,
   RefreshCw,
   ShieldCheck,
+  Sunrise,
+  Sunset,
+  UserCheck,
   UserRound,
   Wallet,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Badge } from '@/components/ui/badge';
@@ -30,19 +36,27 @@ import {
   type ChildResultSummary,
   extractCheckoutUrl,
   type PaymentHistoryItem,
+  type PublishedTermResult,
   type ReceiptDetail,
   type StudentFee,
   type StudentResult,
+  type BankTransferResponse,
   parentService,
 } from '@/services/parentService';
+import {
+  attendanceService,
+  type ParentAttendanceResponse,
+} from '@/services/attendanceService';
 
-type Section = 'overview' | 'fees' | 'payments' | 'results' | 'receipts';
+type Section = 'overview' | 'fees' | 'payments' | 'results' | 'attendance' | 'receipts';
+type PayableFee = StudentFee & { studentId: string; studentName: string };
 
 const sections: Array<{ id: Section; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'overview', label: 'Overview', icon: Wallet },
   { id: 'fees', label: 'Fees', icon: CreditCard },
   { id: 'payments', label: 'Payments', icon: Receipt },
   { id: 'results', label: 'Results', icon: GraduationCap },
+  { id: 'attendance', label: 'Attendance', icon: UserCheck },
   { id: 'receipts', label: 'Receipts', icon: FileText },
 ];
 
@@ -55,6 +69,7 @@ export const ParentDashboard: React.FC = () => {
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistoryItem[]>([]);
   const [resultSummaries, setResultSummaries] = useState<ChildResultSummary[]>([]);
   const [selectedResult, setSelectedResult] = useState<StudentResult | null>(null);
+  const [resultHistory, setResultHistory] = useState<PublishedTermResult[]>([]);
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptDetail | null>(null);
   const [receiptLookup, setReceiptLookup] = useState('');
   const [paymentDialog, setPaymentDialog] = useState(false);
@@ -62,6 +77,12 @@ export const ParentDashboard: React.FC = () => {
   const [partialAmounts, setPartialAmounts] = useState<Record<string, string>>({});
   const [paymentMode, setPaymentMode] = useState<Record<string, 'full' | 'partial'>>({});
   const [latestPaymentId, setLatestPaymentId] = useState('');
+  const [viewingBankTransferDetails, setViewingBankTransferDetails] = useState<BankTransferResponse | null>(null);
+  const [viewingBankTransferDialogOpen, setViewingBankTransferDialogOpen] = useState(false);
+  const [todayAttendance, setTodayAttendance] = useState<ParentAttendanceResponse[]>([]);
+  const [attendanceDetail, setAttendanceDetail] = useState<ParentAttendanceResponse[]>([]);
+  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +90,13 @@ export const ParentDashboard: React.FC = () => {
 
   const selectedChild = children.find((child) => child.studentId === selectedStudentId) ?? children[0];
   const selectedFees = selectedChild ? feesByStudent[selectedChild.studentId] ?? [] : [];
+  const allPayableFees = useMemo<PayableFee[]>(() => children.flatMap((child) =>
+    (feesByStudent[child.studentId] ?? []).map((fee) => ({
+      ...fee,
+      studentId: child.studentId,
+      studentName: `${child.firstName} ${child.lastName}`,
+    })),
+  ), [children, feesByStudent]);
 
   const getFeePaymentAmount = (fee: StudentFee) => {
     const mode = paymentMode[fee.studentFeeId] || 'full';
@@ -81,7 +109,7 @@ export const ParentDashboard: React.FC = () => {
     return Number(fee.balance || 0);
   };
 
-  const selectedPaymentTotal = selectedFees
+  const selectedPaymentTotal = allPayableFees
     .filter((fee) => selectedFeeIds.includes(fee.studentFeeId))
     .reduce((sum, fee) => sum + getFeePaymentAmount(fee), 0);
 
@@ -108,8 +136,7 @@ export const ParentDashboard: React.FC = () => {
         const params = new URLSearchParams(window.location.search);
         const reference = params.get('reference');
         if (reference) {
-          setLatestPaymentId(reference);
-          void refreshPaymentStatus(reference).then(() => {
+          void refreshPaymentStatusByReference(reference).then(() => {
             const url = new URL(window.location.href);
             url.searchParams.delete('reference');
             url.searchParams.delete('status');
@@ -119,6 +146,25 @@ export const ParentDashboard: React.FC = () => {
       });
     }
   }, [authLoading, user?.userId]);
+
+  useEffect(() => {
+    if (activeSection !== 'attendance' || !selectedStudentId) return;
+
+    const refreshAttendance = () => {
+      void loadTodayAttendance();
+      void loadChildAttendance(selectedStudentId, attendanceDate);
+    };
+    refreshAttendance();
+    const intervalId = window.setInterval(refreshAttendance, 30_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshAttendance();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [activeSection, selectedStudentId, attendanceDate]);
 
   const loadDashboard = async () => {
     setIsLoading(true);
@@ -149,6 +195,22 @@ export const ParentDashboard: React.FC = () => {
       );
       setFeesByStudent(Object.fromEntries(feeEntries));
 
+      await loadTodayAttendance();
+
+      const params = new URLSearchParams(window.location.search);
+      const resultStudentId = params.get('studentId');
+      const resultTermId = params.get('termId');
+      if (resultStudentId && resultTermId) {
+        const [result, history] = await Promise.all([
+          parentService.getStudentResult(resultStudentId, resultTermId),
+          parentService.getPublishedStudentResults(resultStudentId),
+        ]);
+        setSelectedStudentId(resultStudentId);
+        setSelectedResult(result);
+        setResultHistory(history);
+        setActiveSection('results');
+      }
+
       if ([childrenResult, historyResult, resultsResult].some((result) => result.status === 'rejected')) {
         setNotice('Some parent data could not refresh. Available child records are shown.');
       }
@@ -156,6 +218,29 @@ export const ParentDashboard: React.FC = () => {
       setError(readError(err, 'Unable to load parent dashboard.'));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadTodayAttendance = async () => {
+    try {
+      const result = await attendanceService.getMyChildrenAttendance();
+      setTodayAttendance(result);
+    } catch (err) {
+      console.error('Failed to load today attendance', err);
+    }
+  };
+
+  const loadChildAttendance = async (studentId: string, date?: string) => {
+    setIsAttendanceLoading(true);
+    setAttendanceDetail([]);
+    try {
+      const result = await attendanceService.getMyChildAttendance(studentId, date);
+      setAttendanceDetail(result);
+    } catch (err) {
+      console.error('Failed to load child attendance', err);
+      setAttendanceDetail([]);
+    } finally {
+      setIsAttendanceLoading(false);
     }
   };
 
@@ -183,6 +268,16 @@ export const ParentDashboard: React.FC = () => {
     setPaymentDialog(true);
   };
 
+  const openMultiChildPayment = () => {
+    const ids = allPayableFees
+      .filter((fee) => fee.balance > 0 && fee.status !== 'PAID')
+      .map((fee) => fee.studentFeeId);
+    setSelectedFeeIds(ids);
+    setPaymentMode({});
+    setPartialAmounts({});
+    setPaymentDialog(true);
+  };
+
   const initiatePayment = async () => {
     if (!selectedFeeIds.length || selectedPaymentTotal <= 0) {
       setError('Select at least one unpaid fee before continuing.');
@@ -195,7 +290,7 @@ export const ParentDashboard: React.FC = () => {
       if (mode === 'partial') {
         const val = partialAmounts[id] || '';
         const num = Number(val);
-        const fee = selectedFees.find(f => f.studentFeeId === id);
+        const fee = allPayableFees.find(f => f.studentFeeId === id);
         const feeName = fee ? `"${fee.structureName}"` : 'Selected fee';
         const balance = fee ? fee.balance : 0;
 
@@ -234,8 +329,13 @@ export const ParentDashboard: React.FC = () => {
       setError('Select a payment to check its status.');
       return;
     }
+    if (!isUuid(paymentId)) {
+      await refreshPaymentStatusByReference(paymentId);
+      return;
+    }
     await runAction(async () => {
       const status = await parentService.getPaymentStatus(paymentId);
+      setLatestPaymentId(status.paymentId);
       setNotice(`Payment status: ${status.status}${status.receipt?.receiptNumber ? `, receipt ${status.receipt.receiptNumber}` : ''}.`);
       if (status.receipt?.receiptNumber) {
         await loadReceipt(status.receipt.receiptNumber);
@@ -247,6 +347,34 @@ export const ParentDashboard: React.FC = () => {
     });
   };
 
+  const refreshPaymentStatusByReference = async (reference: string) => {
+    if (!reference) {
+      setError('Payment reference is required.');
+      return;
+    }
+    await runAction(async () => {
+      const status = await parentService.getPaymentStatusByReference(reference);
+      setLatestPaymentId(status.paymentId);
+      setNotice(`Payment status: ${status.status}${status.receipt?.receiptNumber ? `, receipt ${status.receipt.receiptNumber}` : ''}.`);
+      if (status.receipt?.receiptNumber) {
+        await loadReceipt(status.receipt.receiptNumber);
+        setActiveSection('receipts');
+      } else {
+        setActiveSection('payments');
+      }
+      await loadDashboard();
+    });
+  };
+
+  const showBankTransferDetails = async (paymentId: string) => {
+    if (!paymentId) return;
+    await runAction(async () => {
+      const details = await parentService.getBankTransferDetails(paymentId);
+      setViewingBankTransferDetails(details);
+      setViewingBankTransferDialogOpen(true);
+    });
+  };
+
   const loadResult = async (summary: ChildResultSummary) => {
     const termId = summary.termId;
     if (!termId) {
@@ -254,8 +382,61 @@ export const ParentDashboard: React.FC = () => {
       return;
     }
     await runAction(async () => {
-      const result = await parentService.getStudentResult(summary.studentId, termId);
+      const [result, history] = await Promise.all([
+        parentService.getStudentResult(summary.studentId, termId),
+        parentService.getPublishedStudentResults(summary.studentId),
+      ]);
+      setSelectedStudentId(summary.studentId);
       setSelectedResult(result);
+      setResultHistory(history);
+    });
+  };
+
+  const loadHistoricalResult = async (term: PublishedTermResult) => {
+    if (!selectedStudentId) return;
+    await runAction(async () => {
+      const result = await parentService.getStudentResult(selectedStudentId, term.termId);
+      setSelectedResult(result);
+    });
+  };
+
+  const downloadStudentResult = async () => {
+    const studentId = selectedResult?.student?.studentId;
+    const termId = selectedResult?.term?.termId;
+    if (!studentId || !termId) {
+      setError('Open a published report card before downloading.');
+      return;
+    }
+    await runAction(async () => {
+      const blob = await parentService.downloadStudentResultPdf(studentId, termId);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${selectedResult.student?.fullName ?? 'student'}-${selectedResult.term?.name ?? 'result'}.pdf`
+        .replace(/\s+/g, '-')
+        .toLowerCase();
+      link.click();
+      URL.revokeObjectURL(url);
+      setNotice('Report card download started.');
+    });
+  };
+
+  const shareStudentResult = async () => {
+    const studentId = selectedResult?.student?.studentId;
+    const termId = selectedResult?.term?.termId;
+    if (!studentId || !termId) {
+      setError('Open a published report card before sharing.');
+      return;
+    }
+    await runAction(async () => {
+      const share = await parentService.shareStudentResult(
+        studentId,
+        termId,
+        'WHATSAPP',
+        user?.phoneNumber ?? 'WhatsApp',
+      );
+      window.open(`https://wa.me/?text=${encodeURIComponent(share.shareText)}`, '_blank', 'noopener,noreferrer');
+      setNotice('WhatsApp share message prepared.');
     });
   };
 
@@ -422,8 +603,10 @@ export const ParentDashboard: React.FC = () => {
                   totalDue={totals.totalDue}
                   overdueCount={totals.overdueCount}
                   paymentHistory={paymentHistory}
+                  todayAttendance={todayAttendance}
                   urgentFee={urgentFee}
                   onPay={openPayment}
+                  onPayAll={openMultiChildPayment}
                   onGoTo={setActiveSection}
                   onSelectChild={setSelectedStudentId}
                   onOpenReceipt={loadReceipt}
@@ -451,6 +634,7 @@ export const ParentDashboard: React.FC = () => {
                   onSetLatestPaymentId={setLatestPaymentId}
                   onRefreshStatus={refreshPaymentStatus}
                   onOpenReceipt={loadReceipt}
+                  onViewBankTransfer={showBankTransferDetails}
                 />
               )}
 
@@ -458,8 +642,26 @@ export const ParentDashboard: React.FC = () => {
                 <ResultsSection
                   summaries={resultSummaries}
                   selectedResult={selectedResult}
+                  history={resultHistory}
                   isSaving={isSaving}
                   onOpenSummary={loadResult}
+                  onOpenHistory={loadHistoricalResult}
+                  onDownload={() => void downloadStudentResult()}
+                  onShare={() => void shareStudentResult()}
+                />
+              )}
+
+              {activeSection === 'attendance' && (
+                <AttendanceSection
+                  children={children}
+                  selectedStudentId={selectedStudentId}
+                  todayAttendance={todayAttendance}
+                  attendanceDetail={attendanceDetail}
+                  attendanceDate={attendanceDate}
+                  isLoading={isAttendanceLoading}
+                  onSelectChild={(id) => { setSelectedStudentId(id); void loadChildAttendance(id, attendanceDate); }}
+                  onDateChange={(date) => { setAttendanceDate(date); void loadChildAttendance(selectedStudentId, date); }}
+                  onRefresh={() => { void loadTodayAttendance(); void loadChildAttendance(selectedStudentId, attendanceDate); }}
                 />
               )}
 
@@ -483,7 +685,7 @@ export const ParentDashboard: React.FC = () => {
       <PaymentDialog
         open={paymentDialog}
         child={selectedChild}
-        allFees={selectedFees}
+        allFees={allPayableFees}
         selectedFeeIds={selectedFeeIds}
         onToggleFee={(feeId) => {
           setSelectedFeeIds((ids) => ids.includes(feeId) ? ids.filter((id) => id !== feeId) : [...ids, feeId]);
@@ -497,6 +699,22 @@ export const ParentDashboard: React.FC = () => {
         onOpenChange={setPaymentDialog}
         onPay={initiatePayment}
       />
+
+      <ViewBankTransferDialog
+        open={viewingBankTransferDialogOpen}
+        details={viewingBankTransferDetails}
+        onOpenChange={setViewingBankTransferDialogOpen}
+        onCheckStatus={() => {
+          if (viewingBankTransferDetails?.reference) {
+            // Find the payment in the history that matches the reference and refresh its status
+            const matchedPayment = paymentHistory.find(p => p.receiptNumber === viewingBankTransferDetails.reference);
+            const id = matchedPayment?.paymentId || latestPaymentId;
+            refreshPaymentStatus(id);
+          } else {
+            refreshPaymentStatus();
+          }
+        }}
+      />
     </div>
   );
 };
@@ -508,8 +726,10 @@ function OverviewSection({
   totalDue,
   overdueCount,
   paymentHistory,
+  todayAttendance,
   urgentFee,
   onPay,
+  onPayAll,
   onGoTo,
   onSelectChild,
   onOpenReceipt,
@@ -520,8 +740,10 @@ function OverviewSection({
   totalDue: number;
   overdueCount: number;
   paymentHistory: PaymentHistoryItem[];
+  todayAttendance: ParentAttendanceResponse[];
   urgentFee?: { child: ChildProfile; fee: StudentFee };
   onPay: (studentId: string, feeId?: string, initialMode?: 'full' | 'partial') => void;
+  onPayAll: () => void;
   onGoTo: (section: Section) => void;
   onSelectChild: (studentId: string) => void;
   onOpenReceipt: (receiptNumber: string) => void;
@@ -555,10 +777,26 @@ function OverviewSection({
         <Metric icon={GraduationCap} label="Results" value={formatNumber(resultSummaries.length)} detail="Published summaries" />
       </section>
 
+      {totalDue > 0 && (
+        <section className="flex flex-col gap-3 rounded-md border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">Pay multiple fees at once</p>
+            <p className="mt-1 text-sm text-slate-500">Select outstanding fees across all linked children in one checkout.</p>
+          </div>
+          <Button className="bg-slate-950 text-white hover:bg-slate-800" onClick={onPayAll}>
+            Pay All Outstanding
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        </section>
+      )}
+
       <section className="grid gap-4">
         {children.map((child) => {
           const fees = feesByStudent[child.studentId] ?? [];
           const result = resultSummaries.find((item) => item.studentId === child.studentId);
+          const childTodayAttendance = todayAttendance.filter((a) => a.studentId === child.studentId);
+          const morningRecord = childTodayAttendance.find(hasMorningAttendance);
+          const afternoonRecord = childTodayAttendance.find(hasAfternoonAttendance);
 
           const currentTermFee = fees.find(f => f.isCurrentTerm);
           const upcomingTermFee = fees.find(f => f.isUpcomingTerm);
@@ -597,12 +835,8 @@ function OverviewSection({
                         <div className="mt-2 flex items-center gap-2">
                           <span className="text-lg font-bold text-slate-900">{formatCurrency(currentTermFee.totalAmount)}</span>
                           <span className="text-xs text-slate-500">·</span>
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border ${
-                            currentTermFee.balance <= 0 || currentTermFee.status === 'PAID'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                              : 'bg-amber-50 text-amber-700 border-amber-200'
-                          }`}>
-                            {currentTermFee.balance <= 0 || currentTermFee.status === 'PAID' ? '✅ Paid' : '⚠️ Partially Paid'}
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border ${feePaymentState(currentTermFee).className}`}>
+                            {feePaymentState(currentTermFee).label}
                           </span>
                         </div>
                       </div>
@@ -639,12 +873,8 @@ function OverviewSection({
                         <div className="mt-2 flex items-center gap-2">
                           <span className="text-lg font-bold text-slate-900">{formatCurrency(upcomingTermFee.totalAmount)}</span>
                           <span className="text-xs text-slate-500">·</span>
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border ${
-                            upcomingTermFee.balance <= 0 || upcomingTermFee.status === 'PAID'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-amber-100 text-amber-700 border-amber-200'
-                          }`}>
-                            {upcomingTermFee.balance <= 0 || upcomingTermFee.status === 'PAID' ? '✅ Paid' : '⬜ Not yet paid'}
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border ${feePaymentState(upcomingTermFee).className}`}>
+                            {feePaymentState(upcomingTermFee).label}
                           </span>
                         </div>
                         {upcomingTermFee.dueDate && (
@@ -683,6 +913,96 @@ function OverviewSection({
                 </div>
               </div>
 
+              {/* Today's Attendance Widget */}
+              <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/40 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <UserCheck className="h-4 w-4 text-blue-600" />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-blue-700">Today's Attendance</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1 border-blue-200 px-2 text-[11px] text-blue-700 hover:bg-blue-100"
+                    onClick={() => { onSelectChild(child.studentId); onGoTo('attendance'); }}
+                  >
+                    View History
+                    <ArrowRight className="h-3 w-3" />
+                  </Button>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {/* Morning */}
+                  <div className="flex items-center gap-3 rounded-md border border-white/80 bg-white/70 px-3 py-2.5">
+                    <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                      morningRecord
+                        ? attendanceStatusTone(morningRecord.arrivalStatus)
+                        : 'bg-slate-100 text-slate-400'
+                    }`}>
+                      <Sunrise className="h-4 w-4" />
+                    </div>
+                    <div>
+                      {morningRecord?.arrivalStatus === 'ABSENT' ? (
+                        <>
+                          <p className="text-sm font-medium text-red-700">Absent</p>
+                          <p className="text-xs text-red-600">No morning arrival recorded</p>
+                        </>
+                      ) : morningRecord ? (
+                        <>
+                          <p className="text-sm font-medium text-slate-900">
+                            {morningRecord.arrivalTime
+                              ? `Arrived at ${formatAttendanceTime(morningRecord.arrivalTime)}`
+                              : attendanceStatusLabel(morningRecord.arrivalStatus)}
+                            {morningRecord.arrivalStatus === 'LATE' ? ' · Late' : morningRecord.arrivalTime ? ' · On time' : ''}
+                          </p>
+                          <p className="text-xs text-slate-500">Brought by: {morningRecord.broughtBy ?? 'N/A'}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm font-medium text-slate-400">Morning Arrival</p>
+                          <p className="text-xs text-slate-400">Not marked yet</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {/* Afternoon */}
+                  <div className="flex items-center gap-3 rounded-md border border-white/80 bg-white/70 px-3 py-2.5">
+                    <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                      afternoonRecord
+                        ? attendanceStatusTone(afternoonRecord.departureStatus)
+                        : 'bg-slate-100 text-slate-400'
+                    }`}>
+                      <Sunset className="h-4 w-4" />
+                    </div>
+                    <div>
+                      {afternoonRecord?.departureStatus === 'ABSENT' ? (
+                        <>
+                          <p className="text-sm font-medium text-red-700">Absent</p>
+                          <p className="text-xs text-red-600">No afternoon departure recorded</p>
+                        </>
+                      ) : afternoonRecord ? (
+                        <>
+                          <p className="text-sm font-medium text-slate-900">
+                            {afternoonRecord.departureTime
+                              ? `Picked up at ${formatAttendanceTime(afternoonRecord.departureTime)}`
+                              : attendanceStatusLabel(afternoonRecord.departureStatus)}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            By: {afternoonRecord.pickedUpBy ?? afternoonRecord.pickUpPersonName ?? 'N/A'}
+                            {afternoonRecord.pickUpPersonName && afternoonRecord.pickUpPersonName !== afternoonRecord.pickedUpBy
+                              ? ` (${afternoonRecord.pickUpPersonName})` : ''}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm font-medium text-slate-400">Afternoon Departure</p>
+                          <p className="text-xs text-slate-400">Not marked yet</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <InfoStrip icon={GraduationCap} label="Results" value={result?.summary ? `${result.summary.average.toFixed(1)}% (${result.summary.grade})` : 'Not published'} tone={result?.summary ? 'ok' : 'neutral'} />
                 <InfoStrip
@@ -698,6 +1018,283 @@ function OverviewSection({
             </div>
           );
         })}
+      </section>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Attendance Section — parent view per-child with date navigation
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+function AttendanceSection({
+  children: childrenList,
+  selectedStudentId,
+  todayAttendance,
+  attendanceDetail,
+  attendanceDate,
+  isLoading,
+  onSelectChild,
+  onDateChange,
+  onRefresh,
+}: {
+  children: ChildProfile[];
+  selectedStudentId: string;
+  todayAttendance: ParentAttendanceResponse[];
+  attendanceDetail: ParentAttendanceResponse[];
+  attendanceDate: string;
+  isLoading: boolean;
+  onSelectChild: (studentId: string) => void;
+  onDateChange: (date: string) => void;
+  onRefresh: () => void;
+}) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const isToday = attendanceDate === todayStr;
+  const records = isToday && !attendanceDetail.length
+    ? todayAttendance.filter((a) => a.studentId === selectedStudentId)
+    : attendanceDetail;
+
+  const morningRecord = records.find(hasMorningAttendance);
+  const afternoonRecord = records.find(hasAfternoonAttendance);
+  const selectedChild = childrenList.find((c) => c.studentId === selectedStudentId) ?? childrenList[0];
+
+  const formattedDate = (() => {
+    try {
+      return new Date(attendanceDate + 'T00:00:00').toLocaleDateString('en-NG', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+    } catch {
+      return attendanceDate;
+    }
+  })();
+
+  const navigateDate = (delta: number) => {
+    const d = new Date(attendanceDate + 'T00:00:00');
+    d.setDate(d.getDate() + delta);
+    const iso = d.toISOString().split('T')[0];
+    if (iso <= todayStr) onDateChange(iso);
+  };
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
+      {/* Child Selector */}
+      <section className="rounded-md border border-slate-200 bg-white p-4">
+        <p className="text-sm font-medium text-slate-500">My Children</p>
+        <div className="mt-4 space-y-2">
+          {childrenList.map((child) => {
+            const childToday = todayAttendance.filter((a) => a.studentId === child.studentId);
+            const hasArrival = childToday.some(hasMorningAttendance);
+            const hasDeparture = childToday.some(hasAfternoonAttendance);
+            return (
+              <button
+                key={child.studentId}
+                type="button"
+                onClick={() => onSelectChild(child.studentId)}
+                className={`w-full rounded-md border px-3 py-3 text-left text-sm transition ${
+                  selectedStudentId === child.studentId ? 'border-slate-950 bg-slate-50' : 'border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <p className="font-medium text-slate-900">{child.firstName} {child.lastName}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{child.currentClass ?? 'Class not set'}</p>
+                <div className="mt-2 flex gap-1.5">
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    hasArrival ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'
+                  }`}>
+                    <Sunrise className="h-2.5 w-2.5" />
+                    {hasArrival ? 'Arrived' : 'Pending'}
+                  </span>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    hasDeparture ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'
+                  }`}>
+                    <Sunset className="h-2.5 w-2.5" />
+                    {hasDeparture ? 'Picked up' : 'Pending'}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Attendance Detail */}
+      <section className="space-y-5">
+        {/* Date Navigator */}
+        <div className="flex flex-col gap-3 rounded-md border border-slate-200 bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <UserCheck className="h-5 w-5 text-blue-600" />
+              <h2 className="text-lg font-semibold text-slate-950">
+                {selectedChild ? `${selectedChild.firstName} ${selectedChild.lastName}` : 'Attendance'}
+              </h2>
+            </div>
+            <p className="mt-1 text-sm text-slate-500">{selectedChild?.currentClass ?? ''} · {formattedDate}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigateDate(-1)} className="h-8 px-2">
+              ←
+            </Button>
+            <input
+              type="date"
+              value={attendanceDate}
+              max={todayStr}
+              onChange={(e) => onDateChange(e.target.value)}
+              className="h-8 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-950"
+            />
+            <Button variant="outline" size="sm" onClick={() => navigateDate(1)} disabled={attendanceDate >= todayStr} className="h-8 px-2">
+              →
+            </Button>
+            {!isToday && (
+              <Button variant="outline" size="sm" onClick={() => onDateChange(todayStr)} className="h-8 gap-1 text-xs">
+                Today
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={onRefresh} className="h-8 px-2">
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Loading */}
+        {isLoading ? (
+          <div className="flex min-h-[200px] items-center justify-center rounded-md border border-dashed border-slate-300 bg-white">
+            <div className="text-center">
+              <Loader2 className="mx-auto h-6 w-6 animate-spin text-slate-500" />
+              <p className="mt-2 text-sm text-slate-500">Loading attendance…</p>
+            </div>
+          </div>
+        ) : !morningRecord && !afternoonRecord ? (
+          /* No Records */
+          <div className="flex min-h-[200px] items-center justify-center rounded-md border border-dashed border-slate-300 bg-white">
+            <div className="text-center">
+              <CalendarDays className="mx-auto h-10 w-10 text-slate-300" />
+              <p className="mt-3 text-sm font-medium text-slate-500">No attendance records</p>
+              <p className="mt-1 text-xs text-slate-400">
+                {isToday ? 'Attendance has not been marked for today yet.' : `No records found for ${formattedDate}.`}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* Morning Arrival Card */}
+            <div className={`rounded-lg border p-5 ${
+              morningRecord ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-200 bg-slate-50'
+            }`}>
+              <div className="flex items-center gap-2">
+                <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                  morningRecord
+                    ? attendanceStatusTone(morningRecord.arrivalStatus)
+                    : 'bg-slate-200 text-slate-400'
+                }`}>
+                  <Sunrise className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">Morning Arrival</p>
+                  <p className="text-xs text-slate-400">7:30 – 8:30 AM window</p>
+                </div>
+              </div>
+
+              {morningRecord ? (
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    {morningRecord.arrivalStatus === 'ABSENT' ? (
+                      <Badge className="bg-red-100 text-red-700 hover:bg-red-100">Absent</Badge>
+                    ) : morningRecord.arrivalStatus === 'LATE' ? (
+                      <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">Late</Badge>
+                    ) : morningRecord.arrivalStatus === 'EXCUSED' ? (
+                      <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Excused</Badge>
+                    ) : (
+                      <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">On Time</Badge>
+                    )}
+                  </div>
+                  {morningRecord.arrivalTime && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Clock className="h-4 w-4 text-slate-400" />
+                      <span className="font-medium text-slate-900">Arrived at {formatAttendanceTime(morningRecord.arrivalTime)}</span>
+                    </div>
+                  )}
+                  {morningRecord.broughtBy && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <UserRound className="h-4 w-4 text-slate-400" />
+                      <span className="text-slate-700">Brought by: <span className="font-medium">{morningRecord.broughtBy}</span></span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-400">Not marked yet.</p>
+              )}
+            </div>
+
+            {/* Afternoon Departure Card */}
+            <div className={`rounded-lg border p-5 ${
+              afternoonRecord ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-200 bg-slate-50'
+            }`}>
+              <div className="flex items-center gap-2">
+                <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                  afternoonRecord
+                    ? attendanceStatusTone(afternoonRecord.departureStatus)
+                    : 'bg-slate-200 text-slate-400'
+                }`}>
+                  <Sunset className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">Afternoon Departure</p>
+                  <p className="text-xs text-slate-400">1:30 – 2:30 PM window</p>
+                </div>
+              </div>
+
+              {afternoonRecord ? (
+                <div className="mt-4 space-y-3">
+                  <StatusBadge status={afternoonRecord.departureStatus === 'PRESENT' ? 'PICKED UP' : afternoonRecord.departureStatus} />
+                  {afternoonRecord.departureTime && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Clock className="h-4 w-4 text-slate-400" />
+                      <span className="font-medium text-slate-900">Left at {formatAttendanceTime(afternoonRecord.departureTime)}</span>
+                    </div>
+                  )}
+                  {(afternoonRecord.pickedUpBy || afternoonRecord.pickUpPersonName) && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <UserRound className="h-4 w-4 text-slate-400" />
+                      <span className="text-slate-700">
+                        By: <span className="font-medium">{afternoonRecord.pickedUpBy ?? afternoonRecord.pickUpPersonName ?? 'N/A'}</span>
+                        {afternoonRecord.pickUpPersonName && afternoonRecord.pickUpPersonName !== afternoonRecord.pickedUpBy
+                          ? ` (${afternoonRecord.pickUpPersonName})` : ''}
+                      </span>
+                    </div>
+                  )}
+                  {afternoonRecord.pickUpPersonPhone && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Phone className="h-4 w-4 text-slate-400" />
+                      <a className="text-slate-700 hover:underline" href={`tel:${afternoonRecord.pickUpPersonPhone}`}>
+                        {afternoonRecord.pickUpPersonPhone}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-400">Not marked yet.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SMS Info */}
+        <div className="rounded-md border border-blue-100 bg-blue-50/30 p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+              <MessageCircle className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-blue-800">Automatic Email Notifications</p>
+              <p className="mt-1 text-xs text-blue-600">
+                You'll receive an email when the teacher submits attendance —
+                including arrival time, who brought your child, departure time, and who picked them up.
+              </p>
+            </div>
+          </div>
+        </div>
       </section>
     </div>
   );
@@ -803,6 +1400,7 @@ function PaymentsSection({
   onSetLatestPaymentId,
   onRefreshStatus,
   onOpenReceipt,
+  onViewBankTransfer,
 }: {
   history: PaymentHistoryItem[];
   latestPaymentId: string;
@@ -810,6 +1408,7 @@ function PaymentsSection({
   onSetLatestPaymentId: (value: string) => void;
   onRefreshStatus: (paymentId?: string) => void;
   onOpenReceipt: (receiptNumber: string) => void;
+  onViewBankTransfer: (paymentId: string) => void;
 }) {
   return (
     <div className="space-y-6">
@@ -825,7 +1424,7 @@ function PaymentsSection({
           </Button>
         </div>
       </section>
-      <HistoryTable history={history} onOpenReceipt={onOpenReceipt} onRefreshStatus={onRefreshStatus} />
+      <HistoryTable history={history} onOpenReceipt={onOpenReceipt} onRefreshStatus={onRefreshStatus} onViewBankTransfer={onViewBankTransfer} />
     </div>
   );
 }
@@ -833,13 +1432,21 @@ function PaymentsSection({
 function ResultsSection({
   summaries,
   selectedResult,
+  history,
   isSaving,
   onOpenSummary,
+  onOpenHistory,
+  onDownload,
+  onShare,
 }: {
   summaries: ChildResultSummary[];
   selectedResult: StudentResult | null;
+  history: PublishedTermResult[];
   isSaving: boolean;
   onOpenSummary: (summary: ChildResultSummary) => void;
+  onOpenHistory: (term: PublishedTermResult) => void;
+  onDownload: () => void;
+  onShare: () => void;
 }) {
   return (
     <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
@@ -850,23 +1457,76 @@ function ResultsSection({
             <button
               key={`${summary.studentId}-${summary.termName}`}
               type="button"
-              disabled={!summary.termId}
+              disabled={!summary.termId || !summary.summary}
               onClick={() => onOpenSummary(summary)}
               className="w-full rounded-md border border-slate-200 px-3 py-3 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-75"
             >
               <p className="font-medium text-slate-900">{summary.firstName} {summary.lastName}</p>
-              <p className="mt-1 text-slate-500">{summary.termName ?? 'Current term'} · {summary.summary ? `${summary.summary.average.toFixed(1)}%` : 'Summary pending'}</p>
+              <p className="mt-1 text-slate-500">
+                {summary.termName ?? 'Current term'} · {summary.summary
+                  ? `${summary.summary.average.toFixed(1)}% (${summary.summary.grade ?? '-'})`
+                  : 'Results not yet published'}
+              </p>
+              {summary.summary && Number(summary.summary.classPosition ?? 0) > 0 && (
+                <p className="mt-1 text-xs text-emerald-700">
+                  Position: {ordinal(Number(summary.summary.classPosition))} of {summary.summary.outOf}
+                </p>
+              )}
               {!summary.termId && <p className="mt-2 text-xs text-amber-700">Full report needs term ID from backend.</p>}
+              {summary.termId && !summary.summary && (
+                <p className="mt-2 text-xs text-slate-500">Check back after results are published.</p>
+              )}
             </button>
           ))}
           {!summaries.length && <EmptyBlock message="No published results yet." />}
         </div>
+
+        {history.some((term) => term.termId !== selectedResult?.term?.termId) && (
+          <div className="mt-6 border-t border-slate-200 pt-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Previous terms</p>
+            <div className="mt-2 space-y-2">
+              {history
+                .filter((term) => term.termId !== selectedResult?.term?.termId)
+                .map((term) => (
+                <button
+                  key={term.termId}
+                  type="button"
+                  onClick={() => onOpenHistory(term)}
+                  className="w-full rounded-md border border-slate-200 px-3 py-2.5 text-left hover:bg-slate-50"
+                >
+                  <p className="text-sm font-medium text-slate-900">{term.termName}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {term.sessionName} · {term.average.toFixed(1)}% ({term.overallGrade ?? '-'})
+                  </p>
+                </button>
+                ))}
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="rounded-md border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 p-5">
-          <h2 className="text-lg font-semibold text-slate-950">{selectedResult?.student?.fullName ?? 'Report Card'}</h2>
-          <p className="text-sm text-slate-500">{selectedResult?.term ? `${selectedResult.term.name} · ${selectedResult.term.sessionName}` : 'Select a published result'}</p>
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">{selectedResult?.student?.fullName ?? 'Report Card'}</h2>
+            <p className="text-sm text-slate-500">
+              {selectedResult?.term
+                ? `${selectedResult.student?.className ?? ''} · ${selectedResult.term.name} · ${selectedResult.term.sessionName}`
+                : 'Select a published result'}
+            </p>
+          </div>
+          {selectedResult && (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" disabled={isSaving} onClick={onDownload}>
+                <Download className="mr-2 h-4 w-4" />
+                Download PDF
+              </Button>
+              <Button size="sm" disabled={isSaving} onClick={onShare} className="bg-emerald-600 text-white hover:bg-emerald-700">
+                <MessageCircle className="mr-2 h-4 w-4" />
+                Share via WhatsApp
+              </Button>
+            </div>
+          )}
         </div>
         {isSaving ? (
           <div className="flex min-h-64 items-center justify-center">
@@ -875,7 +1535,7 @@ function ResultsSection({
         ) : selectedResult ? (
           <ReportCard result={selectedResult} />
         ) : (
-          <EmptyBlock message="Full report cards open here when the backend includes a term ID for the selected published result." />
+          <EmptyBlock message="Select a published result to open the full report card." />
         )}
       </section>
     </div>
@@ -955,7 +1615,7 @@ function PaymentDialog({
 }: {
   open: boolean;
   child?: ChildProfile;
-  allFees: StudentFee[];
+  allFees: PayableFee[];
   selectedFeeIds: string[];
   onToggleFee: (feeId: string) => void;
   paymentMode: Record<string, 'full' | 'partial'>;
@@ -967,19 +1627,113 @@ function PaymentDialog({
   onOpenChange: (open: boolean) => void;
   onPay: () => void;
 }) {
+  const { user } = useAuth();
+  const [method, setMethod] = useState<'card' | 'bank_transfer'>('card');
+  const [bankDetails, setBankDetails] = useState<BankTransferResponse | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [isBankInitiating, setIsBankInitiating] = useState(false);
+  const [bankError, setBankError] = useState<string | null>(null);
+
+  // If bank details are loaded, show details view
+  if (bankDetails) {
+    return (
+      <Dialog open={open} onOpenChange={(val) => {
+        if (!val) {
+          setBankDetails(null);
+          setMethod('card');
+        }
+        onOpenChange(val);
+      }}>
+        <DialogContent className="bg-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900">Virtual Bank Account Details</DialogTitle>
+            <DialogDescription className="text-slate-500">
+              Please make a bank transfer for the school fee payment.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg bg-slate-50 border border-slate-200 p-5 space-y-4">
+              <div className="text-center space-y-1">
+                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Amount to Transfer</p>
+                <p className="text-3xl font-extrabold text-slate-900">{formatCurrency(bankDetails.amount)}</p>
+              </div>
+              
+              <div className="border-t border-slate-200/60 my-3"></div>
+              
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-[10px] text-slate-400 font-medium uppercase">Bank Name</Label>
+                  <p className="text-sm font-semibold text-slate-950">{bankDetails.bankName}</p>
+                </div>
+
+                <div>
+                  <Label className="text-[10px] text-slate-400 font-medium uppercase">Account Number</Label>
+                  <div className="flex items-center justify-between gap-2 mt-1 bg-white border border-slate-200 rounded-md p-2 pl-3">
+                    <span className="text-base font-mono font-bold tracking-wider text-slate-900">{bankDetails.accountNumber}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-slate-500 hover:text-slate-900"
+                      onClick={() => {
+                        navigator.clipboard.writeText(bankDetails.accountNumber);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                    >
+                      {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-[10px] text-slate-400 font-medium uppercase">Account Name</Label>
+                  <p className="text-sm font-semibold text-slate-950">{bankDetails.accountName}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-md bg-amber-50 border border-amber-100 p-4 flex gap-3 items-start">
+              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-800 space-y-1">
+                <p className="font-semibold">Important instructions:</p>
+                <p>Transfer the exact amount to the bank details above. This virtual account is generated dynamically for this transaction.</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setBankDetails(null);
+                  setMethod('card');
+                  onOpenChange(false);
+                }}
+              >
+                Close Details
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-white sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Pay School Fees</DialogTitle>
           <DialogDescription>
-            {child ? `Student: ${child.firstName} ${child.lastName}` : 'Select fees to pay'}
+            {allFees.length > 1 ? 'Select fees across your linked children' : child ? `Student: ${child.firstName} ${child.lastName}` : 'Select fees to pay'}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
             <Label className="text-slate-700 font-medium">Select fees to pay:</Label>
-            <div className="rounded-md border border-slate-200 divide-y divide-slate-100 max-h-80 overflow-y-auto bg-slate-50/50">
+            <div className="rounded-md border border-slate-200 divide-y divide-slate-100 max-h-60 overflow-y-auto bg-slate-50/50">
               {allFees.map((fee) => {
                 const isPaid = fee.balance <= 0 || fee.status === 'PAID';
                 const isChecked = selectedFeeIds.includes(fee.studentFeeId);
@@ -999,7 +1753,7 @@ function PaymentDialog({
                         />
                         <div>
                           <p className={`text-sm font-semibold ${isPaid ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
-                            {fee.termName}
+                            {fee.studentName} · {fee.termName}
                           </p>
                           <p className="text-xs text-slate-500 mt-0.5">
                             {fee.structureName}
@@ -1078,22 +1832,90 @@ function PaymentDialog({
               )}
             </div>
           </div>
+
+          <div className="space-y-2">
+            <Label className="text-slate-700 font-medium">Select Payment Method:</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 cursor-pointer transition-all ${method === 'card' ? 'border-slate-950 bg-slate-50' : 'border-slate-200 hover:bg-slate-50/50'}`}>
+                <input
+                  type="radio"
+                  name="payment-method"
+                  value="card"
+                  checked={method === 'card'}
+                  onChange={() => setMethod('card')}
+                  className="sr-only"
+                />
+                <CreditCard className={`h-5 w-5 ${method === 'card' ? 'text-slate-950' : 'text-slate-500'}`} />
+                <span className="text-xs font-semibold mt-1">Debit Card</span>
+              </label>
+              <label className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 cursor-pointer transition-all ${method === 'bank_transfer' ? 'border-slate-950 bg-slate-50' : 'border-slate-200 hover:bg-slate-50/50'}`}>
+                <input
+                  type="radio"
+                  name="payment-method"
+                  value="bank_transfer"
+                  checked={method === 'bank_transfer'}
+                  onChange={() => setMethod('bank_transfer')}
+                  className="sr-only"
+                />
+                <Wallet className={`h-5 w-5 ${method === 'bank_transfer' ? 'text-slate-950' : 'text-slate-500'}`} />
+                <span className="text-xs font-semibold mt-1">Bank Transfer</span>
+              </label>
+            </div>
+          </div>
+
           <div className="rounded-md bg-slate-50 p-4">
-            <MetricRow label="Payment method" value="Paystack" />
+            <MetricRow label="Payment method" value={method === 'card' ? 'Debit Card (Paystack)' : 'Bank Transfer (Paystack)'} />
             <MetricRow label="Total Selected" value={formatCurrency(amount)} />
           </div>
+
+          {bankError && (
+            <div className="text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-md p-2 flex gap-1.5 items-center">
+              <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+              <span>{bankError}</span>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <Button variant="outline" className="w-1/3" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button 
-              className="flex-1 bg-slate-950 text-white hover:bg-slate-800" 
-              disabled={isSaving || amount <= 0} 
-              onClick={onPay}
-            >
-              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
-              Pay {formatCurrency(amount)} &rarr;
-            </Button>
+            {method === 'card' ? (
+              <Button 
+                className="flex-1 bg-slate-950 text-white hover:bg-slate-800" 
+                disabled={isSaving || amount <= 0} 
+                onClick={onPay}
+              >
+                {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
+                Pay {formatCurrency(amount)} &rarr;
+              </Button>
+            ) : (
+              <Button 
+                className="flex-1 bg-slate-950 text-white hover:bg-slate-800" 
+                disabled={isSaving || isBankInitiating || amount <= 0} 
+                onClick={async () => {
+                  setIsBankInitiating(true);
+                  setBankError(null);
+                  try {
+                    const res = await parentService.initiateBankTransfer({
+                      studentFeeIds: selectedFeeIds,
+                      amount: amount,
+                      email: user?.email ?? '',
+                      customerName: user ? `${user.firstName} ${user.lastName}` : 'Parent User',
+                    });
+                    setBankDetails(res);
+                  } catch (err: any) {
+                    console.error(err);
+                    const errorMsg = readError(err, 'Failed to generate bank transfer details.');
+                    setBankError(errorMsg);
+                  } finally {
+                    setIsBankInitiating(false);
+                  }
+                }}
+              >
+                {isBankInitiating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wallet className="mr-2 h-4 w-4" />}
+                Generate Bank Details &rarr;
+              </Button>
+            )}
           </div>
         </div>
       </DialogContent>
@@ -1101,7 +1923,17 @@ function PaymentDialog({
   );
 }
 
-function HistoryTable({ history, onOpenReceipt, onRefreshStatus }: { history: PaymentHistoryItem[]; onOpenReceipt: (receiptNumber: string) => void; onRefreshStatus: (paymentId: string) => void }) {
+function HistoryTable({
+  history,
+  onOpenReceipt,
+  onRefreshStatus,
+  onViewBankTransfer,
+}: {
+  history: PaymentHistoryItem[];
+  onOpenReceipt: (receiptNumber: string) => void;
+  onRefreshStatus: (paymentId: string) => void;
+  onViewBankTransfer: (paymentId: string) => void;
+}) {
   return (
     <section className="rounded-md border border-slate-200 bg-white">
       <div className="border-b border-slate-200 p-5">
@@ -1132,6 +1964,9 @@ function HistoryTable({ history, onOpenReceipt, onRefreshStatus }: { history: Pa
                 <td className="px-5 py-4">
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={() => onRefreshStatus(item.paymentId)}>Status</Button>
+                    {item.paymentMethod === 'BANK_TRANSFER' && item.status === 'PROCESSING' && (
+                      <Button variant="outline" size="sm" onClick={() => onViewBankTransfer(item.paymentId)}>Details</Button>
+                    )}
                     {item.receiptNumber && <Button variant="outline" size="sm" onClick={() => onOpenReceipt(item.receiptNumber!)}>Receipt</Button>}
                   </div>
                 </td>
@@ -1150,13 +1985,30 @@ function HistoryTable({ history, onOpenReceipt, onRefreshStatus }: { history: Pa
 }
 
 function ReportCard({ result }: { result: StudentResult }) {
+  const totals = (result.subjects ?? []).reduce(
+    (total, subject) => ({
+      ca: total.ca + Number(subject.caTotal ?? 0),
+      exam: total.exam + Number(subject.examScore ?? 0),
+      final: total.final + Number(subject.finalScore ?? 0),
+    }),
+    { ca: 0, exam: 0, final: 0 },
+  );
+  const numberInClass = result.ranking?.outOf ?? result.student?.classSize ?? 0;
+  const promotion = result.summary?.promotionStatus
+    ?? (Number(result.summary?.average ?? 0) >= 40 ? 'Promoted' : 'Not promoted');
   return (
     <div>
-      <div className="grid gap-3 border-b border-slate-200 p-5 md:grid-cols-4">
+      <div className="grid gap-3 border-b border-slate-200 p-5 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricRow label="Total Score" value={`${Number(result.summary?.totalScore ?? 0).toFixed(1)} / ${result.summary?.totalMaxScore ?? 0}`} />
         <MetricRow label="Average" value={`${Number(result.summary?.average ?? 0).toFixed(1)}%`} />
+        <MetricRow label="Position" value={result.ranking ? `${ordinal(result.ranking.classPosition)} of ${result.ranking.outOf}` : '-'} />
+        <MetricRow label="Number in Class" value={numberInClass ? `${numberInClass} Students` : '-'} />
+        <MetricRow label="Class Average" value={result.summary?.classAverage != null ? `${Number(result.summary.classAverage).toFixed(1)}%` : '-'} />
+        <MetricRow label="Highest Score" value={result.summary?.highestScore != null ? `${Number(result.summary.highestScore).toFixed(1)}%` : '-'} />
+        <MetricRow label="Lowest Score" value={result.summary?.lowestScore != null ? `${Number(result.summary.lowestScore).toFixed(1)}%` : '-'} />
+        <MetricRow label="Promotion" value={promotion} />
         <MetricRow label="Grade" value={result.summary?.overallGrade ?? '-'} />
-        <MetricRow label="Position" value={result.ranking ? `${result.ranking.classPosition} of ${result.ranking.outOf}` : '-'} />
-        <MetricRow label="Attendance" value={result.attendance ? `${result.attendance.attendanceRate.toFixed(1)}%` : '-'} />
+        <MetricRow label="Subjects Passed" value={`${result.summary?.subjectsPassed ?? 0} / ${result.summary?.subjectsTaken ?? 0}`} />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
@@ -1178,16 +2030,83 @@ function ReportCard({ result }: { result: StudentResult }) {
                 <td className="px-5 py-4 text-slate-600">{Number(subject.examScore ?? 0).toFixed(1)}</td>
                 <td className="px-5 py-4 font-semibold text-slate-950">{Number(subject.finalScore ?? 0).toFixed(1)}</td>
                 <td className="px-5 py-4"><Badge variant="outline">{subject.grade ?? '-'}</Badge></td>
-                <td className="px-5 py-4 text-slate-600">{subject.subjectPosition || '-'}</td>
+                <td className="px-5 py-4 text-slate-600">{subject.subjectPosition ? ordinal(subject.subjectPosition) : '-'}</td>
               </tr>
             ))}
+            {(result.subjects?.length ?? 0) > 0 && (
+              <tr className="bg-slate-50 font-semibold text-slate-900">
+                <td className="px-5 py-4">Total</td>
+                <td className="px-5 py-4">{totals.ca.toFixed(1)}</td>
+                <td className="px-5 py-4">{totals.exam.toFixed(1)}</td>
+                <td className="px-5 py-4">{totals.final.toFixed(1)}</td>
+                <td className="px-5 py-4">—</td>
+                <td className="px-5 py-4">—</td>
+              </tr>
+            )}
           </tbody>
         </table>
+      </div>
+      {result.attendance && (
+        <div className="border-t border-slate-200 px-5 py-4">
+          <p className="text-sm font-semibold text-slate-900">Attendance Summary</p>
+          <p className="mt-1 text-sm text-slate-600">
+            Present {result.attendance.daysPresent} of {result.attendance.daysOpen} school days
+            {' '}({result.attendance.attendanceRate.toFixed(1)}%)
+          </p>
+        </div>
+      )}
+      <div className="grid gap-4 border-t border-slate-200 p-5 lg:grid-cols-3">
+        <AssessmentPanel title="Grading Scale" items={(result.gradingScale ?? []).map((item) => ({
+          label: item.grade,
+          value: `${item.minScore}–${item.maxScore}`,
+          note: item.remark || '',
+        }))} emptyText="No grading scale configured." />
+        <AssessmentPanel title="Behavioural Assessment" items={(result.behaviouralAssessments ?? []).map((item) => ({
+          label: item.name,
+          value: item.rating,
+          note: item.comment || '',
+        }))} emptyText="Behavioural assessment has not been recorded yet." />
+        <AssessmentPanel title="Psychomotor Assessment" items={(result.psychomotorAssessments ?? []).map((item) => ({
+          label: item.name,
+          value: item.rating,
+          note: item.comment || '',
+        }))} emptyText="Psychomotor assessment has not been recorded yet." />
       </div>
       <div className="grid gap-4 p-5 md:grid-cols-2">
         <CommentBox title="Teacher's Comment" text={result.teacherComment} />
         <CommentBox title="Principal's Comment" text={result.principalComment} />
       </div>
+    </div>
+  );
+}
+
+function AssessmentPanel({
+  title,
+  items,
+  emptyText,
+}: {
+  title: string;
+  items: Array<{ label: string; value: string; note?: string }>;
+  emptyText: string;
+}) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <p className="text-sm font-semibold text-slate-900">{title}</p>
+      {items.length ? (
+        <div className="mt-3 divide-y divide-slate-100">
+          {items.map((item) => (
+            <div key={`${title}-${item.label}-${item.value}`} className="flex items-start justify-between gap-3 py-2 text-sm">
+              <div>
+                <p className="font-medium text-slate-800">{item.label}</p>
+                {item.note && <p className="text-xs text-slate-500">{item.note}</p>}
+              </div>
+              <span className="font-semibold text-slate-950">{item.value}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-sm text-slate-500">{emptyText}</p>
+      )}
     </div>
   );
 }
@@ -1286,7 +2205,7 @@ function CommentBox({ title, text }: { title: string; text?: string }) {
 
 function StatusBadge({ status }: { status?: string }) {
   const normalized = status ?? 'UNKNOWN';
-  const className = normalized === 'PAID' || normalized === 'COMPLETED'
+  const className = normalized === 'PAID' || normalized === 'COMPLETED' || normalized === 'PICKED UP'
     ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
     : normalized === 'OVERDUE' || normalized === 'FAILED'
       ? 'bg-red-100 text-red-700 hover:bg-red-100'
@@ -1330,6 +2249,31 @@ function isOverdue(fee: StudentFee) {
   return fee.status === 'OVERDUE' || Number(fee.daysUntilDue ?? 1) < 0;
 }
 
+function feePaymentState(fee: StudentFee) {
+  if (fee.balance <= 0 || fee.status === 'PAID') {
+    return {
+      label: '✅ Paid',
+      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    };
+  }
+  if (isOverdue(fee)) {
+    return {
+      label: Number(fee.amountPaid ?? 0) > 0 ? '⚠️ Partially Paid · Overdue' : '⚠️ Overdue',
+      className: 'bg-red-50 text-red-700 border-red-200',
+    };
+  }
+  if (Number(fee.amountPaid ?? 0) > 0) {
+    return {
+      label: '⚠️ Partially Paid',
+      className: 'bg-amber-50 text-amber-700 border-amber-200',
+    };
+  }
+  return {
+    label: '⬜ Not yet paid',
+    className: 'bg-slate-50 text-slate-700 border-slate-200',
+  };
+}
+
 function formatCurrency(value?: number) {
   return new Intl.NumberFormat('en-NG', {
     style: 'currency',
@@ -1342,6 +2286,15 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('en-NG').format(value || 0);
 }
 
+function ordinal(value: number) {
+  const mod100 = value % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${value}th`;
+  if (value % 10 === 1) return `${value}st`;
+  if (value % 10 === 2) return `${value}nd`;
+  if (value % 10 === 3) return `${value}rd`;
+  return `${value}th`;
+}
+
 function formatDate(value?: string) {
   if (!value) return 'Not set';
   return new Intl.DateTimeFormat('en-NG', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value));
@@ -1352,12 +2305,150 @@ function formatDateTime(value?: string) {
   return new Intl.DateTimeFormat('en-NG', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
 
+function hasMorningAttendance(record: ParentAttendanceResponse) {
+  return Boolean(record.arrivalStatus || record.arrivalTime || record.broughtBy);
+}
+
+function hasAfternoonAttendance(record: ParentAttendanceResponse) {
+  return Boolean(
+    record.departureStatus ||
+    record.departureTime ||
+    record.pickedUpBy ||
+    record.pickUpPersonName ||
+    record.pickUpPersonPhone,
+  );
+}
+
+function attendanceStatusLabel(status?: string) {
+  if (!status) return 'Not marked';
+  return status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function attendanceStatusTone(status?: string) {
+  if (status === 'ABSENT') return 'bg-red-100 text-red-600';
+  if (status === 'LATE') return 'bg-amber-100 text-amber-600';
+  if (status === 'EXCUSED') return 'bg-blue-100 text-blue-600';
+  return 'bg-emerald-100 text-emerald-600';
+}
+
+function formatAttendanceTime(value?: string) {
+  if (!value) return '';
+  const [hours, minutes] = value.split(':').map(Number);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return value;
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return new Intl.DateTimeFormat('en-NG', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+}
+
 function readError(error: unknown, fallback: string) {
   if (typeof error === 'object' && error !== null && 'response' in error) {
     const response = (error as { response?: { data?: { errors?: Array<{ message?: string }>; message?: string } } }).response;
     return response?.data?.errors?.[0]?.message || response?.data?.message || fallback;
   }
   return fallback;
+}
+
+interface ViewBankTransferDialogProps {
+  open: boolean;
+  details: BankTransferResponse | null;
+  onOpenChange: (open: boolean) => void;
+  onCheckStatus?: () => void;
+}
+
+function ViewBankTransferDialog({ open, details, onOpenChange, onCheckStatus }: ViewBankTransferDialogProps) {
+  const [copied, setCopied] = useState(false);
+
+  if (!details) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-white sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-slate-900">Virtual Bank Account Details</DialogTitle>
+          <DialogDescription className="text-slate-500">
+            Please make a bank transfer for the school fee payment.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-2">
+          <div className="rounded-lg bg-slate-50 border border-slate-200 p-5 space-y-4">
+            <div className="text-center space-y-1">
+              <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Amount to Transfer</p>
+              <p className="text-3xl font-extrabold text-slate-900">{formatCurrency(details.amount)}</p>
+            </div>
+            
+            <div className="border-t border-slate-200/60 my-3"></div>
+            
+            <div className="space-y-3">
+              <div>
+                <Label className="text-[10px] text-slate-400 font-medium uppercase">Bank Name</Label>
+                <p className="text-sm font-semibold text-slate-950">{details.bankName}</p>
+              </div>
+
+              <div>
+                <Label className="text-[10px] text-slate-400 font-medium uppercase">Account Number</Label>
+                <div className="flex items-center justify-between gap-2 mt-1 bg-white border border-slate-200 rounded-md p-2 pl-3">
+                  <span className="text-base font-mono font-bold tracking-wider text-slate-900">{details.accountNumber}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-slate-500 hover:text-slate-900"
+                    onClick={() => {
+                      navigator.clipboard.writeText(details.accountNumber);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                  >
+                    {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-[10px] text-slate-400 font-medium uppercase">Account Name</Label>
+                <p className="text-sm font-semibold text-slate-950">{details.accountName}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-md bg-amber-50 border border-amber-100 p-4 flex gap-3 items-start">
+            <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-800 space-y-1">
+              <p className="font-semibold">Important instructions:</p>
+              <p>Transfer the exact amount to the bank details above. This virtual account is generated dynamically for this transaction.</p>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="w-1/3"
+              onClick={() => onOpenChange(false)}
+            >
+              Close
+            </Button>
+            {onCheckStatus && (
+              <Button
+                className="flex-1 bg-slate-950 text-white hover:bg-slate-800"
+                onClick={onCheckStatus}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" /> Check Status
+              </Button>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
 export default ParentDashboard;

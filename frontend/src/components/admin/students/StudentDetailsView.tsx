@@ -22,9 +22,10 @@ import { schoolAdminService, type StudentDetail } from '@/services/schoolAdminSe
 interface StudentDetailsProps {
   studentId: string;
   onBack: () => void;
+  onRecordOfflinePayment?: (studentId: string, studentFeeId: string, balance: number, feeName: string) => void;
 }
 
-export const StudentDetailsView: React.FC<StudentDetailsProps> = ({ studentId, onBack }) => {
+export const StudentDetailsView: React.FC<StudentDetailsProps> = ({ studentId, onBack, onRecordOfflinePayment }) => {
   const [student, setStudent] = useState<StudentDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -221,6 +222,16 @@ export const StudentDetailsView: React.FC<StudentDetailsProps> = ({ studentId, o
                           <span className="font-medium">Due Date:</span> {currentFee.dueDate}
                         </p>
                       )}
+                      {currentFee.balance != null && currentFee.balance > 0 && onRecordOfflinePayment && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full mt-2 text-xs bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900"
+                          onClick={() => onRecordOfflinePayment(student.studentId, currentFee.studentFeeId || '', currentFee.balance || 0, currentFee.termName || 'Current Term')}
+                        >
+                          Record Offline Payment
+                        </Button>
+                      )}
                     </div>
                   ) : (
                     <div className="text-center py-6 text-slate-400 bg-white/50 border border-dashed rounded-lg">
@@ -266,6 +277,16 @@ export const StudentDetailsView: React.FC<StudentDetailsProps> = ({ studentId, o
                         <p className="text-[11px] text-slate-500 flex items-center gap-1">
                           <span className="font-medium">Due Date:</span> {upcomingFee.dueDate}
                         </p>
+                      )}
+                      {upcomingFee.balance != null && upcomingFee.balance > 0 && onRecordOfflinePayment && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full mt-2 text-xs bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900"
+                          onClick={() => onRecordOfflinePayment(student.studentId, upcomingFee.studentFeeId || '', upcomingFee.balance || 0, upcomingFee.termName || 'Upcoming Term')}
+                        >
+                          Record Offline Payment
+                        </Button>
                       )}
                     </div>
                   ) : (

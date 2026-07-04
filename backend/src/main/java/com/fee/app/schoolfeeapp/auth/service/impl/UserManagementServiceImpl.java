@@ -380,7 +380,7 @@ public class UserManagementServiceImpl implements UserManagementService {
         kcUser.setAttributes(attributes);
         
         return keycloakAdminService.createUser(kcUser, "PARENT", Set.of("PARENT"))
-                .map(com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult::userId);
+                .map(KeycloakUserResult::userId);
     }
 
 

@@ -11,6 +11,7 @@ import java.util.UUID;
 public interface UserRepository extends ReactiveCrudRepository<User, UUID> {
 
     Mono<User> findByKeycloakIdAndDeletedAtIsNull(UUID keycloakId);
+    Mono<User> findByIdAndSchoolIdAndDeletedAtIsNull(UUID id, UUID schoolId);
 
     /**
      * Paginated query with search support.

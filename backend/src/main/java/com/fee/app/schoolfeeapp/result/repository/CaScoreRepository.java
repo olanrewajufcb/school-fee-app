@@ -1,6 +1,7 @@
 package com.fee.app.schoolfeeapp.result.repository;
 
 import com.fee.app.schoolfeeapp.result.domain.CaScore;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
@@ -39,9 +40,17 @@ public interface CaScoreRepository extends ReactiveCrudRepository<CaScore, UUID>
                 :#{#score.createdAt},
                 :#{#score.updatedAt}
             )
+            ON CONFLICT (student_id, subject_id, term_id, ca_component_id)
+            DO UPDATE SET
+                school_id = EXCLUDED.school_id,
+                class_id = EXCLUDED.class_id,
+                score = EXCLUDED.score,
+                max_score = EXCLUDED.max_score,
+                recorded_by = EXCLUDED.recorded_by,
+                updated_at = EXCLUDED.updated_at
             RETURNING *
             """)
-    Mono<CaScore> insert(CaScore score);
+    Mono<CaScore> insert(@Param("score") CaScore score);
 
     Flux<CaScore> findByStudentIdAndSubjectIdAndTermIdAndSchoolId(
             UUID studentId, UUID subjectId, UUID termId, UUID schoolId);

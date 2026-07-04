@@ -40,7 +40,6 @@ public class StudentFee {
   @Column("due_date")
   private LocalDate dueDate;
 
-
   @Column("is_late_fee_applied")
   private Boolean isLateFeeApplied;
 

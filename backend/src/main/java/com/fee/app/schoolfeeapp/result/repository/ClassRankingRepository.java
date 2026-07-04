@@ -8,6 +8,7 @@ import java.util.UUID;
 
 public interface ClassRankingRepository extends ReactiveCrudRepository<ClassRanking, UUID> {
     Flux<ClassRanking> findByClassIdAndTermIdOrderByClassPosition(UUID classId, UUID termId);
+    Flux<ClassRanking> findByClassIdAndTermIdOrderByAveragePercentageDesc(UUID classId, UUID termId);
     Mono<ClassRanking> findByStudentIdAndTermId(UUID studentId, UUID termId);
     Mono<ClassRanking> findByStudentIdAndTermIdAndSchoolId(UUID studentId, UUID termId, UUID schoolId);
 }

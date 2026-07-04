@@ -3,6 +3,8 @@ package com.fee.app.schoolfeeapp.payment.controller;
 import com.fee.app.schoolfeeapp.auth.service.impl.KeycloakAdminServiceImpl;
 import com.fee.app.schoolfeeapp.payment.dto.request.InitiatePaymentRequest;
 import com.fee.app.schoolfeeapp.payment.dto.request.OfflinePaymentRequest;
+import com.fee.app.schoolfeeapp.payment.dto.request.BankTransferRequest;
+import com.fee.app.schoolfeeapp.payment.dto.response.BankTransferResponse;
 import com.fee.app.schoolfeeapp.payment.gateway.GatewayCallbackData;
 import com.fee.app.schoolfeeapp.payment.gateway.dto.GatewayResponse;
 import com.fee.app.schoolfeeapp.payment.gateway.service.PaymentGateway;
@@ -41,6 +43,7 @@ import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.mockJwt;
@@ -397,6 +400,125 @@ class PaymentControllerIntegrationTest {
                     WHERE entry_type = 'PAYMENT'
                     """, Map.of()))
                     .isEqualTo(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("Bank Transfer Endpoint - Integration Tests")
+    class BankTransferEndpointIntegrationTests {
+
+        @BeforeEach
+        void localSetUp() {
+            // Additional setup specific to bank transfers if needed
+        }
+
+        @Test
+        @DisplayName("Should initiate bank transfer for parent")
+        void shouldInitiateBankTransferForParent() {
+            PaymentFixture fixture = seedPaymentFixture(true);
+
+            BankTransferResponse gatewayResponse = BankTransferResponse.builder()
+                    .reference("paystack-ref-123")
+                    .accountNumber("9901234567")
+                    .accountName("Grace School - Parent")
+                    .bankName("Wema Bank")
+                    .amount(BigDecimal.valueOf(5000))
+                    .status("READY")
+                    .message("Transfer to account below")
+                    .build();
+
+            when(paymentGateway.initiateBankTransfer(any(UUID.class), any(BigDecimal.class), anyString(), anyString()))
+                    .thenReturn(Mono.just(gatewayResponse));
+
+            BankTransferRequest request = new BankTransferRequest(
+                    List.of(fixture.studentFeeId()), BigDecimal.valueOf(5000), "parent@gis.edu", "Parent User");
+
+            authenticatedClient(SCHOOL_ID, "PARENT", "PARENT")
+                    .post()
+                    .uri("/api/v1/payments/bank-transfer")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request)
+                    .exchange()
+                    .expectStatus().isCreated()
+                    .expectBody()
+                    .jsonPath("$.success").isEqualTo(true)
+                    .jsonPath("$.data.reference").isEqualTo("paystack-ref-123")
+                    .jsonPath("$.data.accountNumber").isEqualTo("9901234567")
+                    .jsonPath("$.data.bankName").isEqualTo("Wema Bank")
+                    .jsonPath("$.data.status").isEqualTo("READY");
+        }
+
+        @Test
+        @DisplayName("Should get bank transfer details for parent")
+        void shouldGetBankTransferDetailsForParent() {
+            PaymentFixture fixture = seedPaymentFixture(true);
+
+            UUID paymentId = UUID.randomUUID();
+            databaseClient.sql("""
+                    INSERT INTO payment.payments (
+                        id, school_id, student_fee_id, student_id, amount,
+                        payment_method, payment_mode, status, paid_by,
+                        gateway_transaction_ref, gateway_status, idempotency_key,
+                        created_at, updated_at
+                    )
+                    VALUES (
+                        :id, :schoolId, :studentFeeId, :studentId, 5000,
+                        'BANK_TRANSFER', 'ONLINE', 'PROCESSING', :paidBy,
+                        'paystack-ref-123', 'READY', 'idemp-123',
+                        :now, :now
+                    )
+                    """)
+                    .bind("id", paymentId)
+                    .bind("schoolId", SCHOOL_ID)
+                    .bind("studentFeeId", fixture.studentFeeId())
+                    .bind("studentId", fixture.studentId())
+                    .bind("paidBy", PARENT_USER_ID)
+                    .bind("now", Instant.now())
+                    .fetch()
+                    .rowsUpdated()
+                    .block();
+
+            BankTransferResponse gatewayResponse = BankTransferResponse.builder()
+                    .reference("paystack-ref-123")
+                    .accountNumber("9901234567")
+                    .accountName("Grace School - Parent")
+                    .bankName("Wema Bank")
+                    .amount(BigDecimal.valueOf(5000))
+                    .status("READY")
+                    .message("Transfer to account below")
+                    .build();
+
+            when(paymentGateway.resolveBankTransfer("paystack-ref-123"))
+                    .thenReturn(Mono.just(gatewayResponse));
+
+            authenticatedClient(SCHOOL_ID, "PARENT", "PARENT")
+                    .get()
+                    .uri("/api/v1/payments/{paymentId}/bank-transfer-details", paymentId)
+                    .exchange()
+                    .expectStatus().isOk()
+                    .expectBody()
+                    .jsonPath("$.success").isEqualTo(true)
+                    .jsonPath("$.data.reference").isEqualTo("paystack-ref-123")
+                    .jsonPath("$.data.accountNumber").isEqualTo("9901234567")
+                    .jsonPath("$.data.bankName").isEqualTo("Wema Bank")
+                    .jsonPath("$.data.status").isEqualTo("READY");
+        }
+
+        @Test
+        @DisplayName("Should reject bank transfer for school admin role")
+        void shouldRejectBankTransferForSchoolAdminRole() {
+            PaymentFixture fixture = seedPaymentFixture(true);
+
+            BankTransferRequest request = new BankTransferRequest(
+                    List.of(fixture.studentFeeId()), BigDecimal.valueOf(5000), "parent@gis.edu", "Parent User");
+
+            authenticatedClient(SCHOOL_ID, "SCHOOL_ADMIN", "SCHOOL_ADMIN")
+                    .post()
+                    .uri("/api/v1/payments/bank-transfer")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request)
+                    .exchange()
+                    .expectStatus().isForbidden();
         }
     }
 

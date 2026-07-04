@@ -294,6 +294,53 @@ class ResultControllerIntegrationTest {
                 .jsonPath("$.errors[0].code").isEqualTo("RESULTS_NOT_PUBLISHED");
     }
 
+    @Test
+    @DisplayName("Should create and list report card templates through controller")
+    void shouldCreateAndListReportCardTemplatesThroughController() {
+        seedSchool();
+
+        Map<String, Object> request = Map.of(
+                "name", "Standard Primary",
+                "educationLevel", "PRIMARY",
+                "isDefault", true,
+                "config", Map.of(
+                        "layout", "standard",
+                        "sections", List.of("studentInfo", "scores", "summary", "comments")));
+
+        authenticatedClient("SCHOOL_ADMIN", "SCHOOL_ADMIN")
+                .post()
+                .uri("/api/v1/results/report-card-templates")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isCreated()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data.name").isEqualTo("Standard Primary")
+                .jsonPath("$.data.educationLevel").isEqualTo("PRIMARY")
+                .jsonPath("$.data.isDefault").isEqualTo(true)
+                .jsonPath("$.data.config.layout").isEqualTo("standard");
+
+        authenticatedClient("TEACHER", "TEACHER")
+                .get()
+                .uri("/api/v1/results/report-card-templates")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data[0].name").isEqualTo("Standard Primary")
+                .jsonPath("$.data[0].educationLevel").isEqualTo("PRIMARY");
+
+        assertThat(countRows("""
+                SELECT COUNT(*) AS count
+                FROM result.report_card_templates
+                WHERE school_id = :schoolId
+                  AND education_level = 'PRIMARY'::result.education_level
+                  AND is_default = true
+                  AND is_active = true
+                """, Map.of("schoolId", SCHOOL_ID))).isEqualTo(1);
+    }
+
     private WebTestClient authenticatedClient(String userType, String... roles) {
         List<String> roleList = Arrays.asList(roles);
         return webTestClient.mutateWith(mockJwt()
@@ -736,6 +783,7 @@ class ResultControllerIntegrationTest {
 
     private void cleanDatabase() {
         databaseClient.sql("DELETE FROM result.score_audit_log").fetch().rowsUpdated().block();
+        databaseClient.sql("DELETE FROM result.report_card_templates").fetch().rowsUpdated().block();
         databaseClient.sql("DELETE FROM result.published_results").fetch().rowsUpdated().block();
         databaseClient.sql("DELETE FROM result.report_comments").fetch().rowsUpdated().block();
         databaseClient.sql("DELETE FROM result.class_rankings").fetch().rowsUpdated().block();

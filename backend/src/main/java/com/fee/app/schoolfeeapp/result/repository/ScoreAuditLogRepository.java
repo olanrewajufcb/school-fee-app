@@ -1,6 +1,7 @@
 package com.fee.app.schoolfeeapp.result.repository;
 
 import com.fee.app.schoolfeeapp.result.domain.ScoreAuditLog;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
@@ -39,7 +40,7 @@ public interface ScoreAuditLogRepository extends ReactiveCrudRepository<ScoreAud
             )
             RETURNING *
             """)
-    Mono<ScoreAuditLog> insert(ScoreAuditLog audit);
+    Mono<ScoreAuditLog> insert(@Param("audit") ScoreAuditLog audit);
 
     Flux<ScoreAuditLog> findByScoreIdOrderByChangedAtDesc(UUID scoreId);
 }

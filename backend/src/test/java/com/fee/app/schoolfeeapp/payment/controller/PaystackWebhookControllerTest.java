@@ -143,4 +143,36 @@ class PaystackWebhookControllerTest {
             throw new IllegalStateException(e);
         }
     }
+
+    @Test
+    @DisplayName("Should redirect with reference parameter")
+    void shouldRedirectWithReference() {
+        String reference = "paystack-ref";
+
+        StepVerifier.create(controller.handleRedirect(reference, null))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+                    assertThat(response.getBody()).isNull();
+                    assertThat(response.getHeaders().getLocation().toString())
+                            .contains("/dashboard?reference=paystack-ref&status=success");
+                })
+                .verifyComplete();
+
+        verify(paymentService, never()).handlePaystackWebhook(reference);
+    }
+
+    @Test
+    @DisplayName("Should redirect without reference parameter")
+    void shouldRedirectWithoutReference() {
+        StepVerifier.create(controller.handleRedirect(null, null))
+                .assertNext(response -> {
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+                    assertThat(response.getBody()).isNull();
+                    assertThat(response.getHeaders().getLocation().toString())
+                            .contains("/dashboard");
+                })
+                .verifyComplete();
+
+        verify(paymentService, never()).handlePaystackWebhook((String) null);
+    }
 }

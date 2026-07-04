@@ -1,5 +1,6 @@
 package com.fee.app.schoolfeeapp.common.scheduler;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fee.app.schoolfeeapp.auth.repository.UserRepository;
@@ -83,6 +84,7 @@ public class OutboxEventProcessor {
             case "STAFF_CREATED" -> handleStaffCreated(event);
             case "KEYCLOAK_CLEANUP" -> handleKeycloakCleanup(event);
             case "SCHOOL_CREATED" -> handleSchoolCreated(event);
+            case "ATTENDANCE_NOTIFICATION" -> handleAttendanceNotification(event);
 
             default -> {
                 log.warn("Unknown event type: {}", event.getEventType());
@@ -95,6 +97,56 @@ public class OutboxEventProcessor {
                 .doOnSuccess(v -> log.info("Event processed successfully: id={}, type={}", event.getId(), event.getEventType()))
                 .onErrorResume(error -> handleProcessingError(event, error).then())
                 .thenReturn(event.getId().toString());
+    }
+
+    private Mono<Void> handleAttendanceNotification(OutboxEvent event){
+
+        try{
+            Map<String, Object> payload =
+                    objectMapper.treeToValue(event.getPayload(), Map.class);
+
+            log.info(
+                    "Processing student attendance notification event: schoolId={}, guardianId={}",
+                    payload.get("schoolId"),
+                    payload.get("guardianId"));
+
+        return payload.get("guardianEmail") == null
+                ? Mono.empty()
+                : sendAttendanceNotificationEmail(payload);
+        }
+        catch (JsonProcessingException e) {
+            log.error("Failed to process attendance notification event: {}", event.getId(), e);
+            return Mono.empty();
+        }
+
+
+    }
+
+    private Mono<Void> sendAttendanceNotificationEmail(Map<String, Object> payload) {
+        if (payload.get("guardianEmail") == null || payload.get("schoolName") == null || payload.get("message") == null) {
+            log.warn("Missing critical fields in attendance notification payload: schoolId={}", payload.get("schoolId"));
+            return Mono.empty();
+        }
+
+        String guardianEmail = payload.get("guardianEmail").toString();
+        String schoolName = payload.getOrDefault("schoolName", "School").toString();
+        String message = payload.get("message") != null ? payload.get("message").toString() : "Default message";
+
+
+        return emailService.sendAttendanceNotificationEmail(
+                        guardianEmail,
+                        schoolName,
+                        message)
+                .doOnSuccess(
+                        v ->
+                                log.info(
+                                        "Admin welcome email sent: schoolId={}, email={}",
+                                        payload.get("schoolId"),
+                                        payload.get("guardianEmail")))
+                .doOnError(
+                        e ->
+                                log.error("Invalid attendance notification payload: missing schoolName or message. Full payload: {}", payload));
+
     }
 
     /**

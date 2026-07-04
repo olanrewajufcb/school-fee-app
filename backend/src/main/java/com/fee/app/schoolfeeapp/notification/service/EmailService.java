@@ -5,4 +5,5 @@ import reactor.core.publisher.Mono;
 public interface EmailService {
     Mono<Void> sendAdminWelcomeEmail(String toEmail, String schoolName, String temporaryPassword);
     Mono<Void> sendStaffWelcomeEmail(String toEmail, String schoolName, String temporaryPassword);
+    Mono<Void> sendAttendanceNotificationEmail(String toEmail, String schoolName, String message);
 }

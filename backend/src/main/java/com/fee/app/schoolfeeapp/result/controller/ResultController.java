@@ -7,7 +7,11 @@ import com.fee.app.schoolfeeapp.result.dto.response.*;
 import com.fee.app.schoolfeeapp.result.service.ResultService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/results")
 @RequiredArgsConstructor
@@ -71,6 +76,14 @@ public class ResultController {
                 .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
     }
 
+    @GetMapping("/students/{studentId}/published-terms")
+    @PreAuthorize("hasRole('PARENT')")
+    public Mono<ResponseEntity<ApiResponse<List<PublishedTermResultResponse>>>> getPublishedStudentResults(
+            @PathVariable UUID studentId) {
+        return resultService.getPublishedStudentResults(studentId)
+                .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
+    }
+
     @GetMapping("/classes/{classId}/term/{termId}/result-sheet")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'TEACHER')")
     public Mono<ResponseEntity<ApiResponse<ClassResultSheetResponse>>> getClassResultSheet(
@@ -99,6 +112,31 @@ public class ResultController {
     public Mono<ResponseEntity<ApiResponse<List<ExamLookupResponse>>>> getExamsForTerm(
             @PathVariable UUID termId) {
         return resultService.getExamsForTerm(termId)
+                .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
+    }
+
+    @GetMapping("/classes/{classId}/assessment-traits")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'TEACHER')")
+    public Mono<ResponseEntity<ApiResponse<List<AssessmentTraitResponse>>>> getAssessmentTraits(
+            @PathVariable UUID classId) {
+        return resultService.getAssessmentTraits(classId)
+                .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
+    }
+
+    @GetMapping("/classes/{classId}/terms/{termId}/trait-assessments")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'TEACHER')")
+    public Mono<ResponseEntity<ApiResponse<List<TraitAssessmentValueResponse>>>> getTraitAssessmentValues(
+            @PathVariable UUID classId,
+            @PathVariable UUID termId) {
+        return resultService.getTraitAssessmentValues(classId, termId)
+                .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
+    }
+
+    @PutMapping("/trait-assessments")
+    @PreAuthorize("hasRole('TEACHER')")
+    public Mono<ResponseEntity<ApiResponse<TraitAssessmentSaveResponse>>> saveTraitAssessments(
+            @Valid @RequestBody TraitAssessmentRequest request) {
+        return resultService.saveTraitAssessments(request)
                 .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
     }
 
@@ -139,7 +177,7 @@ public class ResultController {
     public Mono<ResponseEntity<ApiResponse<ReportCommentResponse>>> addTeacherComment(
             @PathVariable UUID studentId, @PathVariable UUID termId,
             @Valid @RequestBody CommentRequest request) {
-        return resultService.addTeacherComment(studentId, termId, request.comment())
+        return resultService.addTeacherComment(studentId, termId, request.comment(), request.shouldAutoGenerate())
                 .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
     }
 
@@ -148,7 +186,7 @@ public class ResultController {
     public Mono<ResponseEntity<ApiResponse<ReportCommentResponse>>> addPrincipalComment(
             @PathVariable UUID studentId, @PathVariable UUID termId,
             @Valid @RequestBody CommentRequest request) {
-        return resultService.addPrincipalComment(studentId, termId, request.comment())
+        return resultService.addPrincipalComment(studentId, termId, request.comment(), request.shouldAutoGenerate())
                 .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
     }
 
@@ -180,6 +218,54 @@ public class ResultController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'TEACHER')")
     public Mono<ResponseEntity<ApiResponse<GradingRuleResponse>>> getGradingRules() {
         return resultService.getGradingRules()
+                .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
+    }
+
+    // In ResultController.java
+
+    /**
+     * GET /api/v1/results/students/{studentId}/term/{termId}/download
+     * Download a single student's result as PDF.
+     */
+    @GetMapping("/students/{studentId}/term/{termId}/download")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'TEACHER', 'PARENT')")
+    public Mono<ResponseEntity<DataBuffer>> downloadStudentResult(
+            @PathVariable UUID studentId,
+            @PathVariable UUID termId) {
+        return resultService.downloadStudentResultPdf(studentId, termId)
+                .map(pdfData -> ResponseEntity.ok()
+                        .header(HttpHeaders.CONTENT_DISPOSITION,
+                                "attachment; filename=\"result-" + studentId + "-" + termId + ".pdf\"")
+                        .contentType(MediaType.APPLICATION_PDF)
+                        .body(pdfData));
+    }
+
+    /**
+     * POST /api/v1/results/students/{studentId}/term/{termId}/share
+     * Share a student's result via SMS, WhatsApp, or Email.
+     */
+    @PostMapping("/students/{studentId}/term/{termId}/share")
+    @PreAuthorize("hasRole('PARENT')")
+    public Mono<ResponseEntity<ApiResponse<ShareResultResponse>>> shareStudentResult(
+            @PathVariable UUID studentId,
+            @PathVariable UUID termId,
+            @Valid @RequestBody ShareResultRequest request) {
+        return resultService.shareStudentResult(studentId, termId, request)
+                .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
+    }
+
+    @PostMapping("/report-card-templates")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN')")
+    public Mono<ResponseEntity<ApiResponse<ReportCardTemplateResponse>>> createTemplate(
+            @Valid @RequestBody ReportCardTemplateRequest request) {
+        return resultService.createReportCardTemplate(request)
+                .map(r -> ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(r)));
+    }
+
+    @GetMapping("/report-card-templates")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN', 'TEACHER')")
+    public Mono<ResponseEntity<ApiResponse<List<ReportCardTemplateResponse>>>> getTemplates() {
+        return resultService.getReportCardTemplates()
                 .map(r -> ResponseEntity.ok(ApiResponse.success(r)));
     }
 }

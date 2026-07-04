@@ -60,7 +60,11 @@ class PaystackGatewayTest {
     }
 
     private void mockExternalApiResponse(String jsonBody) {
-        ClientResponse mockResponse = ClientResponse.create(HttpStatus.OK)
+        mockExternalApiResponse(HttpStatus.OK, jsonBody);
+    }
+
+    private void mockExternalApiResponse(HttpStatus status, String jsonBody) {
+        ClientResponse mockResponse = ClientResponse.create(status)
                 .header("Content-Type", "application/json")
                 .body(jsonBody)
                 .build();
@@ -90,7 +94,7 @@ class PaystackGatewayTest {
 
             mockExternalApiResponse(responseBody);
 
-            Mono<GatewayResponse> result = gateway.initiatePayment(paymentId, "08012345678", amount, "Term 1 Fee");
+            Mono<GatewayResponse> result = gateway.initiatePayment(paymentId, "parent@example.com", amount, "Term 1 Fee");
 
             StepVerifier.create(result)
                     .assertNext(response -> {
@@ -114,7 +118,7 @@ class PaystackGatewayTest {
 
             // Act & Assert using AssertJ for a synchronous exception
            assertThatThrownBy(() -> {
-                        gateway.initiatePayment(paymentId, "080123", BigDecimal.ZERO, "Fee");
+                        gateway.initiatePayment(paymentId, "parent@example.com", BigDecimal.ZERO, "Fee");
                     })
                     .isInstanceOf(SchoolFeeException.class)
                     .matches(ex -> ((SchoolFeeException) ex).getErrorCode().equals("INVALID_PAYMENT_AMOUNT"))
@@ -133,9 +137,28 @@ class PaystackGatewayTest {
 
             mockExternalApiResponse(responseBody);
 
-            StepVerifier.create(gateway.initiatePayment(UUID.randomUUID(), "080123", new BigDecimal("100"), "Fee"))
+            StepVerifier.create(gateway.initiatePayment(UUID.randomUUID(), "parent@example.com", new BigDecimal("100"), "Fee"))
                     .expectErrorMatches(throwable -> throwable instanceof SchoolFeeException &&
                             throwable.getMessage().contains("Invalid split code"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should expose Paystack HTTP validation error")
+        void shouldExposePaystackHttpValidationError() {
+            String responseBody = """
+                    {
+                      "status": false,
+                      "message": "Invalid email address"
+                    }
+                    """;
+
+            mockExternalApiResponse(HttpStatus.BAD_REQUEST, responseBody);
+
+            StepVerifier.create(gateway.initiatePayment(UUID.randomUUID(), "bad@example.com", new BigDecimal("100"), "Fee"))
+                    .expectErrorMatches(throwable -> throwable instanceof SchoolFeeException &&
+                            ((SchoolFeeException) throwable).getErrorCode().equals("PAYSTACK_INIT_FAILED") &&
+                            throwable.getMessage().contains("Invalid email address"))
                     .verify();
         }
     }
@@ -289,6 +312,407 @@ class PaystackGatewayTest {
 
             StepVerifier.create(gateway.isAvailable(UUID.randomUUID()))
                     .expectNext(false)
+                    .verifyComplete();
+        }
+    }
+
+    @Nested
+    @DisplayName("Email and Amount Validation Tests")
+    class ValidationTests {
+
+        @Test
+        @DisplayName("Should reject blank or null customer email")
+        void shouldRejectBlankOrNullEmail() {
+            UUID paymentId = UUID.randomUUID();
+            BigDecimal amount = new BigDecimal("100.00");
+
+            assertThatThrownBy(() -> gateway.initiatePayment(paymentId, null, amount, "Fee"))
+                    .isInstanceOf(SchoolFeeException.class)
+                    .hasMessageContaining("A valid parent email is required");
+
+            assertThatThrownBy(() -> gateway.initiatePayment(paymentId, "   ", amount, "Fee"))
+                    .isInstanceOf(SchoolFeeException.class)
+                    .hasMessageContaining("A valid parent email is required");
+        }
+
+        @Test
+        @DisplayName("Should reject invalid formatted customer email")
+        void shouldRejectInvalidFormattedEmail() {
+            UUID paymentId = UUID.randomUUID();
+            BigDecimal amount = new BigDecimal("100.00");
+
+            assertThatThrownBy(() -> gateway.initiatePayment(paymentId, "invalid-email", amount, "Fee"))
+                    .isInstanceOf(SchoolFeeException.class)
+                    .hasMessageContaining("A valid parent email is required");
+
+            assertThatThrownBy(() -> gateway.initiatePayment(paymentId, "invalid@domain", amount, "Fee"))
+                    .isInstanceOf(SchoolFeeException.class)
+                    .hasMessageContaining("A valid parent email is required");
+        }
+
+        @Test
+        @DisplayName("Should reject null amount")
+        void shouldRejectNullAmount() {
+            UUID paymentId = UUID.randomUUID();
+            assertThatThrownBy(() -> gateway.initiatePayment(paymentId, "parent@example.com", null, "Fee"))
+                    .isInstanceOf(SchoolFeeException.class)
+                    .hasMessageContaining("Amount must be greater than 0");
+        }
+    }
+
+    @Nested
+    @DisplayName("initiateBankTransfer Tests")
+    class InitiateBankTransferTests {
+
+        @Test
+        @DisplayName("Should successfully initiate bank transfer and resolve details")
+        void shouldSuccessfullyInitiateBankTransfer() {
+            UUID paymentId = UUID.randomUUID();
+            BigDecimal amount = new BigDecimal("1000.00");
+
+            String initResponse = """
+                    {
+                      "status": true,
+                      "data": {
+                        "reference": "transfer-ref-999"
+                      }
+                    }
+                    """;
+
+            String verifyResponse = """
+                    {
+                      "status": true,
+                      "data": {
+                        "authorization": {
+                          "account_number": "1234567890",
+                          "account_name": "GIS Parent account",
+                          "bank": "Titan Trust Bank"
+                        }
+                      }
+                    }
+                    """;
+
+            // Stub first call (initiate post)
+            ClientResponse initMockResponse = ClientResponse.create(HttpStatus.OK)
+                    .header("Content-Type", "application/json")
+                    .body(initResponse)
+                    .build();
+
+            // Stub second call (verify get)
+            ClientResponse verifyMockResponse = ClientResponse.create(HttpStatus.OK)
+                    .header("Content-Type", "application/json")
+                    .body(verifyResponse)
+                    .build();
+
+            when(exchangeFunction.exchange(any(ClientRequest.class)))
+                    .thenReturn(Mono.just(initMockResponse))
+                    .thenReturn(Mono.just(verifyMockResponse));
+
+            StepVerifier.create(gateway.initiateBankTransfer(paymentId, amount, "parent@example.com", "Parent Name"))
+                    .assertNext(response -> {
+                        assertThat(response.reference()).isEqualTo("transfer-ref-999");
+                        assertThat(response.accountNumber()).isEqualTo("1234567890");
+                        assertThat(response.accountName()).isEqualTo("GIS Parent account");
+                        assertThat(response.bankName()).isEqualTo("Titan Trust Bank");
+                        assertThat(response.status()).isEqualTo("READY");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should handle initiate bank transfer failure")
+        void shouldHandleInitiateBankTransferFailure() {
+            UUID paymentId = UUID.randomUUID();
+            BigDecimal amount = new BigDecimal("1000.00");
+
+            String initResponse = """
+                    {
+                      "status": false,
+                      "message": "Gateway error detail"
+                    }
+                    """;
+
+            mockExternalApiResponse(initResponse);
+
+            StepVerifier.create(gateway.initiateBankTransfer(paymentId, amount, "parent@example.com", "Parent Name"))
+                    .expectErrorMatches(throwable -> throwable instanceof com.fee.app.schoolfeeapp.common.exceptions.GatewayException &&
+                            throwable.getMessage().contains("Gateway error detail"))
+                    .verify();
+        }
+    }
+
+    @Nested
+    @DisplayName("resolveBankTransfer Tests")
+    class ResolveBankTransferTests {
+
+        @Test
+        @DisplayName("Should handle blank or null reference")
+        void shouldHandleBlankOrNullRef() {
+            StepVerifier.create(gateway.resolveBankTransfer(null))
+                    .assertNext(response -> {
+                        assertThat(response.reference()).isNull();
+                        assertThat(response.status()).isEqualTo("PENDING");
+                        assertThat(response.message()).contains("Transfer details not yet available");
+                    })
+                    .verifyComplete();
+
+            StepVerifier.create(gateway.resolveBankTransfer("   "))
+                    .assertNext(response -> {
+                        assertThat(response.reference()).isNull();
+                        assertThat(response.status()).isEqualTo("PENDING");
+                        assertThat(response.message()).contains("Transfer details not yet available");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should resolve COMPLETED bank transfer status")
+        void shouldResolveCompletedStatus() {
+            String reference = "ref-verify-ok";
+            String responseBody = """
+                    {
+                      "status": true,
+                      "data": {
+                        "status": "success",
+                        "amount": 100000,
+                        "authorization": {
+                          "account_number": "1234567890",
+                          "account_name": "GIS Parent account",
+                          "bank": "Titan Trust Bank"
+                        }
+                      }
+                    }
+                    """;
+            mockExternalApiResponse(responseBody);
+
+            StepVerifier.create(gateway.resolveBankTransfer(reference))
+                    .assertNext(response -> {
+                        assertThat(response.reference()).isEqualTo(reference);
+                        assertThat(response.status()).isEqualTo("COMPLETED");
+                        assertThat(response.accountNumber()).isEqualTo("1234567890");
+                        assertThat(response.message()).contains("Payment confirmed");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should resolve FAILED bank transfer status")
+        void shouldResolveFailedStatus() {
+            String reference = "ref-verify-fail";
+            String responseBody = """
+                    {
+                      "status": true,
+                      "data": {
+                        "status": "abandoned",
+                        "amount": 100000,
+                        "authorization": {
+                          "account_number": "1234567890",
+                          "account_name": "GIS Parent account",
+                          "bank": "Titan Trust Bank"
+                        }
+                      }
+                    }
+                    """;
+            mockExternalApiResponse(responseBody);
+
+            StepVerifier.create(gateway.resolveBankTransfer(reference))
+                    .assertNext(response -> {
+                        assertThat(response.reference()).isEqualTo(reference);
+                        assertThat(response.status()).isEqualTo("FAILED");
+                        assertThat(response.message()).contains("Transfer to the account above");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should resolve PROCESSING bank transfer status")
+        void shouldResolveProcessingStatus() {
+            String reference = "ref-verify-proc";
+            String responseBody = """
+                    {
+                      "status": true,
+                      "data": {
+                        "status": "ongoing",
+                        "amount": 100000,
+                        "authorization": {
+                          "account_number": "1234567890",
+                          "account_name": "GIS Parent account",
+                          "bank": "Titan Trust Bank"
+                        }
+                      }
+                    }
+                    """;
+            mockExternalApiResponse(responseBody);
+
+            StepVerifier.create(gateway.resolveBankTransfer(reference))
+                    .assertNext(response -> {
+                        assertThat(response.reference()).isEqualTo(reference);
+                        assertThat(response.status()).isEqualTo("PROCESSING");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should handle missing virtual account details")
+        void shouldHandleMissingVirtualAccountDetails() {
+            String reference = "ref-verify-missing";
+            String responseBody = """
+                    {
+                      "status": true,
+                      "data": {
+                        "status": "ongoing",
+                        "amount": 100000,
+                        "authorization": {
+                          "account_number": null
+                        }
+                      }
+                    }
+                    """;
+            mockExternalApiResponse(responseBody);
+
+            StepVerifier.create(gateway.resolveBankTransfer(reference))
+                    .assertNext(response -> {
+                        assertThat(response.reference()).isEqualTo(reference);
+                        assertThat(response.accountNumber()).isNull();
+                        assertThat(response.message()).contains("Transfer details are being generated");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should fallback on exception in resolveBankTransfer")
+        void shouldFallbackOnException() {
+            when(exchangeFunction.exchange(any(ClientRequest.class)))
+                    .thenReturn(Mono.error(new RuntimeException("Simulated network failure")));
+
+            StepVerifier.create(gateway.resolveBankTransfer("ref-err"))
+                    .assertNext(response -> {
+                        assertThat(response.reference()).isEqualTo("ref-err");
+                        assertThat(response.status()).isEqualTo("UNKNOWN");
+                        assertThat(response.message()).contains("Unable to retrieve transfer details");
+                    })
+                    .verifyComplete();
+        }
+    }
+
+    @Nested
+    @DisplayName("resolveBankTransferDetails manual paths")
+    class ResolveBankTransferDetailsManualPaths {
+
+        @Test
+        @DisplayName("Should return READY virtual account when available")
+        void shouldReturnReadyVirtualAccount() {
+            String reference = "ref-verify-ok";
+            String responseBody = """
+                    {
+                      "status": true,
+                      "data": {
+                        "authorization": {
+                          "account_number": "1234567890",
+                          "account_name": "GIS Parent account",
+                          "bank": "Titan Trust Bank"
+                        }
+                      }
+                    }
+                    """;
+            mockExternalApiResponse(responseBody);
+
+            // Use resolveBankTransferDetails indirectly through initiateBankTransfer
+            StepVerifier.create(gateway.initiateBankTransfer(UUID.randomUUID(), new BigDecimal("100"), "parent@example.com", "Name"))
+                    .assertNext(response -> {
+                        assertThat(response.accountNumber()).isEqualTo("1234567890");
+                        assertThat(response.status()).isEqualTo("READY");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should return PENDING with manual details when virtual account is missing")
+        void shouldReturnPendingManualDetails() {
+            String responseBody = """
+                    {
+                      "status": true,
+                      "data": {
+                        "authorization": {
+                          "account_number": ""
+                        }
+                      }
+                    }
+                    """;
+            mockExternalApiResponse(responseBody);
+
+            StepVerifier.create(gateway.initiateBankTransfer(UUID.randomUUID(), new BigDecimal("100"), "parent@example.com", "Name"))
+                    .assertNext(response -> {
+                        assertThat(response.accountNumber()).isEqualTo("Coming soon...");
+                        assertThat(response.accountName()).isEqualTo("Grace International School");
+                        assertThat(response.bankName()).isEqualTo("Paystack Titan");
+                        assertThat(response.status()).isEqualTo("PENDING");
+                    })
+                    .verifyComplete();
+        }
+    }
+
+    @Nested
+    @DisplayName("timestamp parsing tests")
+    class TimestampParsingTests {
+
+        @Test
+        @DisplayName("Should parse custom timestamp and handle null/empty value")
+        void shouldParseCustomTimestampAndHandleEmpty() {
+            String reference = "ref-ts-verify";
+            
+            // 1. Valid paid_at timestamp
+            String responseBody1 = """
+                    {
+                      "status": true,
+                      "data": {
+                        "status": "success",
+                        "amount": 100000,
+                        "paid_at": "2026-06-08T12:00:00.000Z"
+                      }
+                    }
+                    """;
+            mockExternalApiResponse(responseBody1);
+            StepVerifier.create(gateway.verifyPayment(reference))
+                    .assertNext(status -> {
+                        assertThat(status.transactionDate()).isEqualTo(java.time.Instant.parse("2026-06-08T12:00:00.000Z"));
+                    })
+                    .verifyComplete();
+
+            // 2. Empty paid_at timestamp
+            String responseBody2 = """
+                    {
+                      "status": true,
+                      "data": {
+                        "status": "success",
+                        "amount": 100000,
+                        "paid_at": "   "
+                      }
+                    }
+                    """;
+            mockExternalApiResponse(responseBody2);
+            StepVerifier.create(gateway.verifyPayment(reference))
+                    .assertNext(status -> {
+                        assertThat(status.transactionDate()).isNotNull();
+                    })
+                    .verifyComplete();
+
+            // 3. Null paid_at timestamp
+            String responseBody3 = """
+                    {
+                      "status": true,
+                      "data": {
+                        "status": "success",
+                        "amount": 100000,
+                        "paid_at": null
+                      }
+                    }
+                    """;
+            mockExternalApiResponse(responseBody3);
+            StepVerifier.create(gateway.verifyPayment(reference))
+                    .assertNext(status -> {
+                        assertThat(status.transactionDate()).isNotNull();
+                    })
                     .verifyComplete();
         }
     }

@@ -6,8 +6,10 @@ import com.fee.app.schoolfeeapp.auth.util.SchoolFeeUser;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
 import com.fee.app.schoolfeeapp.payment.dto.request.InitiatePaymentRequest;
 import com.fee.app.schoolfeeapp.payment.dto.request.OfflinePaymentRequest;
+import com.fee.app.schoolfeeapp.payment.dto.request.BankTransferRequest;
 import com.fee.app.schoolfeeapp.payment.dto.response.InitiatePaymentResponse;
 import com.fee.app.schoolfeeapp.payment.dto.response.OfflinePaymentResponse;
+import com.fee.app.schoolfeeapp.payment.dto.response.BankTransferResponse;
 import com.fee.app.schoolfeeapp.payment.gateway.GatewayCallbackData;
 import com.fee.app.schoolfeeapp.payment.gateway.dto.GatewayResponse;
 import com.fee.app.schoolfeeapp.payment.gateway.service.PaymentGateway;
@@ -43,6 +45,7 @@ import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
@@ -462,11 +465,173 @@ class PaymentServiceImplIntegrationTest {
         }
     }
 
+    @Nested
+    @DisplayName("Bank Transfer - Service Integration Tests")
+    class BankTransferIntegrationTests {
+
+        @Test
+        @DisplayName("Should create processing bank transfer and allocations")
+        void shouldCreateProcessingBankTransferAndAllocations() {
+            PaymentFixture fixture = seedPaymentFixture(true);
+
+            BankTransferResponse gatewayResponse = BankTransferResponse.builder()
+                    .reference("paystack-ref-123")
+                    .accountNumber("9901234567")
+                    .accountName("Grace School - Parent")
+                    .bankName("Wema Bank")
+                    .amount(BigDecimal.valueOf(5000))
+                    .status("READY")
+                    .message("Transfer to account below")
+                    .build();
+
+            when(paymentGateway.initiateBankTransfer(any(UUID.class), any(BigDecimal.class), anyString(), anyString()))
+                    .thenReturn(Mono.just(gatewayResponse));
+
+            BankTransferRequest request = new BankTransferRequest(
+                    List.of(fixture.studentFeeId()), BigDecimal.valueOf(5000), "parent@gis.edu", "Parent User");
+
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .assertNext(response -> {
+                        assertThat(response.reference()).isEqualTo("paystack-ref-123");
+                        assertThat(response.accountNumber()).isEqualTo("9901234567");
+                        assertThat(response.bankName()).isEqualTo("Wema Bank");
+                        assertThat(response.status()).isEqualTo("READY");
+                    })
+                    .verifyComplete();
+
+            assertThat(countRows("""
+                    SELECT COUNT(*) AS count
+                    FROM payment.payments
+                    WHERE school_id = :schoolId
+                      AND status = 'PROCESSING'
+                      AND payment_method = 'BANK_TRANSFER'
+                    """, Map.of("schoolId", SCHOOL_ID)))
+                    .isEqualTo(1);
+
+            assertThat(sumAmount("""
+                    SELECT COALESCE(SUM(amount), 0) AS amount
+                    FROM payment.payment_allocations
+                    WHERE student_fee_id = :studentFeeId
+                    """, Map.of("studentFeeId", fixture.studentFeeId())))
+                    .isEqualByComparingTo("5000");
+        }
+
+        @Test
+        @DisplayName("Should handle concurrent bank transfer requests idempotently")
+        void shouldHandleConcurrentBankTransferRequestsIdempotently() throws Exception {
+            PaymentFixture fixture = seedPaymentFixture(true);
+
+            BankTransferResponse gatewayResponse = BankTransferResponse.builder()
+                    .reference("paystack-ref-123")
+                    .accountNumber("9901234567")
+                    .accountName("Grace School - Parent")
+                    .bankName("Wema Bank")
+                    .amount(BigDecimal.valueOf(5000))
+                    .status("READY")
+                    .message("Transfer to account below")
+                    .build();
+
+            when(paymentGateway.initiateBankTransfer(any(UUID.class), any(BigDecimal.class), anyString(), anyString()))
+                    .thenReturn(Mono.just(gatewayResponse));
+            when(paymentGateway.resolveBankTransfer("paystack-ref-123"))
+                    .thenReturn(Mono.just(gatewayResponse));
+
+            CompletableFuture<Object> first = initiateBankTransferAsync(fixture.studentFeeId(), BigDecimal.valueOf(5000));
+            CompletableFuture<Object> second = initiateBankTransferAsync(fixture.studentFeeId(), BigDecimal.valueOf(5000));
+
+            Object firstResult = first.get(10, TimeUnit.SECONDS);
+            Object secondResult = second.get(10, TimeUnit.SECONDS);
+
+            assertThat(firstResult).isInstanceOf(BankTransferResponse.class);
+            assertThat(secondResult).isInstanceOf(BankTransferResponse.class);
+
+            BankTransferResponse resp1 = (BankTransferResponse) firstResult;
+            BankTransferResponse resp2 = (BankTransferResponse) secondResult;
+
+            assertThat(resp1.reference()).isEqualTo("paystack-ref-123");
+            assertThat(resp2.reference()).isEqualTo("paystack-ref-123");
+
+            assertThat(countRows("""
+                    SELECT COUNT(*) AS count
+                    FROM payment.payments
+                    WHERE school_id = :schoolId
+                      AND payment_method = 'BANK_TRANSFER'
+                    """, Map.of("schoolId", SCHOOL_ID)))
+                    .isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Should get bank transfer details idempotently")
+        void shouldGetBankTransferDetailsIdempotently() {
+            PaymentFixture fixture = seedPaymentFixture(true);
+
+            // Seed a processing payment directly
+            UUID paymentId = UUID.randomUUID();
+            databaseClient.sql("""
+                    INSERT INTO payment.payments (
+                        id, school_id, student_fee_id, student_id, amount,
+                        payment_method, payment_mode, status, paid_by,
+                        gateway_transaction_ref, gateway_status, idempotency_key,
+                        created_at, updated_at
+                    )
+                    VALUES (
+                        :id, :schoolId, :studentFeeId, :studentId, 5000,
+                        'BANK_TRANSFER', 'ONLINE', 'PROCESSING', :paidBy,
+                        'paystack-ref-123', 'READY', 'idemp-123',
+                        :now, :now
+                    )
+                    """)
+                    .bind("id", paymentId)
+                    .bind("schoolId", SCHOOL_ID)
+                    .bind("studentFeeId", fixture.studentFeeId())
+                    .bind("studentId", fixture.studentId())
+                    .bind("paidBy", PARENT_USER_ID)
+                    .bind("now", Instant.now())
+                    .fetch()
+                    .rowsUpdated()
+                    .block();
+
+            BankTransferResponse gatewayResponse = BankTransferResponse.builder()
+                    .reference("paystack-ref-123")
+                    .accountNumber("9901234567")
+                    .accountName("Grace School - Parent")
+                    .bankName("Wema Bank")
+                    .amount(BigDecimal.valueOf(5000))
+                    .status("READY")
+                    .message("Transfer to account below")
+                    .build();
+
+            when(paymentGateway.resolveBankTransfer("paystack-ref-123"))
+                    .thenReturn(Mono.just(gatewayResponse));
+
+            StepVerifier.create(paymentService.getBankTransferDetails(paymentId))
+                    .assertNext(response -> {
+                        assertThat(response.reference()).isEqualTo("paystack-ref-123");
+                        assertThat(response.accountNumber()).isEqualTo("9901234567");
+                        assertThat(response.status()).isEqualTo("READY");
+                    })
+                    .verifyComplete();
+        }
+    }
+
     private CompletableFuture<Object> initiateAsync(UUID studentFeeId, BigDecimal amount) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 return paymentService.initiatePayment(validRequest(studentFeeId, amount))
                         .block(Duration.ofSeconds(8));
+            } catch (Throwable error) {
+                return error;
+            }
+        });
+    }
+
+    private CompletableFuture<Object> initiateBankTransferAsync(UUID studentFeeId, BigDecimal amount) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                BankTransferRequest request = new BankTransferRequest(
+                        List.of(studentFeeId), amount, "parent@gis.edu", "Parent User");
+                return paymentService.initiateBankTransfer(request)
+                        .block(Duration.ofSeconds(10));
             } catch (Throwable error) {
                 return error;
             }

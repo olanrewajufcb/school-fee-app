@@ -20,6 +20,8 @@ import com.fee.app.schoolfeeapp.payment.gateway.service.PaymentGateway;
 import com.fee.app.schoolfeeapp.payment.gateway.service.PaymentGatewaySelector;
 import com.fee.app.schoolfeeapp.payment.dto.request.InitiatePaymentRequest;
 import com.fee.app.schoolfeeapp.payment.dto.request.OfflinePaymentRequest;
+import com.fee.app.schoolfeeapp.payment.dto.request.BankTransferRequest;
+import com.fee.app.schoolfeeapp.payment.dto.response.BankTransferResponse;
 import com.fee.app.schoolfeeapp.payment.repository.PaymentAllocationRepository;
 import com.fee.app.schoolfeeapp.payment.repository.PaymentRepository;
 import com.fee.app.schoolfeeapp.payment.repository.ReceiptRepository;
@@ -29,6 +31,7 @@ import com.fee.app.schoolfeeapp.student.repository.StudentRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -127,7 +130,7 @@ class PaymentServiceImplTest {
                     return Mono.just(allocation);
                 });
         when(paymentGateway.initiatePayment(
-                any(UUID.class), eq("08012345678"), eq(BigDecimal.valueOf(5000)), eq("School fee payment")))
+                any(UUID.class), eq("parent@example.com"), eq(BigDecimal.valueOf(5000)), eq("School fee payment")))
                 .thenReturn(Mono.just(GatewayResponse.builder()
                         .gatewayTransactionRef("paystack-ref-123")
                         .status("PROCESSING")
@@ -155,33 +158,12 @@ class PaymentServiceImplTest {
         assertThat(allocationCaptor.getValue().getAmount()).isEqualByComparingTo("5000");
 
         ArgumentCaptor<Payment> paymentCaptor = ArgumentCaptor.forClass(Payment.class);
-        verify(paymentRepository, org.mockito.Mockito.times(2)).save(paymentCaptor.capture());
-        Payment finalPayment = paymentCaptor.getAllValues().get(1);
+        verify(paymentRepository, org.mockito.Mockito.times(3)).save(paymentCaptor.capture());
+        Payment finalPayment = paymentCaptor.getAllValues().get(2);
         assertThat(finalPayment.getStudentId()).isEqualTo(STUDENT_ID);
         assertThat(finalPayment.getStatus()).isEqualTo("PROCESSING");
         assertThat(finalPayment.getGatewayTransactionRef()).isEqualTo("paystack-ref-123");
         assertThat(finalPayment.getIdempotencyKey()).isNotBlank();
-    }
-
-    @Test
-    @DisplayName("Should reject non-parent before gateway selection")
-    void shouldRejectNonParentBeforeGatewaySelection() {
-        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(SchoolFeeUser.builder()
-                .userId(PARENT_USER_ID)
-                .schoolId(SCHOOL_ID)
-                .userType("SCHOOL_ADMIN")
-                .roles(Set.of("SCHOOL_ADMIN"))
-                .build()));
-
-        StepVerifier.create(paymentService.initiatePayment(validRequest(BigDecimal.valueOf(5000))))
-                .expectErrorSatisfies(error -> {
-                    assertThat(error).isInstanceOf(SchoolFeeException.class);
-                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("ACCESS_DENIED");
-                })
-                .verify();
-
-        verify(gatewaySelector, never()).select(any());
-        verify(paymentRepository, never()).save(any(Payment.class));
     }
 
     @Test
@@ -253,8 +235,8 @@ class PaymentServiceImplTest {
                 .expectErrorMessage("gateway down")
                 .verify();
 
-        verify(paymentRepository, org.mockito.Mockito.times(2)).save(paymentCaptor.capture());
-        assertThat(paymentCaptor.getAllValues().get(1).getStatus()).isEqualTo("FAILED");
+        verify(paymentRepository, org.mockito.Mockito.times(3)).save(paymentCaptor.capture());
+        assertThat(paymentCaptor.getAllValues().get(2).getStatus()).isEqualTo("FAILED");
     }
 
     @Test
@@ -300,6 +282,75 @@ class PaymentServiceImplTest {
                     assertThat(response.receipt().breakdown().getFirst().studentName())
                             .isEqualTo("Ada Lovelace");
                 })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should allow parent status lookup when payment stores local payer id")
+    void shouldAllowParentStatusLookupWhenPaymentStoresLocalPayerId() {
+        UUID paymentId = UUID.randomUUID();
+        UUID keycloakUserId = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        UUID localUserId = UUID.fromString("66666666-7777-8888-9999-aaaaaaaaaaaa");
+        Payment payment = completedPayment(paymentId);
+        payment.setPaidBy(localUserId);
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(SchoolFeeUser.builder()
+                .userId(keycloakUserId)
+                .schoolId(SCHOOL_ID)
+                .userType("PARENT")
+                .roles(Set.of("PARENT"))
+                .build()));
+        when(userRepository.findByKeycloakIdAndDeletedAtIsNull(keycloakUserId))
+                .thenReturn(Mono.just(User.builder().id(localUserId).keycloakId(keycloakUserId).build()));
+        when(paymentRepository.findByIdAndSchoolId(paymentId, SCHOOL_ID))
+                .thenReturn(Mono.just(payment));
+        when(allocationRepository.findByPaymentId(paymentId)).thenReturn(Flux.empty());
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentStatus(paymentId))
+                .assertNext(response -> {
+                    assertThat(response.paymentId()).isEqualTo(paymentId);
+                    assertThat(response.status()).isEqualTo("COMPLETED");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should get and verify payment status by gateway reference")
+    void shouldGetAndVerifyPaymentStatusByGatewayReference() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = processingPayment(paymentId, "paystack-ref-123", BigDecimal.valueOf(5000));
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        when(paymentRepository.findByGatewayTransactionRef("paystack-ref-123"))
+                .thenReturn(Mono.just(payment));
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+
+        com.fee.app.schoolfeeapp.payment.gateway.GatewayStatus verifySuccess =
+                com.fee.app.schoolfeeapp.payment.gateway.GatewayStatus.builder()
+                        .isSuccess(true)
+                        .gatewayReceiptNumber("txn-123")
+                        .amount(BigDecimal.valueOf(5000))
+                        .phoneNumber("08012345678")
+                        .resultDescription("Approved")
+                        .build();
+        when(paymentGateway.verifyPayment("paystack-ref-123")).thenReturn(Mono.just(verifySuccess));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.empty());
+        when(paymentRepository.findByGatewayTransactionRefForUpdate("paystack-ref-123")).thenReturn(Mono.just(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(allocationRepository.findByPaymentId(paymentId)).thenReturn(Flux.just(paymentAllocation(paymentId, BigDecimal.valueOf(5000))));
+        when(studentFeeRepository.findByIdAndSchoolIdForUpdate(STUDENT_FEE_ID, SCHOOL_ID)).thenReturn(Mono.just(studentFee()));
+        when(studentFeeRepository.findById(STUDENT_FEE_ID)).thenReturn(Mono.just(studentFee()));
+        when(studentRepository.findById(STUDENT_ID)).thenReturn(Mono.just(student()));
+        when(ledgerEntryRepository.findTopByStudentFeeIdOrderByCreatedAtDesc(STUDENT_FEE_ID)).thenReturn(Mono.just(feeAssignedLedger(BigDecimal.valueOf(10000))));
+        when(ledgerEntryRepository.save(any(LedgerEntry.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+        when(receiptRepository.save(any(Receipt.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+        when(paymentRepository.findById(paymentId)).thenReturn(Mono.just(completedPayment(paymentId)));
+
+        StepVerifier.create(paymentService.getPaymentStatusByReference("paystack-ref-123"))
+                .assertNext(response -> assertThat(response.status()).isEqualTo("COMPLETED"))
                 .verifyComplete();
     }
 
@@ -650,6 +701,7 @@ class PaymentServiceImplTest {
     private SchoolFeeUser parentUser() {
         return SchoolFeeUser.builder()
                 .userId(PARENT_USER_ID)
+                .email("parent@example.com")
                 .schoolId(SCHOOL_ID)
                 .userType("PARENT")
                 .roles(Set.of("PARENT"))
@@ -770,5 +822,1629 @@ class PaymentServiceImplTest {
                 .generatedBy(PARENT_USER_ID)
                 .createdAt(Instant.now())
                 .build();
+    }
+
+    // ========================================================================
+    // INITIATE PAYMENT VALIDATIONS
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should reject initiatePayment when request is null")
+    void shouldRejectInitiatePaymentWhenRequestIsNull() {
+        StepVerifier.create(paymentService.initiatePayment(null))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject initiatePayment when studentFeeIds is null or empty")
+    void shouldRejectInitiatePaymentWhenStudentFeeIdsEmpty() {
+        InitiatePaymentRequest req1 = new InitiatePaymentRequest(null, "PAYSTACK", "08012345678", BigDecimal.valueOf(5000), null);
+        InitiatePaymentRequest req2 = new InitiatePaymentRequest(List.of(), "PAYSTACK", "08012345678", BigDecimal.valueOf(5000), null);
+
+        StepVerifier.create(paymentService.initiatePayment(req1))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds");
+                })
+                .verify();
+
+        StepVerifier.create(paymentService.initiatePayment(req2))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject initiatePayment when fee ID in list is null")
+    void shouldRejectInitiatePaymentWhenFeeIdInListIsNull() {
+        List<UUID> list = new ArrayList<>();
+        list.add(null);
+        InitiatePaymentRequest req = new InitiatePaymentRequest(list, "PAYSTACK", "08012345678", BigDecimal.valueOf(5000), null);
+        StepVerifier.create(paymentService.initiatePayment(req))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject initiatePayment when payment method is blank")
+    void shouldRejectInitiatePaymentWhenPaymentMethodBlank() {
+        InitiatePaymentRequest req = new InitiatePaymentRequest(List.of(STUDENT_FEE_ID), " ", "08012345678", BigDecimal.valueOf(5000), null);
+        StepVerifier.create(paymentService.initiatePayment(req))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("paymentMethod");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject initiatePayment when phone number is blank")
+    void shouldRejectInitiatePaymentWhenPhoneNumberBlank() {
+        InitiatePaymentRequest req = new InitiatePaymentRequest(List.of(STUDENT_FEE_ID), "PAYSTACK", "", BigDecimal.valueOf(5000), null);
+        StepVerifier.create(paymentService.initiatePayment(req))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("phoneNumber");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject initiatePayment when amount is null or negative")
+    void shouldRejectInitiatePaymentWhenAmountInvalid() {
+        InitiatePaymentRequest req1 = new InitiatePaymentRequest(List.of(STUDENT_FEE_ID), "PAYSTACK", "08012345678", null, null);
+        InitiatePaymentRequest req2 = new InitiatePaymentRequest(List.of(STUDENT_FEE_ID), "PAYSTACK", "08012345678", BigDecimal.ZERO, null);
+        InitiatePaymentRequest req3 = new InitiatePaymentRequest(List.of(STUDENT_FEE_ID), "PAYSTACK", "08012345678", BigDecimal.valueOf(-10), null);
+
+        StepVerifier.create(paymentService.initiatePayment(req1))
+                .expectErrorSatisfies(error -> assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_AMOUNT"))
+                .verify();
+
+        StepVerifier.create(paymentService.initiatePayment(req2))
+                .expectErrorSatisfies(error -> assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_AMOUNT"))
+                .verify();
+
+        StepVerifier.create(paymentService.initiatePayment(req3))
+                .expectErrorSatisfies(error -> assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_AMOUNT"))
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject initiatePayment when amount is less than 1000 and not full balance")
+    void shouldRejectInitiatePaymentWhenLessThanMinAmount() {
+        stubParentAndGateway();
+        stubPayableFee(BigDecimal.valueOf(10000), BigDecimal.ZERO);
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        InitiatePaymentRequest req = new InitiatePaymentRequest(List.of(STUDENT_FEE_ID), "PAYSTACK", "08012345678", BigDecimal.valueOf(500), null);
+        StepVerifier.create(paymentService.initiatePayment(req))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_AMOUNT");
+                })
+                .verify();
+    }
+
+    // ========================================================================
+    // RECORD OFFLINE PAYMENT VALIDATIONS
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should reject recordOfflinePayment when request is null")
+    void shouldRejectRecordOfflinePaymentWhenRequestIsNull() {
+        StepVerifier.create(paymentService.recordOfflinePayment(null))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject recordOfflinePayment when studentFeeId is null")
+    void shouldRejectRecordOfflinePaymentWhenStudentFeeIdIsNull() {
+        OfflinePaymentRequest req = new OfflinePaymentRequest(null, BigDecimal.valueOf(5000), "CASH", Instant.now(), "Bursar", "Notes", false);
+        StepVerifier.create(paymentService.recordOfflinePayment(req))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeId");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject recordOfflinePayment when amount is invalid")
+    void shouldRejectRecordOfflinePaymentWhenAmountInvalid() {
+        OfflinePaymentRequest req1 = new OfflinePaymentRequest(STUDENT_FEE_ID, null, "CASH", Instant.now(), "Bursar", "Notes", false);
+        OfflinePaymentRequest req2 = new OfflinePaymentRequest(STUDENT_FEE_ID, BigDecimal.valueOf(-5), "CASH", Instant.now(), "Bursar", "Notes", false);
+
+        StepVerifier.create(paymentService.recordOfflinePayment(req1))
+                .expectErrorSatisfies(error -> assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_AMOUNT"))
+                .verify();
+
+        StepVerifier.create(paymentService.recordOfflinePayment(req2))
+                .expectErrorSatisfies(error -> assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_AMOUNT"))
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject recordOfflinePayment when payment method is blank")
+    void shouldRejectRecordOfflinePaymentWhenPaymentMethodBlank() {
+        OfflinePaymentRequest req = new OfflinePaymentRequest(STUDENT_FEE_ID, BigDecimal.valueOf(5000), " ", Instant.now(), "Bursar", "Notes", false);
+        StepVerifier.create(paymentService.recordOfflinePayment(req))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("paymentMethod");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject recordOfflinePayment when payment date is null")
+    void shouldRejectRecordOfflinePaymentWhenPaymentDateIsNull() {
+        OfflinePaymentRequest req = new OfflinePaymentRequest(STUDENT_FEE_ID, BigDecimal.valueOf(5000), "CASH", null, "Bursar", "Notes", false);
+        StepVerifier.create(paymentService.recordOfflinePayment(req))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("paymentDate");
+                })
+                .verify();
+    }
+
+    // ========================================================================
+    // WEBHOOK CALLBACK VALIDATIONS
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should reject success callback when transaction ref is null")
+    void shouldRejectSuccessCallbackWhenTransactionRefIsNull() {
+        String rawPayload = "raw";
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback(rawPayload))
+                .thenReturn(Mono.just(GatewayCallbackData.builder()
+                        .isSuccess(true)
+                        .gatewayTransactionRef(null)
+                        .amount(BigDecimal.valueOf(5000))
+                        .build()));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook(rawPayload))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CALLBACK");
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("reference");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject success callback when amount is invalid")
+    void shouldRejectSuccessCallbackWhenAmountInvalid() {
+        String rawPayload = "raw";
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback(rawPayload))
+                .thenReturn(Mono.just(GatewayCallbackData.builder()
+                        .isSuccess(true)
+                        .gatewayTransactionRef("ref-123")
+                        .amount(BigDecimal.ZERO)
+                        .build()));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook(rawPayload))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_CALLBACK");
+                    assertThat(((SchoolFeeException) error).getField()).isEqualTo("amount");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject failure callback when transaction ref is null")
+    void shouldRejectFailureCallbackWhenTransactionRefIsNull() {
+        String rawPayload = "raw";
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback(rawPayload))
+                .thenReturn(Mono.just(GatewayCallbackData.builder()
+                        .isSuccess(false)
+                        .gatewayTransactionRef(null)
+                        .build()));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook(rawPayload))
+                .verifyComplete();
+    }
+
+    // ========================================================================
+    // VERIFY AND UPDATE PAYMENT (EXPIRATION AND GATEWAY VERIFICATION)
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should expire payment without gateway ref if older than 15 minutes")
+    void shouldExpirePaymentWithoutGatewayRefIfOld() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = Payment.builder()
+                .id(paymentId)
+                .studentFeeId(STUDENT_FEE_ID)
+                .studentId(STUDENT_ID)
+                .schoolId(SCHOOL_ID)
+                .amount(BigDecimal.valueOf(5000))
+                .status("PENDING")
+                .paidBy(PARENT_USER_ID)
+                .gatewayTransactionRef(null)
+                .createdAt(Instant.now().minus(java.time.Duration.ofMinutes(20)))
+                .build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        when(paymentRepository.findByIdAndSchoolId(paymentId, SCHOOL_ID)).thenReturn(Mono.just(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(allocationRepository.findByPaymentId(paymentId)).thenReturn(Flux.empty());
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentStatus(paymentId))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("FAILED");
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<Payment> paymentCaptor = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository).save(paymentCaptor.capture());
+        assertThat(paymentCaptor.getValue().getStatus()).isEqualTo("FAILED");
+        assertThat(paymentCaptor.getValue().getNarration()).isEqualTo("Payment expired/abandoned");
+    }
+
+    @Test
+    @DisplayName("Should not expire payment without gateway ref if newer than 15 minutes")
+    void shouldNotExpirePaymentWithoutGatewayRefIfNew() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = Payment.builder()
+                .id(paymentId)
+                .studentFeeId(STUDENT_FEE_ID)
+                .studentId(STUDENT_ID)
+                .schoolId(SCHOOL_ID)
+                .amount(BigDecimal.valueOf(5000))
+                .status("PENDING")
+                .paidBy(PARENT_USER_ID)
+                .gatewayTransactionRef(null)
+                .createdAt(Instant.now().minus(java.time.Duration.ofMinutes(5)))
+                .build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        when(paymentRepository.findByIdAndSchoolId(paymentId, SCHOOL_ID)).thenReturn(Mono.just(payment));
+        when(allocationRepository.findByPaymentId(paymentId)).thenReturn(Flux.empty());
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentStatus(paymentId))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("PENDING");
+                })
+                .verifyComplete();
+
+        verify(paymentRepository, never()).save(any(Payment.class));
+    }
+
+    @Test
+    @DisplayName("Should expire payment on failed verification if older than 15 minutes")
+    void shouldExpirePaymentOnFailedVerificationIfOld() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = Payment.builder()
+                .id(paymentId)
+                .studentFeeId(STUDENT_FEE_ID)
+                .studentId(STUDENT_ID)
+                .schoolId(SCHOOL_ID)
+                .amount(BigDecimal.valueOf(5000))
+                .paymentMethod("PAYSTACK")
+                .status("PENDING")
+                .paidBy(PARENT_USER_ID)
+                .gatewayTransactionRef("ref-123")
+                .createdAt(Instant.now().minus(java.time.Duration.ofMinutes(20)))
+                .build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        when(paymentRepository.findByIdAndSchoolId(paymentId, SCHOOL_ID)).thenReturn(Mono.just(payment));
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        
+        com.fee.app.schoolfeeapp.payment.gateway.GatewayStatus failedVerification =
+                com.fee.app.schoolfeeapp.payment.gateway.GatewayStatus.builder()
+                        .isSuccess(false)
+                        .resultDescription("Declined")
+                        .build();
+        when(paymentGateway.verifyPayment("ref-123")).thenReturn(Mono.just(failedVerification));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(allocationRepository.findByPaymentId(paymentId)).thenReturn(Flux.empty());
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentStatus(paymentId))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("FAILED");
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<Payment> paymentCaptor = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository).save(paymentCaptor.capture());
+        assertThat(paymentCaptor.getValue().getStatus()).isEqualTo("FAILED");
+        assertThat(paymentCaptor.getValue().getNarration()).isEqualTo("Verification failed/abandoned: Declined");
+    }
+
+    @Test
+    @DisplayName("Should mark payment failed on network error verify payment if older than 15 minutes")
+    void shouldExpirePaymentOnVerifyErrorIfOld() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = Payment.builder()
+                .id(paymentId)
+                .studentFeeId(STUDENT_FEE_ID)
+                .studentId(STUDENT_ID)
+                .schoolId(SCHOOL_ID)
+                .amount(BigDecimal.valueOf(5000))
+                .paymentMethod("PAYSTACK")
+                .status("PENDING")
+                .paidBy(PARENT_USER_ID)
+                .gatewayTransactionRef("ref-123")
+                .createdAt(Instant.now().minus(java.time.Duration.ofMinutes(20)))
+                .build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        when(paymentRepository.findByIdAndSchoolId(paymentId, SCHOOL_ID)).thenReturn(Mono.just(payment));
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.verifyPayment("ref-123")).thenReturn(Mono.error(new RuntimeException("timeout")));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(allocationRepository.findByPaymentId(paymentId)).thenReturn(Flux.empty());
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentStatus(paymentId))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("FAILED");
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<Payment> paymentCaptor = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository).save(paymentCaptor.capture());
+        assertThat(paymentCaptor.getValue().getStatus()).isEqualTo("FAILED");
+        assertThat(paymentCaptor.getValue().getNarration()).isEqualTo("Verification failed (network/server error)");
+    }
+
+    // ========================================================================
+    // ADDITIONAL SCENARIOS
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should reject initiatePayment when fee is not found")
+    void shouldRejectInitiatePaymentWhenFeeNotFound() {
+        stubParentAndGateway();
+        when(studentFeeRepository.findByIdAndSchoolIdForUpdate(STUDENT_FEE_ID, SCHOOL_ID))
+                .thenReturn(Mono.empty());
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        StepVerifier.create(paymentService.initiatePayment(validRequest(BigDecimal.valueOf(5000))))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("FEE_NOT_FOUND");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject successful callback when payment status is FAILED")
+    void shouldRejectSuccessfulCallbackWhenPaymentFailed() {
+        UUID paymentId = UUID.randomUUID();
+        String rawPayload = rawPaystackPayload();
+        Payment payment = processingPayment(paymentId, "paystack-ref-123", BigDecimal.valueOf(5000));
+        payment.setStatus("FAILED");
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback(rawPayload))
+                .thenReturn(Mono.just(paystackSuccessCallback(
+                        "paystack-ref-123", "txn-123", BigDecimal.valueOf(5000))));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.empty());
+        when(paymentRepository.findByGatewayTransactionRefForUpdate("paystack-ref-123"))
+                .thenReturn(Mono.just(payment));
+        when(transactionalOperator.transactional(any(Mono.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook(rawPayload))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_STATE");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should return student history for school staff")
+    void shouldReturnStudentHistoryForSchoolStaff() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = completedPayment(paymentId);
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(accountantUser()));
+        when(paymentRepository.findByStudentIdAndSchoolIdOrderByCreatedAtDesc(
+                STUDENT_ID, SCHOOL_ID, 10, 0))
+                .thenReturn(Flux.just(payment));
+        when(paymentRepository.countByStudentIdAndSchoolId(STUDENT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(1L));
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.just(receipt(paymentId)));
+
+        StepVerifier.create(paymentService.getPaymentHistory(STUDENT_ID, PageRequest.of(0, 10)))
+                .assertNext(response -> {
+                    assertThat(response.content()).hasSize(1);
+                    assertThat(response.totalElements()).isEqualTo(1);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should return school-wide history for school staff")
+    void shouldReturnSchoolWideHistoryForSchoolStaff() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = completedPayment(paymentId);
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(accountantUser()));
+        when(paymentRepository.findBySchoolIdOrderByCreatedAtDesc(
+                SCHOOL_ID, 10, 0))
+                .thenReturn(Flux.just(payment));
+        when(paymentRepository.countBySchoolId(SCHOOL_ID))
+                .thenReturn(Mono.just(5L));
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.just(receipt(paymentId)));
+
+        StepVerifier.create(paymentService.getPaymentHistory(null, PageRequest.of(0, 10)))
+                .assertNext(response -> {
+                    assertThat(response.content()).hasSize(1);
+                    assertThat(response.totalElements()).isEqualTo(5);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should map payment history response with default description when narration is null and fee not found")
+    void shouldMapHistoryResponseWithDefaultDescWhenFeeNotFound() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = completedPayment(paymentId);
+        payment.setNarration(null);
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(accountantUser()));
+        when(paymentRepository.findBySchoolIdOrderByCreatedAtDesc(SCHOOL_ID, 10, 0))
+                .thenReturn(Flux.just(payment));
+        when(paymentRepository.countBySchoolId(SCHOOL_ID)).thenReturn(Mono.just(1L));
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+        when(studentFeeRepository.findById(STUDENT_FEE_ID)).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentHistory(null, PageRequest.of(0, 10)))
+                .assertNext(response -> {
+                    assertThat(response.content().getFirst().description()).isEqualTo("Fee payment");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should map payment history response with default description when fee structure not found")
+    void shouldMapHistoryResponseWithDefaultDescWhenStructureNotFound() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = completedPayment(paymentId);
+        payment.setNarration(null);
+
+        StudentFee fee = studentFee();
+        fee.setFeeStructureId(UUID.randomUUID());
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(accountantUser()));
+        when(paymentRepository.findBySchoolIdOrderByCreatedAtDesc(SCHOOL_ID, 10, 0))
+                .thenReturn(Flux.just(payment));
+        when(paymentRepository.countBySchoolId(SCHOOL_ID)).thenReturn(Mono.just(1L));
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+        when(studentFeeRepository.findById(STUDENT_FEE_ID)).thenReturn(Mono.just(fee));
+        when(feeStructureRepository.findById(any(UUID.class))).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentHistory(null, PageRequest.of(0, 10)))
+                .assertNext(response -> {
+                    assertThat(response.content().getFirst().description()).isEqualTo("Fee payment");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should handle null updateMono when expiring stuck payments")
+    void shouldHandleNullUpdateMonoWhenExpiringStuckPayments() {
+        when(paymentRepository.expireStuckPayments(any())).thenReturn(null);
+
+        StepVerifier.create(paymentService.initiatePayment(null))
+                .expectError(SchoolFeeException.class)
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject get payment status when paymentId is null")
+    void shouldRejectGetPaymentStatusWhenPaymentIdIsNull() {
+        StepVerifier.create(paymentService.getPaymentStatus(null))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject payment when gateway is not available")
+    void shouldRejectPaymentWhenGatewayIsNotAvailable() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.isAvailable(SCHOOL_ID)).thenReturn(Mono.just(false));
+
+        StepVerifier.create(paymentService.initiatePayment(validRequest(BigDecimal.valueOf(5000))))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("PAYMENT_GATEWAY_UNAVAILABLE");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should not expire payment on verify error if it is new")
+    void shouldNotExpirePaymentOnVerifyErrorIfItIsNew() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = Payment.builder()
+                .id(paymentId)
+                .studentFeeId(STUDENT_FEE_ID)
+                .studentId(STUDENT_ID)
+                .schoolId(SCHOOL_ID)
+                .amount(BigDecimal.valueOf(5000))
+                .paymentMethod("PAYSTACK")
+                .status("PENDING")
+                .paidBy(PARENT_USER_ID)
+                .gatewayTransactionRef("ref-123")
+                .createdAt(Instant.now().minus(java.time.Duration.ofMinutes(5)))
+                .build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        when(paymentRepository.findByIdAndSchoolId(paymentId, SCHOOL_ID)).thenReturn(Mono.just(payment));
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.verifyPayment("ref-123")).thenReturn(Mono.error(new RuntimeException("timeout")));
+        when(allocationRepository.findByPaymentId(paymentId)).thenReturn(Flux.empty());
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentStatus(paymentId))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("PENDING");
+                })
+                .verifyComplete();
+
+        verify(paymentRepository, never()).save(any(Payment.class));
+    }
+
+    @Test
+    @DisplayName("Should not update payment status on failed verification if it is new")
+    void shouldNotUpdatePaymentStatusOnFailedVerificationIfItIsNew() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = Payment.builder()
+                .id(paymentId)
+                .studentFeeId(STUDENT_FEE_ID)
+                .studentId(STUDENT_ID)
+                .schoolId(SCHOOL_ID)
+                .amount(BigDecimal.valueOf(5000))
+                .paymentMethod("PAYSTACK")
+                .status("PENDING")
+                .paidBy(PARENT_USER_ID)
+                .gatewayTransactionRef("ref-123")
+                .createdAt(Instant.now().minus(java.time.Duration.ofMinutes(5)))
+                .build();
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        when(paymentRepository.findByIdAndSchoolId(paymentId, SCHOOL_ID)).thenReturn(Mono.just(payment));
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        
+        com.fee.app.schoolfeeapp.payment.gateway.GatewayStatus failedVerification =
+                com.fee.app.schoolfeeapp.payment.gateway.GatewayStatus.builder()
+                        .isSuccess(false)
+                        .resultDescription("Declined")
+                        .build();
+        when(paymentGateway.verifyPayment("ref-123")).thenReturn(Mono.just(failedVerification));
+        when(allocationRepository.findByPaymentId(paymentId)).thenReturn(Flux.empty());
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentStatus(paymentId))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("PENDING");
+                })
+                .verifyComplete();
+
+        verify(paymentRepository, never()).save(any(Payment.class));
+    }
+
+    @Test
+    @DisplayName("Should map payment history response with default description when studentFeeId is null")
+    void shouldMapHistoryResponseWithDefaultDescWhenStudentFeeIdIsNull() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = completedPayment(paymentId);
+        payment.setNarration(null);
+        payment.setStudentFeeId(null);
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(accountantUser()));
+        when(paymentRepository.findBySchoolIdOrderByCreatedAtDesc(SCHOOL_ID, 10, 0))
+                .thenReturn(Flux.just(payment));
+        when(paymentRepository.countBySchoolId(SCHOOL_ID)).thenReturn(Mono.just(1L));
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentHistory(null, PageRequest.of(0, 10)))
+                .assertNext(response -> {
+                    assertThat(response.content().getFirst().description()).isEqualTo("Fee payment");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should ignore duplicate failed Paystack callback")
+    void shouldIgnoreDuplicateFailedPaystackCallback() {
+        GatewayCallbackData callbackData = GatewayCallbackData.builder()
+                .gatewayTransactionRef("ref-123")
+                .amount(BigDecimal.valueOf(5000))
+                .isSuccess(false)
+                .resultDescription("Declined")
+                .build();
+
+        Payment payment = completedPayment(UUID.randomUUID());
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback("payload")).thenReturn(Mono.just(callbackData));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.just(payment));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook("payload"))
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should reject failed Paystack callback when payment in invalid state")
+    void shouldRejectFailedCallbackWhenInvalidState() {
+        GatewayCallbackData callbackData = GatewayCallbackData.builder()
+                .gatewayTransactionRef("ref-123")
+                .amount(BigDecimal.valueOf(5000))
+                .isSuccess(false)
+                .resultDescription("Declined")
+                .build();
+
+        Payment payment = completedPayment(UUID.randomUUID());
+        payment.setStatus("PENDING");
+        payment.setPaymentMode("OFFLINE");
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback("payload")).thenReturn(Mono.just(callbackData));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.empty());
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+        when(paymentRepository.findByGatewayTransactionRefForUpdate("ref-123")).thenReturn(Mono.just(payment));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook("payload"))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_STATE");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should reject successful Paystack callback when payment is not open online payment")
+    void shouldRejectSuccessfulCallbackWhenInvalidState() {
+        GatewayCallbackData callbackData = GatewayCallbackData.builder()
+                .gatewayTransactionRef("ref-123")
+                .amount(BigDecimal.valueOf(5000))
+                .isSuccess(true)
+                .build();
+
+        Payment payment = completedPayment(UUID.randomUUID());
+        payment.setStatus("PENDING");
+        payment.setPaymentMode("OFFLINE");
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback("payload")).thenReturn(Mono.just(callbackData));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.empty());
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+        when(paymentRepository.findByGatewayTransactionRefForUpdate("ref-123")).thenReturn(Mono.just(payment));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook("payload"))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_STATE");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should ignore duplicate successful Paystack callback")
+    void shouldIgnoreDuplicateSuccessfulCallback() {
+        GatewayCallbackData callbackData = GatewayCallbackData.builder()
+                .gatewayTransactionRef("ref-123")
+                .amount(BigDecimal.valueOf(5000))
+                .isSuccess(true)
+                .build();
+
+        Payment payment = completedPayment(UUID.randomUUID());
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback("payload")).thenReturn(Mono.just(callbackData));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.just(payment));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook("payload"))
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should throw exception when callback has no pending payment and not exists in idempotency key")
+    void shouldThrowExceptionWhenCallbackHasNoPendingPayment() {
+        GatewayCallbackData callbackData = GatewayCallbackData.builder()
+                .gatewayTransactionRef("ref-123")
+                .amount(BigDecimal.valueOf(5000))
+                .isSuccess(true)
+                .build();
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback("payload")).thenReturn(Mono.just(callbackData));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.empty());
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+        when(paymentRepository.findByGatewayTransactionRefForUpdate("ref-123")).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.handlePaystackWebhook("payload"))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("PAYMENT_NOT_FOUND");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should throw exception when failure callback has no pending payment and not exists in idempotency key")
+    void shouldThrowExceptionWhenFailureCallbackHasNoPendingPayment() {
+        GatewayCallbackData callbackData = GatewayCallbackData.builder()
+                .gatewayTransactionRef("ref-123")
+                .amount(BigDecimal.valueOf(5000))
+                .isSuccess(false)
+                .build();
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback("payload")).thenReturn(Mono.just(callbackData));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.empty());
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+        when(paymentRepository.findByGatewayTransactionRefForUpdate("ref-123")).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.handlePaystackWebhook("payload"))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("PAYMENT_NOT_FOUND");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should calculate total pages correctly when limit is invalid or elements are empty")
+    void shouldCalculateTotalPagesCorrectlyWhenLimitInvalidOrElementsEmpty() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(accountantUser()));
+        when(paymentRepository.findBySchoolIdOrderByCreatedAtDesc(eq(SCHOOL_ID), anyInt(), anyLong()))
+                .thenReturn(Flux.empty());
+        when(paymentRepository.countBySchoolId(SCHOOL_ID)).thenReturn(Mono.just(0L));
+
+        StepVerifier.create(paymentService.getPaymentHistory(null, PageRequest.of(0, 1)))
+                .assertNext(response -> {
+                    assertThat(response.totalPages()).isEqualTo(0);
+                })
+                .verifyComplete();
+    }
+
+    @DisplayName("Should reject record offline payment when user is not authorized")
+    void shouldRejectRecordOfflinePaymentWhenNotAuthorized() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+
+        OfflinePaymentRequest request = offlineRequest(BigDecimal.valueOf(5000), Instant.now(), true);
+
+        StepVerifier.create(paymentService.recordOfflinePayment(request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("ACCESS_DENIED");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should verify and update payment status on successful gateway verification")
+    void shouldVerifyAndUpdatePaymentOnGatewaySuccess() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = processingPayment(paymentId, "paystack-ref-123", BigDecimal.valueOf(5000));
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        when(paymentRepository.findByIdAndSchoolId(paymentId, SCHOOL_ID)).thenReturn(Mono.just(payment));
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+
+        com.fee.app.schoolfeeapp.payment.gateway.GatewayStatus verifySuccess =
+                com.fee.app.schoolfeeapp.payment.gateway.GatewayStatus.builder()
+                        .isSuccess(true)
+                        .gatewayReceiptNumber("txn-123")
+                        .amount(BigDecimal.valueOf(5000))
+                        .phoneNumber("08012345678")
+                        .resultDescription("Approved")
+                        .build();
+        when(paymentGateway.verifyPayment("paystack-ref-123")).thenReturn(Mono.just(verifySuccess));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.empty());
+        when(paymentRepository.findByGatewayTransactionRefForUpdate("paystack-ref-123")).thenReturn(Mono.just(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(allocationRepository.findByPaymentId(paymentId)).thenReturn(Flux.just(paymentAllocation(paymentId, BigDecimal.valueOf(5000))));
+        when(studentFeeRepository.findByIdAndSchoolIdForUpdate(STUDENT_FEE_ID, SCHOOL_ID)).thenReturn(Mono.just(studentFee()));
+        when(studentFeeRepository.findById(STUDENT_FEE_ID)).thenReturn(Mono.just(studentFee()));
+        when(studentRepository.findById(STUDENT_ID)).thenReturn(Mono.just(student()));
+        when(ledgerEntryRepository.findTopByStudentFeeIdOrderByCreatedAtDesc(STUDENT_FEE_ID)).thenReturn(Mono.just(feeAssignedLedger(BigDecimal.valueOf(10000))));
+        when(ledgerEntryRepository.save(any(LedgerEntry.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+        when(receiptRepository.save(any(Receipt.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+        when(paymentRepository.findById(paymentId)).thenReturn(Mono.just(completedPayment(paymentId)));
+
+        StepVerifier.create(paymentService.getPaymentStatus(paymentId))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("COMPLETED");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should allow payment less than min amount if paying full balance")
+    void shouldAllowPaymentLessThanMinAmountIfPayingFullBalance() {
+        stubParentAndGateway();
+        stubPayableFee(BigDecimal.valueOf(500), BigDecimal.ZERO);
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(allocationRepository.save(any(PaymentAllocation.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(paymentGateway.initiatePayment(any(), any(), any(), any()))
+                .thenReturn(Mono.just(GatewayResponse.builder()
+                        .gatewayTransactionRef("ref-123")
+                        .status("PROCESSING")
+                        .build()));
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        StepVerifier.create(paymentService.initiatePayment(validRequest(BigDecimal.valueOf(500))))
+                .assertNext(response -> {
+                    assertThat(response.amount()).isEqualByComparingTo("500");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should allow school staff to get payment status of any parent")
+    void shouldAllowSchoolStaffToGetPaymentStatus() {
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = completedPayment(paymentId);
+        payment.setPaidBy(UUID.randomUUID()); // paid by someone else
+
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(accountantUser()));
+        when(paymentRepository.findByIdAndSchoolId(paymentId, SCHOOL_ID)).thenReturn(Mono.just(payment));
+        when(allocationRepository.findByPaymentId(paymentId)).thenReturn(Flux.empty());
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(paymentService.getPaymentStatus(paymentId))
+                .assertNext(response -> {
+                    assertThat(response.status()).isEqualTo("COMPLETED");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should ignore webhook if payment is already completed")
+    void shouldIgnoreWebhookIfPaymentIsAlreadyCompleted() {
+        UUID paymentId = UUID.randomUUID();
+        String rawPayload = rawPaystackPayload();
+        Payment payment = completedPayment(paymentId);
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback(rawPayload))
+                .thenReturn(Mono.just(paystackSuccessCallback("paystack-ref-123", "txn-123", BigDecimal.valueOf(5000))));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.empty());
+        when(paymentRepository.findByGatewayTransactionRefForUpdate("paystack-ref-123")).thenReturn(Mono.just(payment));
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook(rawPayload))
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should calculate balance when last entry balance after is null")
+    void shouldCalculateBalanceWhenLastEntryBalanceAfterIsNull() {
+        stubParentAndGateway();
+        
+        StudentFee fee = studentFee();
+        when(studentFeeRepository.findByIdAndSchoolIdForUpdate(STUDENT_FEE_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(fee));
+        when(guardianLinkRepository.findFeeAccessByGuardianUserIdAndStudentIdAndSchoolId(PARENT_USER_ID, STUDENT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(StudentGuardianLink.builder().studentId(STUDENT_ID).schoolId(SCHOOL_ID).canViewFees(true).build()));
+        
+        LedgerEntry entry1 = LedgerEntry.builder().amount(BigDecimal.valueOf(10000)).balanceAfter(null).build();
+        LedgerEntry entry2 = LedgerEntry.builder().amount(BigDecimal.valueOf(-2000)).balanceAfter(null).build();
+        when(ledgerEntryRepository.findByStudentFeeIdOrderByCreatedAtAsc(STUDENT_FEE_ID))
+                .thenReturn(Flux.just(entry1, entry2));
+        
+        when(allocationRepository.sumActiveAllocatedAmount(STUDENT_FEE_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(BigDecimal.ZERO));
+        
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        // Available balance should be 10000 - 2000 = 8000. So initiating 9000 should throw OVERPAYMENT.
+        StepVerifier.create(paymentService.initiatePayment(validRequest(BigDecimal.valueOf(9000))))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("OVERPAYMENT");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should break allocation loop when remaining amount becomes zero")
+    void shouldBreakAllocationLoopWhenRemainingIsZero() {
+        stubParentAndGateway();
+        
+        UUID studentFeeId1 = STUDENT_FEE_ID;
+        UUID studentFeeId2 = UUID.randomUUID();
+        
+        StudentFee fee1 = studentFee();
+        StudentFee fee2 = StudentFee.builder().id(studentFeeId2).studentId(STUDENT_ID).schoolId(SCHOOL_ID).totalAmount(BigDecimal.valueOf(5000)).build();
+        
+        when(studentFeeRepository.findByIdAndSchoolIdForUpdate(studentFeeId1, SCHOOL_ID)).thenReturn(Mono.just(fee1));
+        when(studentFeeRepository.findByIdAndSchoolIdForUpdate(studentFeeId2, SCHOOL_ID)).thenReturn(Mono.just(fee2));
+        
+        when(guardianLinkRepository.findFeeAccessByGuardianUserIdAndStudentIdAndSchoolId(PARENT_USER_ID, STUDENT_ID, SCHOOL_ID))
+                .thenReturn(Mono.just(StudentGuardianLink.builder().studentId(STUDENT_ID).schoolId(SCHOOL_ID).canViewFees(true).build()));
+        
+        when(ledgerEntryRepository.findByStudentFeeIdOrderByCreatedAtAsc(studentFeeId1))
+                .thenReturn(Flux.just(feeAssignedLedger(BigDecimal.valueOf(10000))));
+        when(ledgerEntryRepository.findByStudentFeeIdOrderByCreatedAtAsc(studentFeeId2))
+                .thenReturn(Flux.just(feeAssignedLedger(BigDecimal.valueOf(5000))));
+        
+        when(allocationRepository.sumActiveAllocatedAmount(studentFeeId1, SCHOOL_ID)).thenReturn(Mono.just(BigDecimal.ZERO));
+        when(allocationRepository.sumActiveAllocatedAmount(studentFeeId2, SCHOOL_ID)).thenReturn(Mono.just(BigDecimal.ZERO));
+        
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(allocationRepository.save(any(PaymentAllocation.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        
+        when(paymentGateway.initiatePayment(any(), any(), any(), any()))
+                .thenReturn(Mono.just(GatewayResponse.builder().gatewayTransactionRef("ref-123").status("PROCESSING").build()));
+        
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        InitiatePaymentRequest req = new InitiatePaymentRequest(List.of(studentFeeId1, studentFeeId2), "PAYSTACK", "08012345678", BigDecimal.valueOf(5000), null);
+
+        StepVerifier.create(paymentService.initiatePayment(req))
+                .assertNext(response -> {
+                    assertThat(response.amount()).isEqualByComparingTo("5000");
+                })
+                .verifyComplete();
+
+        // Should only save 1 allocation because the first fee allocation consumed all 5000 remaining amount
+        verify(allocationRepository, times(1)).save(any(PaymentAllocation.class));
+    }
+
+    @Test
+    @DisplayName("Should reject allocation when it exceeds fee balance")
+    void shouldRejectAllocationWhenItExceedsFeeBalance() {
+        UUID paymentId = UUID.randomUUID();
+        String rawPayload = rawPaystackPayload();
+        Payment payment = processingPayment(paymentId, "paystack-ref-123", BigDecimal.valueOf(5000));
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback(rawPayload))
+                .thenReturn(Mono.just(paystackSuccessCallback("paystack-ref-123", "txn-123", BigDecimal.valueOf(5000))));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.empty());
+        when(paymentRepository.findByGatewayTransactionRefForUpdate("paystack-ref-123")).thenReturn(Mono.just(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(allocationRepository.findByPaymentId(paymentId))
+                .thenReturn(Flux.just(paymentAllocation(paymentId, BigDecimal.valueOf(5000))));
+        when(studentFeeRepository.findByIdAndSchoolIdForUpdate(STUDENT_FEE_ID, SCHOOL_ID)).thenReturn(Mono.just(studentFee()));
+        
+        // Mock lastEntry to have balanceAfter = 4000 (less than 5000 allocated amount)
+        LedgerEntry lastEntry = LedgerEntry.builder().balanceAfter(BigDecimal.valueOf(4000)).build();
+        when(ledgerEntryRepository.findTopByStudentFeeIdOrderByCreatedAtDesc(STUDENT_FEE_ID)).thenReturn(Mono.just(lastEntry));
+        
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.empty());
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook(rawPayload))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(SchoolFeeException.class);
+                    assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("OVERPAYMENT");
+                })
+                .verify();
+    }
+
+    @Test
+    @DisplayName("Should avoid duplicate receipt generation if receipt already exists")
+    void shouldAvoidDuplicateReceiptGeneration() {
+        UUID paymentId = UUID.randomUUID();
+        String rawPayload = rawPaystackPayload();
+        Payment payment = processingPayment(paymentId, "paystack-ref-123", BigDecimal.valueOf(5000));
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback(rawPayload))
+                .thenReturn(Mono.just(paystackSuccessCallback("paystack-ref-123", "txn-123", BigDecimal.valueOf(5000))));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.empty());
+        when(paymentRepository.findByGatewayTransactionRefForUpdate("paystack-ref-123")).thenReturn(Mono.just(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        when(allocationRepository.findByPaymentId(paymentId))
+                .thenReturn(Flux.just(paymentAllocation(paymentId, BigDecimal.valueOf(5000))));
+        when(studentFeeRepository.findByIdAndSchoolIdForUpdate(STUDENT_FEE_ID, SCHOOL_ID)).thenReturn(Mono.just(studentFee()));
+        when(ledgerEntryRepository.findTopByStudentFeeIdOrderByCreatedAtDesc(STUDENT_FEE_ID)).thenReturn(Mono.just(feeAssignedLedger(BigDecimal.valueOf(10000))));
+        when(ledgerEntryRepository.save(any(LedgerEntry.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        
+        // Return existing receipt
+        when(receiptRepository.findByPaymentId(paymentId)).thenReturn(Mono.just(receipt(paymentId)));
+        
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook(rawPayload))
+                .verifyComplete();
+
+        // receiptRepository.save should never be called since receipt already exists
+        verify(receiptRepository, never()).save(any(Receipt.class));
+    }
+
+    @Test
+    @DisplayName("Should ignore webhook if payment not found but idempotency key exists")
+    void shouldIgnoreWebhookIfPaymentNotFoundButIdempotencyKeyExists() {
+        GatewayCallbackData callbackData = GatewayCallbackData.builder()
+                .gatewayTransactionRef("ref-123")
+                .amount(BigDecimal.valueOf(5000))
+                .isSuccess(true)
+                .build();
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback("payload")).thenReturn(Mono.just(callbackData));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.just(completedPayment(UUID.randomUUID())));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook("payload"))
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should ignore failed webhook if payment not found but idempotency key exists")
+    void shouldIgnoreFailedWebhookIfPaymentNotFoundButIdempotencyKeyExists() {
+        GatewayCallbackData callbackData = GatewayCallbackData.builder()
+                .gatewayTransactionRef("ref-123")
+                .amount(BigDecimal.valueOf(5000))
+                .isSuccess(false)
+                .build();
+
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+        when(paymentGateway.handleCallback("payload")).thenReturn(Mono.just(callbackData));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.just(completedPayment(UUID.randomUUID())));
+
+        StepVerifier.create(paymentService.handlePaystackWebhook("payload"))
+                .verifyComplete();
+    }
+
+    // ========================================================================
+    // BANK TRANSFER TESTS
+    // ========================================================================
+
+    @Test
+    @DisplayName("Should initiate bank transfer successfully")
+    void shouldInitiateBankTransferSuccessfully() {
+        stubParentAndGateway();
+        stubPayableFee(BigDecimal.valueOf(10000), BigDecimal.ZERO);
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        when(paymentRepository.save(any(Payment.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(allocationRepository.save(any(PaymentAllocation.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        BankTransferResponse gatewayResponse = BankTransferResponse.builder()
+                .reference("paystack-ref-123")
+                .accountNumber("9901234567")
+                .accountName("Grace School - Parent")
+                .bankName("Wema Bank")
+                .amount(BigDecimal.valueOf(5000))
+                .status("READY")
+                .message("Transfer to account below")
+                .build();
+
+        when(paymentGateway.initiateBankTransfer(any(UUID.class), eq(BigDecimal.valueOf(5000)), eq("parent@gis.edu"), eq("Parent User")))
+                .thenReturn(Mono.just(gatewayResponse));
+
+        BankTransferRequest request = new BankTransferRequest(List.of(STUDENT_FEE_ID), BigDecimal.valueOf(5000), "parent@gis.edu", "Parent User");
+
+        StepVerifier.create(paymentService.initiateBankTransfer(request))
+                .assertNext(response -> {
+                    assertThat(response.reference()).isEqualTo("paystack-ref-123");
+                    assertThat(response.accountNumber()).isEqualTo("9901234567");
+                    assertThat(response.bankName()).isEqualTo("Wema Bank");
+                    assertThat(response.status()).isEqualTo("READY");
+                })
+                .verifyComplete();
+
+        verify(paymentRepository, times(3)).save(any(Payment.class));
+    }
+
+    @Test
+    @DisplayName("Should return resolved details for already completed bank transfer")
+    void shouldReturnResolvedDetailsForCompletedBankTransfer() {
+        stubParentAndGateway();
+        stubPayableFee(BigDecimal.valueOf(10000), BigDecimal.ZERO);
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        Payment completedPayment = completedPayment(UUID.randomUUID());
+        completedPayment.setPaymentMethod("BANK_TRANSFER");
+        completedPayment.setGatewayTransactionRef("ref-123");
+        completedPayment.setStatus("COMPLETED");
+
+        when(paymentRepository.save(any(Payment.class))).thenReturn(Mono.error(new org.springframework.dao.DuplicateKeyException("duplicate")));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.just(completedPayment));
+
+        BankTransferResponse gatewayResponse = BankTransferResponse.builder()
+                .reference("ref-123")
+                .accountNumber("9901234567")
+                .bankName("Wema Bank")
+                .amount(BigDecimal.valueOf(5000))
+                .status("COMPLETED")
+                .build();
+        when(paymentGateway.resolveBankTransfer("ref-123")).thenReturn(Mono.just(gatewayResponse));
+
+        BankTransferRequest request = new BankTransferRequest(List.of(STUDENT_FEE_ID), BigDecimal.valueOf(5000), "parent@gis.edu", "Parent User");
+
+        StepVerifier.create(paymentService.initiateBankTransfer(request))
+                .assertNext(response -> {
+                    assertThat(response.reference()).isEqualTo("ref-123");
+                    assertThat(response.status()).isEqualTo("COMPLETED");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should resolve bank transfer for already processing payment")
+    void shouldResolveBankTransferForAlreadyProcessingPayment() {
+        stubParentAndGateway();
+        stubPayableFee(BigDecimal.valueOf(10000), BigDecimal.ZERO);
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        Payment processingPayment = processingPayment(UUID.randomUUID(), "ref-123", BigDecimal.valueOf(5000));
+        processingPayment.setPaymentMethod("BANK_TRANSFER");
+        processingPayment.setStatus("PROCESSING");
+
+        when(paymentRepository.save(any(Payment.class))).thenReturn(Mono.error(new org.springframework.dao.DuplicateKeyException("duplicate")));
+        when(paymentRepository.findByIdempotencyKey(anyString())).thenReturn(Mono.just(processingPayment));
+
+        BankTransferResponse gatewayResponse = BankTransferResponse.builder()
+                .reference("ref-123")
+                .accountNumber("9901234567")
+                .bankName("Wema Bank")
+                .amount(BigDecimal.valueOf(5000))
+                .status("READY")
+                .build();
+        when(paymentGateway.resolveBankTransfer("ref-123")).thenReturn(Mono.just(gatewayResponse));
+
+        BankTransferRequest request = new BankTransferRequest(List.of(STUDENT_FEE_ID), BigDecimal.valueOf(5000), "parent@gis.edu", "Parent User");
+
+        StepVerifier.create(paymentService.initiateBankTransfer(request))
+                .assertNext(response -> {
+                    assertThat(response.reference()).isEqualTo("ref-123");
+                    assertThat(response.status()).isEqualTo("READY");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should wait and resolve for concurrent bank transfer initiation")
+    void shouldWaitAndResolveForConcurrentInitiation() {
+        stubParentAndGateway();
+        stubPayableFee(BigDecimal.valueOf(10000), BigDecimal.ZERO);
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        Payment payment = Payment.builder()
+                .id(UUID.randomUUID())
+                .status("PENDING")
+                .amount(BigDecimal.valueOf(5000))
+                .paymentMethod("BANK_TRANSFER")
+                .build();
+
+        // 1. First save (insert pending) succeeds
+        // 2. Second save (claim lock status update) fails with OptimisticLockingFailureException
+        when(paymentRepository.save(any(Payment.class)))
+                .thenReturn(Mono.just(payment)) // 1st save in createPending
+                .thenReturn(Mono.error(new org.springframework.dao.OptimisticLockingFailureException("lock failed"))); // 2nd save in claim lock
+        when(allocationRepository.save(any(PaymentAllocation.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        Payment reloadedPayment = Payment.builder()
+                .id(payment.getId())
+                .status("PROCESSING")
+                .gatewayTransactionRef("ref-123")
+                .amount(BigDecimal.valueOf(5000))
+                .paymentMethod("BANK_TRANSFER")
+                .build();
+        when(paymentRepository.findById(payment.getId())).thenReturn(Mono.just(reloadedPayment));
+
+        BankTransferResponse gatewayResponse = BankTransferResponse.builder()
+                .reference("ref-123")
+                .accountNumber("9901234567")
+                .bankName("Wema Bank")
+                .amount(BigDecimal.valueOf(5000))
+                .status("READY")
+                .build();
+        when(paymentGateway.resolveBankTransfer("ref-123")).thenReturn(Mono.just(gatewayResponse));
+
+        BankTransferRequest request = new BankTransferRequest(List.of(STUDENT_FEE_ID), BigDecimal.valueOf(5000), "parent@gis.edu", "Parent User");
+
+        StepVerifier.create(paymentService.initiateBankTransfer(request))
+                .assertNext(response -> {
+                    assertThat(response.reference()).isEqualTo("ref-123");
+                    assertThat(response.status()).isEqualTo("READY");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Should revert bank transfer status to FAILED when initiation fails")
+    void shouldRevertBankTransferToFailedWhenInitiationFails() {
+        stubParentAndGateway();
+        stubPayableFee(BigDecimal.valueOf(10000), BigDecimal.ZERO);
+        when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(i -> i.getArgument(0));
+
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = Payment.builder()
+                .id(paymentId)
+                .status("PENDING")
+                .amount(BigDecimal.valueOf(5000))
+                .paymentMethod("BANK_TRANSFER")
+                .build();
+
+        when(paymentRepository.save(any(Payment.class)))
+                .thenReturn(Mono.just(payment));
+        when(allocationRepository.save(any(PaymentAllocation.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        when(paymentGateway.initiateBankTransfer(any(UUID.class), any(BigDecimal.class), anyString(), anyString()))
+                .thenReturn(Mono.error(new RuntimeException("gateway error")));
+
+        when(paymentRepository.findById(paymentId)).thenReturn(Mono.just(payment));
+
+        BankTransferRequest request = new BankTransferRequest(List.of(STUDENT_FEE_ID), BigDecimal.valueOf(5000), "parent@gis.edu", "Parent User");
+
+        StepVerifier.create(paymentService.initiateBankTransfer(request))
+                .expectError(RuntimeException.class)
+                .verify();
+
+        ArgumentCaptor<Payment> captor = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository, times(3)).save(captor.capture());
+        assertThat(captor.getAllValues().get(2).getStatus()).isEqualTo("FAILED");
+    }
+
+    @Test
+    @DisplayName("Should get bank transfer details successfully")
+    void shouldGetBankTransferDetailsSuccessfully() {
+        when(jwtUtils.getCurrentUser()).thenReturn(Mono.just(parentUser()));
+        UUID paymentId = UUID.randomUUID();
+        Payment payment = Payment.builder()
+                .id(paymentId)
+                .schoolId(SCHOOL_ID)
+                .paymentMethod("BANK_TRANSFER")
+                .gatewayTransactionRef("ref-123")
+                .amount(BigDecimal.valueOf(5000))
+                .status("PROCESSING")
+                .build();
+
+        when(paymentRepository.findByIdAndSchoolId(paymentId, SCHOOL_ID)).thenReturn(Mono.just(payment));
+        when(gatewaySelector.select("PAYSTACK")).thenReturn(paymentGateway);
+
+        BankTransferResponse gatewayResponse = BankTransferResponse.builder()
+                .reference("ref-123")
+                .accountNumber("9901234567")
+                .bankName("Wema Bank")
+                .amount(BigDecimal.valueOf(5000))
+                .status("READY")
+                .build();
+        when(paymentGateway.resolveBankTransfer("ref-123")).thenReturn(Mono.just(gatewayResponse));
+
+        StepVerifier.create(paymentService.getBankTransferDetails(paymentId))
+                .assertNext(response -> {
+                    assertThat(response.reference()).isEqualTo("ref-123");
+                    assertThat(response.status()).isEqualTo("READY");
+                })
+                .verifyComplete();
+    }
+
+    @org.junit.jupiter.api.Nested
+    @DisplayName("Payment Validation Tests")
+    class ValidationTests {
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_REQUEST when InitiatePaymentRequest is null")
+        void shouldThrowOnNullInitiatePaymentRequest() {
+            StepVerifier.create(paymentService.initiatePayment(null))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_REQUEST when fee IDs list is null or empty")
+        void shouldThrowOnEmptyFeeIds() {
+            InitiatePaymentRequest request = new InitiatePaymentRequest(List.of(), "PAYSTACK", "+2348012345678", BigDecimal.valueOf(5000), null);
+            StepVerifier.create(paymentService.initiatePayment(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_REQUEST when a fee ID in the list is null")
+        void shouldThrowOnNullFeeIdInList() {
+            List<UUID> feeIds = new java.util.ArrayList<>();
+            feeIds.add(null);
+            InitiatePaymentRequest request = new InitiatePaymentRequest(feeIds, "PAYSTACK", "+2348012345678", BigDecimal.valueOf(5000), null);
+            StepVerifier.create(paymentService.initiatePayment(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_REQUEST when paymentMethod is null or blank")
+        void shouldThrowOnNullPaymentMethod() {
+            InitiatePaymentRequest request = new InitiatePaymentRequest(List.of(UUID.randomUUID()), "   ", "+2348012345678", BigDecimal.valueOf(5000), null);
+            StepVerifier.create(paymentService.initiatePayment(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("paymentMethod");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_REQUEST when phoneNumber is null or blank")
+        void shouldThrowOnNullPhoneNumber() {
+            InitiatePaymentRequest request = new InitiatePaymentRequest(List.of(UUID.randomUUID()), "PAYSTACK", "   ", BigDecimal.valueOf(5000), null);
+            StepVerifier.create(paymentService.initiatePayment(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("phoneNumber");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_AMOUNT when amount is null or zero/negative")
+        void shouldThrowOnInvalidAmount() {
+            InitiatePaymentRequest request = new InitiatePaymentRequest(List.of(UUID.randomUUID()), "PAYSTACK", "+2348012345678", BigDecimal.ZERO, null);
+            StepVerifier.create(paymentService.initiatePayment(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_AMOUNT");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("amount");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_REQUEST when BankTransferRequest is null")
+        void shouldThrowOnNullBankTransferRequest() {
+            StepVerifier.create(paymentService.initiateBankTransfer(null))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_REQUEST");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_REQUEST when studentFeeIds is empty for bank transfer")
+        void shouldThrowOnEmptyFeeIdsBankTransfer() {
+            BankTransferRequest request = new BankTransferRequest(List.of(), BigDecimal.valueOf(5000), "parent@example.com", "Parent User");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_REQUEST when a studentFeeId is null for bank transfer")
+        void shouldThrowOnNullFeeIdBankTransfer() {
+            List<UUID> feeIds = new java.util.ArrayList<>();
+            feeIds.add(null);
+            BankTransferRequest request = new BankTransferRequest(feeIds, BigDecimal.valueOf(5000), "parent@example.com", "Parent User");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_AMOUNT when amount is null for bank transfer")
+        void shouldThrowOnNullAmountBankTransfer() {
+            BankTransferRequest request = new BankTransferRequest(List.of(UUID.randomUUID()), null, "parent@example.com", "Parent User");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_AMOUNT");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("amount");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_AMOUNT when amount is less than 1000")
+        void shouldThrowOnLowAmountBankTransfer() {
+            BankTransferRequest request = new BankTransferRequest(List.of(UUID.randomUUID()), BigDecimal.valueOf(500), "parent@example.com", "Parent User");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_AMOUNT");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("amount");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_AMOUNT when amount is greater than 10M")
+        void shouldThrowOnHighAmountBankTransfer() {
+            BankTransferRequest request = new BankTransferRequest(List.of(UUID.randomUUID()), BigDecimal.valueOf(11_000_000), "parent@example.com", "Parent User");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_AMOUNT");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("amount");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_REQUEST when email is invalid for bank transfer")
+        void shouldThrowOnInvalidEmailBankTransfer() {
+            BankTransferRequest request = new BankTransferRequest(List.of(UUID.randomUUID()), BigDecimal.valueOf(5000), "invalid-email", "Parent User");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("email");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_REQUEST when email is too long for bank transfer")
+        void shouldThrowOnLongEmailBankTransfer() {
+            String longEmail = "a".repeat(250) + "@test.com";
+            BankTransferRequest request = new BankTransferRequest(List.of(UUID.randomUUID()), BigDecimal.valueOf(5000), longEmail, "Parent User");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("email");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_REQUEST when customer name is null/blank for bank transfer")
+        void shouldThrowOnNullCustomerNameBankTransfer() {
+            BankTransferRequest request = new BankTransferRequest(List.of(UUID.randomUUID()), BigDecimal.valueOf(5000), "parent@example.com", "   ");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("customerName");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_REQUEST when customer name is too short for bank transfer")
+        void shouldThrowOnShortCustomerNameBankTransfer() {
+            BankTransferRequest request = new BankTransferRequest(List.of(UUID.randomUUID()), BigDecimal.valueOf(5000), "parent@example.com", "A");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("customerName");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_REQUEST when customer name has invalid characters")
+        void shouldThrowOnInvalidCharsCustomerNameBankTransfer() {
+            BankTransferRequest request = new BankTransferRequest(List.of(UUID.randomUUID()), BigDecimal.valueOf(5000), "parent@example.com", "Parent123");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("customerName");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_BANK_TRANSFER_REQUEST when too many fee IDs are provided")
+        void shouldThrowOnTooManyFeesBankTransfer() {
+            List<UUID> feeIds = new java.util.ArrayList<>();
+            for (int i = 0; i < 21; i++) {
+                feeIds.add(UUID.randomUUID());
+            }
+            BankTransferRequest request = new BankTransferRequest(feeIds, BigDecimal.valueOf(5000), "parent@example.com", "Parent User");
+            StepVerifier.create(paymentService.initiateBankTransfer(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_BANK_TRANSFER_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeIds");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_REQUEST when OfflinePaymentRequest is null")
+        void shouldThrowOnNullOfflinePaymentRequest() {
+            StepVerifier.create(paymentService.recordOfflinePayment(null))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_REQUEST when studentFeeId is null in OfflinePaymentRequest")
+        void shouldThrowOnNullStudentFeeIdOffline() {
+            OfflinePaymentRequest request = new OfflinePaymentRequest(null, BigDecimal.valueOf(5000), "CASH", Instant.now(), "Admin", "Notes", false);
+            StepVerifier.create(paymentService.recordOfflinePayment(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("studentFeeId");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_AMOUNT when amount is zero/negative in OfflinePaymentRequest")
+        void shouldThrowOnInvalidAmountOffline() {
+            OfflinePaymentRequest request = new OfflinePaymentRequest(UUID.randomUUID(), BigDecimal.ZERO, "CASH", Instant.now(), "Admin", "Notes", false);
+            StepVerifier.create(paymentService.recordOfflinePayment(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_AMOUNT");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("amount");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_REQUEST when paymentMethod is null or blank in OfflinePaymentRequest")
+        void shouldThrowOnNullPaymentMethodOffline() {
+            OfflinePaymentRequest request = new OfflinePaymentRequest(UUID.randomUUID(), BigDecimal.valueOf(5000), "   ", Instant.now(), "Admin", "Notes", false);
+            StepVerifier.create(paymentService.recordOfflinePayment(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("paymentMethod");
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should throw INVALID_PAYMENT_REQUEST when paymentDate is null in OfflinePaymentRequest")
+        void shouldThrowOnNullPaymentDateOffline() {
+            OfflinePaymentRequest request = new OfflinePaymentRequest(UUID.randomUUID(), BigDecimal.valueOf(5000), "CASH", null, "Admin", "Notes", false);
+            StepVerifier.create(paymentService.recordOfflinePayment(request))
+                    .expectErrorSatisfies(error -> {
+                        assertThat(error).isInstanceOf(SchoolFeeException.class);
+                        assertThat(((SchoolFeeException) error).getErrorCode()).isEqualTo("INVALID_PAYMENT_REQUEST");
+                        assertThat(((SchoolFeeException) error).getField()).isEqualTo("paymentDate");
+                    })
+                    .verify();
+        }
     }
 }

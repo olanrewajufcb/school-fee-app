@@ -74,6 +74,16 @@ export interface InitiatePaymentResponse {
   expiresInSeconds?: number;
 }
 
+export interface BankTransferResponse {
+  reference: string;
+  accountNumber: string;
+  accountName: string;
+  bankName: string;
+  amount: number;
+  status: string;
+  message?: string;
+}
+
 export interface PaymentStatus {
   paymentId: string;
   status: string;
@@ -104,6 +114,8 @@ export interface ChildResultSummary {
     average: number;
     totalSubjects: number;
     grade: string;
+    classPosition?: number;
+    outOf?: number;
   };
   topSubjects?: Array<{ name: string; score: number; grade: string }>;
   attendance?: {
@@ -147,11 +159,36 @@ export interface StudentResult {
     subjectsTaken?: number;
     subjectsPassed?: number;
     subjectsFailed?: number;
+    classAverage?: number;
+    highestScore?: number;
+    lowestScore?: number;
+    promotionStatus?: string;
   };
   ranking?: { classPosition: number; outOf: number; percentile: number; topThird: boolean };
   attendance?: { daysOpen: number; daysPresent: number; daysAbsent: number; attendanceRate: number };
+  gradingScale?: Array<{ grade: string; minScore: number; maxScore: number; remark?: string }>;
+  behaviouralAssessments?: Array<{ name: string; category: string; rating: string; comment?: string }>;
+  psychomotorAssessments?: Array<{ name: string; category: string; rating: string; comment?: string }>;
   teacherComment?: string;
   principalComment?: string;
+}
+
+export interface PublishedTermResult {
+  termId: string;
+  termName: string;
+  sessionName?: string;
+  average: number;
+  overallGrade?: string;
+  classPosition: number;
+  outOf: number;
+}
+
+export interface ShareResultResponse {
+  channel: 'SMS' | 'WHATSAPP' | 'EMAIL';
+  sentAt: string;
+  message: string;
+  shareText: string;
+  shareUrl: string;
 }
 
 export interface ReceiptDetail {
@@ -212,8 +249,30 @@ export const parentService = {
     return unwrap(response);
   },
 
+  async initiateBankTransfer(payload: {
+    studentFeeIds: string[];
+    amount: number;
+    email: string;
+    customerName: string;
+  }) {
+    const response = await api.post<ApiEnvelope<BankTransferResponse>>('/api/v1/payments/bank-transfer', payload);
+    return unwrap(response);
+  },
+
+  async getBankTransferDetails(paymentId: string) {
+    const response = await api.get<ApiEnvelope<BankTransferResponse>>(`/api/v1/payments/${paymentId}/bank-transfer-details`);
+    return unwrap(response);
+  },
+
   async getPaymentStatus(paymentId: string) {
     const response = await api.get<ApiEnvelope<PaymentStatus>>(`/api/v1/payments/${paymentId}`);
+    return unwrap(response);
+  },
+
+  async getPaymentStatusByReference(reference: string) {
+    const response = await api.get<ApiEnvelope<PaymentStatus>>(
+      `/api/v1/payments/reference/${encodeURIComponent(reference)}`,
+    );
     return unwrap(response);
   },
 
@@ -231,6 +290,34 @@ export const parentService = {
 
   async getStudentResult(studentId: string, termId: string) {
     const response = await api.get<ApiEnvelope<StudentResult>>(`/api/v1/results/students/${studentId}/term/${termId}`);
+    return unwrap(response);
+  },
+
+  async getPublishedStudentResults(studentId: string) {
+    const response = await api.get<ApiEnvelope<PublishedTermResult[]>>(
+      `/api/v1/results/students/${studentId}/published-terms`,
+    );
+    return unwrap(response);
+  },
+
+  async downloadStudentResultPdf(studentId: string, termId: string) {
+    const response = await api.get<Blob>(
+      `/api/v1/results/students/${studentId}/term/${termId}/download`,
+      { responseType: 'blob' },
+    );
+    return response.data;
+  },
+
+  async shareStudentResult(
+    studentId: string,
+    termId: string,
+    channel: 'SMS' | 'WHATSAPP' | 'EMAIL',
+    recipient: string,
+  ) {
+    const response = await api.post<ApiEnvelope<ShareResultResponse>>(
+      `/api/v1/results/students/${studentId}/term/${termId}/share`,
+      { channel, recipient },
+    );
     return unwrap(response);
   },
 

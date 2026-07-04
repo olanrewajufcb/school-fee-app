@@ -100,8 +100,8 @@ export const SuperAdminDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { id: routeSchoolId } = useParams();
   const { selectedSchoolId, selectedSchoolName, selectSchool, clearSchool } = useSchoolStore();
+  const routeSchoolId = useMemo(() => getManagedSchoolId(location.pathname), [location.pathname]);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ACTIVE');
   const [search, setSearch] = useState('');
@@ -112,18 +112,10 @@ export const SuperAdminDashboard: React.FC = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync selected school state with route when impersonating
-  const isImpersonatingPath = useMemo(() => {
-    const p = location.pathname;
-    return p.includes('/dashboard') || p.includes('/users') || p.includes('/fees') || p.includes('/reports');
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (isImpersonatingPath && routeSchoolId && routeSchoolId !== selectedSchoolId) {
-      const found = schools.find((s) => s.schoolId === routeSchoolId);
-      selectSchool(routeSchoolId, found?.name || 'School');
-    }
-  }, [isImpersonatingPath, routeSchoolId, selectedSchoolId, schools, selectSchool]);
+  const isManagedSchoolPath = useMemo(
+    () => Boolean(routeSchoolId && isSchoolWorkspacePath(location.pathname)),
+    [location.pathname, routeSchoolId],
+  );
 
   const platformTotals = useMemo(() => {
     return schools.reduce(
@@ -171,7 +163,7 @@ export const SuperAdminDashboard: React.FC = () => {
   const handleSelectSchool = (school: SchoolSummary) => {
     selectSchool(school.schoolId, school.name);
     setNotice(`${school.name} is now selected`);
-    navigate(`/super-admin/schools/${school.schoolId}/dashboard`);
+    navigate(`/super-admin/schools/${school.schoolId}/manage/overview`);
   };
 
   const handleCreateSchoolSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -187,7 +179,7 @@ export const SuperAdminDashboard: React.FC = () => {
       setStatusFilter('ACTIVE');
       setNotice(created.message || `${created.name} has been created`);
       await loadSchools('ACTIVE');
-      navigate(`/super-admin/schools/${created.schoolId}/dashboard`);
+      navigate(`/super-admin/schools/${created.schoolId}/manage/setup`);
     } catch (err) {
       setError(readError(err, 'Unable to create school'));
     } finally {
@@ -223,14 +215,14 @@ export const SuperAdminDashboard: React.FC = () => {
       navigate('/super-admin/schools');
     } else if (itemId === 'finance') {
       if (selectedSchoolId) {
-        navigate(`/super-admin/schools/${selectedSchoolId}/fees`);
+        navigate(`/super-admin/schools/${selectedSchoolId}/manage/fees`);
       } else {
         navigate('/super-admin');
         setNotice('Please select a school to view its finance dashboard.');
       }
     } else if (itemId === 'notifications') {
       if (selectedSchoolId) {
-        navigate(`/super-admin/schools/${selectedSchoolId}/dashboard`);
+        navigate(`/super-admin/schools/${selectedSchoolId}/manage/notifications`);
       } else {
         navigate('/super-admin');
         setNotice('Please select a school to view its notifications.');
@@ -238,9 +230,9 @@ export const SuperAdminDashboard: React.FC = () => {
     }
   };
 
-  // If the path is /super-admin/schools/:id/dashboard or /users or /fees, render AdminDashboard directly
-  if (isImpersonatingPath && routeSchoolId) {
-    return <AdminDashboard />;
+  if (isManagedSchoolPath && routeSchoolId) {
+    const schoolName = schools.find((school) => school.schoolId === routeSchoolId)?.name;
+    return <ManagedSchoolAdmin schoolId={routeSchoolId} schoolName={schoolName} />;
   }
 
   return (
@@ -529,7 +521,7 @@ function SchoolSelectorPage({
     if (!isLoading && schools.length === 1 && schools[0].status === 'ACTIVE') {
       const singleSchool = schools[0];
       selectSchool(singleSchool.schoolId, singleSchool.name);
-      navigate(`/super-admin/schools/${singleSchool.schoolId}/dashboard`, { replace: true });
+      navigate(`/super-admin/schools/${singleSchool.schoolId}/manage/overview`, { replace: true });
     }
   }, [isLoading, schools, navigate, selectSchool]);
 
@@ -597,6 +589,22 @@ function SchoolSelectorPage({
       </div>
     </div>
   );
+}
+
+function ManagedSchoolAdmin({ schoolId, schoolName }: { schoolId: string; schoolName?: string }) {
+  const { selectedSchoolId, selectedSchoolName, selectSchool } = useSchoolStore();
+
+  useEffect(() => {
+    if (selectedSchoolId !== schoolId || (schoolName && selectedSchoolName !== schoolName)) {
+      selectSchool(schoolId, schoolName || 'School');
+    }
+  }, [schoolId, schoolName, selectedSchoolId, selectedSchoolName, selectSchool]);
+
+  if (selectedSchoolId !== schoolId) {
+    return <LoadingPanel label={`Opening ${schoolName || 'school'} workspace...`} />;
+  }
+
+  return <AdminDashboard />;
 }
 
 interface CreateSchoolPageProps {
@@ -705,6 +713,7 @@ function SchoolDetailsPage({
   onDeactivate
 }: SchoolDetailsPageProps) {
   const navigate = useNavigate();
+  const { selectedSchoolId, selectSchool } = useSchoolStore();
   const [school, setSchool] = useState<SchoolDetail | null>(null);
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
   const [users, setUsers] = useState<UserSummary[]>([]);
@@ -721,6 +730,14 @@ function SchoolDetailsPage({
   }, [schools, schoolId]);
 
   useEffect(() => {
+    if (selectedSchoolId !== schoolId) {
+      selectSchool(schoolId, matchedSchoolSummary?.name || 'School');
+    }
+  }, [matchedSchoolSummary?.name, schoolId, selectSchool, selectedSchoolId]);
+
+  useEffect(() => {
+    if (selectedSchoolId !== schoolId) return;
+
     async function load() {
       setIsLoading(true);
       setError(null);
@@ -763,7 +780,7 @@ function SchoolDetailsPage({
       }
     }
     void load();
-  }, [schoolId]);
+  }, [schoolId, selectedSchoolId]);
 
   if (isLoading) {
     return <LoadingPanel label="Loading school profile details..." />;
@@ -785,8 +802,8 @@ function SchoolDetailsPage({
               Deactivate School
             </Button>
           )}
-          <Button onClick={() => navigate(`/super-admin/schools/${schoolId}/dashboard`)} className="bg-slate-950 text-white hover:bg-slate-800">
-            Impersonate School View
+          <Button onClick={() => navigate(`/super-admin/schools/${schoolId}/manage/overview`)} className="bg-slate-950 text-white hover:bg-slate-800">
+            Manage School Workspace
           </Button>
         </div>
       </div>
@@ -1289,6 +1306,14 @@ function daysAgo(days: number) {
 
 function toDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10);
+}
+
+function getManagedSchoolId(pathname: string) {
+  return pathname.match(/^\/super-admin\/schools\/([^/]+)\/(?:manage|dashboard|users|fees|reports)(?:\/|$)/)?.[1] ?? null;
+}
+
+function isSchoolWorkspacePath(pathname: string) {
+  return /^\/super-admin\/schools\/[^/]+\/(?:manage(?:\/[^/]+)?|dashboard|users|fees|reports)\/?$/.test(pathname);
 }
 
 export default SuperAdminDashboard;

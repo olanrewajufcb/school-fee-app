@@ -8,6 +8,7 @@ import com.fee.app.schoolfeeapp.school.domain.School;
 import com.fee.app.schoolfeeapp.school.repository.AcademicSessionRepository;
 import com.fee.app.schoolfeeapp.school.repository.ClassRepository;
 import com.fee.app.schoolfeeapp.school.repository.SchoolRepository;
+import com.fee.app.schoolfeeapp.student.dto.request.BatchEnrollRequest;
 import com.fee.app.schoolfeeapp.student.dto.request.EnrollStudentRequest;
 import com.fee.app.schoolfeeapp.student.dto.request.UpdateStudentRequest;
 import java.time.Instant;
@@ -240,6 +241,86 @@ class StudentControllerIntegrationTest {
                     .bodyValue(validRequestWithoutGuardians(UUID.randomUUID()))
                     .exchange()
                     .expectStatus().isForbidden();
+        }
+
+        @Test
+        @DisplayName("Should enroll students batch for school admin")
+        void shouldEnrollStudentsBatchForSchoolAdmin() {
+            seedSchool(SCHOOL_ID, "Grace International School", "GIS", true);
+            AcademicSession session = seedSession(SCHOOL_ID, "2025/2026 Academic Year", true, "ACTIVE");
+            ClassEntity cls = seedClass(SCHOOL_ID, session.getId(), "Primary 1", "PRIMARY_1", 30, true);
+
+            schoolAdminClient(SCHOOL_ID)
+                    .post()
+                    .uri("/api/v1/students/batch")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(new BatchEnrollRequest(List.of(
+                            validRequestWithoutGuardians(cls.getId()),
+                            batchRequest(cls.getId(), "Marie", "Curie"))))
+                    .exchange()
+                    .expectStatus().isCreated()
+                    .expectBody()
+                    .jsonPath("$.success").isEqualTo(true)
+                    .jsonPath("$.data.totalSubmitted").isEqualTo(2)
+                    .jsonPath("$.data.enrolled").isEqualTo(2)
+                    .jsonPath("$.data.failed").isEqualTo(0)
+                    .jsonPath("$.data.results[0].status").isEqualTo("ENROLLED")
+                    .jsonPath("$.data.results[1].status").isEqualTo("ENROLLED");
+
+            Long savedCount = databaseClient.sql("""
+                    SELECT COUNT(*)
+                    FROM school.students
+                    WHERE school_id = :schoolId
+                      AND current_class_id = :classId
+                      AND deleted_at IS NULL
+                    """)
+                    .bind("schoolId", SCHOOL_ID)
+                    .bind("classId", cls.getId())
+                    .map((row, metadata) -> row.get(0, Long.class))
+                    .one()
+                    .block();
+            assertThat(savedCount).isEqualTo(2L);
+        }
+
+        @Test
+        @DisplayName("Should partially fail batch when class capacity is exhausted")
+        void shouldPartiallyFailBatchWhenClassCapacityIsExhausted() {
+            seedSchool(SCHOOL_ID, "Grace International School", "GIS", true);
+            AcademicSession session = seedSession(SCHOOL_ID, "2025/2026 Academic Year", true, "ACTIVE");
+            ClassEntity cls = seedClass(SCHOOL_ID, session.getId(), "Primary 1", "PRIMARY_1", 1, true);
+
+            schoolAdminClient(SCHOOL_ID)
+                    .post()
+                    .uri("/api/v1/students/batch")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(new BatchEnrollRequest(List.of(
+                            validRequestWithoutGuardians(cls.getId()),
+                            batchRequest(cls.getId(), "Marie", "Curie"))))
+                    .exchange()
+                    .expectStatus().isCreated()
+                    .expectBody()
+                    .jsonPath("$.success").isEqualTo(true)
+                    .jsonPath("$.data.totalSubmitted").isEqualTo(2)
+                    .jsonPath("$.data.enrolled").isEqualTo(1)
+                    .jsonPath("$.data.failed").isEqualTo(1)
+                    .jsonPath("$.data.results[0].status").isEqualTo("ENROLLED")
+                    .jsonPath("$.data.results[1].status").isEqualTo("FAILED")
+                    .jsonPath("$.data.results[1].reason").value(reason ->
+                            assertThat(reason.toString()).contains("is full"));
+
+            Long savedCount = databaseClient.sql("""
+                    SELECT COUNT(*)
+                    FROM school.students
+                    WHERE school_id = :schoolId
+                      AND current_class_id = :classId
+                      AND deleted_at IS NULL
+                    """)
+                    .bind("schoolId", SCHOOL_ID)
+                    .bind("classId", cls.getId())
+                    .map((row, metadata) -> row.get(0, Long.class))
+                    .one()
+                    .block();
+            assertThat(savedCount).isEqualTo(1L);
         }
     }
 
@@ -554,6 +635,18 @@ class StudentControllerIntegrationTest {
         return new EnrollStudentRequest(
                 "Ada",
                 "Lovelace",
+                null,
+                "FEMALE",
+                LocalDate.of(2018, 1, 1),
+                classId,
+                List.of(),
+                null);
+    }
+
+    private EnrollStudentRequest batchRequest(UUID classId, String firstName, String lastName) {
+        return new EnrollStudentRequest(
+                firstName,
+                lastName,
                 null,
                 "FEMALE",
                 LocalDate.of(2018, 1, 1),

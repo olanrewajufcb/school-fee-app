@@ -4,6 +4,7 @@ package com.fee.app.schoolfeeapp.student.controller;
 import com.fee.app.schoolfeeapp.common.dto.ApiResponse;
 import com.fee.app.schoolfeeapp.common.dto.PageResponse;
 import com.fee.app.schoolfeeapp.common.exceptions.SchoolFeeException;
+import com.fee.app.schoolfeeapp.student.dto.request.BatchEnrollRequest;
 import com.fee.app.schoolfeeapp.student.dto.request.EnrollStudentRequest;
 import com.fee.app.schoolfeeapp.student.dto.request.UpdateStudentRequest;
 import com.fee.app.schoolfeeapp.student.dto.response.*;
@@ -114,5 +115,19 @@ public class StudentController {
                     "size");
         }
         return PageRequest.of(page, size);
+    }
+
+    /**
+     * POST /api/v1/students/batch
+     * Enroll multiple students at once.
+     * Each student is processed independently — one failure doesn't block others.
+     */
+    @PostMapping("/batch")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'SCHOOL_ADMIN')")
+    public Mono<ResponseEntity<ApiResponse<BatchEnrollResponse>>> enrollStudentsBatch(
+            @Valid @RequestBody BatchEnrollRequest request) {
+        return studentService.enrollStudentsBatch(request)
+                .map(response -> ResponseEntity.status(HttpStatus.CREATED)
+                        .body(ApiResponse.success(response)));
     }
 }

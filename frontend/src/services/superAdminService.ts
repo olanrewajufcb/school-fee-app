@@ -150,6 +150,24 @@ export interface NotificationTemplate {
   updatedAt?: string;
 }
 
+export interface ReportCardTemplate {
+  templateId: string;
+  name: string;
+  educationLevel: 'NURSERY' | 'PRIMARY' | 'JUNIOR_SECONDARY' | 'SENIOR_SECONDARY';
+  config: Record<string, unknown>;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateReportCardTemplatePayload {
+  name: string;
+  educationLevel: ReportCardTemplate['educationLevel'];
+  config: Record<string, unknown>;
+  isDefault: boolean;
+}
+
 export interface ReminderSchedule {
   scheduleId: string;
   name: string;
@@ -274,6 +292,16 @@ export const superAdminService = {
 
   async getReminderSchedules() {
     const response = await api.get<ApiEnvelope<ReminderSchedule[]>>('/api/v1/notifications/reminder-schedules');
+    return unwrap(response);
+  },
+
+  async listReportCardTemplates() {
+    const response = await api.get<ApiEnvelope<ReportCardTemplate[]>>('/api/v1/results/report-card-templates');
+    return unwrap(response);
+  },
+
+  async createReportCardTemplate(payload: CreateReportCardTemplatePayload) {
+    const response = await api.post<ApiEnvelope<ReportCardTemplate>>('/api/v1/results/report-card-templates', payload);
     return unwrap(response);
   },
 };

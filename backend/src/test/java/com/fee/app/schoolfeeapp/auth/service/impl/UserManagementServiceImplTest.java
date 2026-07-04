@@ -687,6 +687,67 @@ class UserManagementServiceImplTest {
                     })
                     .verifyComplete();
         }
+
+        @Test
+        @DisplayName("Should return not found when guardians list is empty")
+        void shouldReturnNotFoundWhenGuardiansEmpty() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.CheckAccountRequest("+2348012345678");
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678")).thenReturn(Flux.empty());
+            
+            Mono<com.fee.app.schoolfeeapp.auth.dto.response.CheckAccountResponse> result = userManagementService.checkAccount(request);
+            
+            StepVerifier.create(result)
+                    .assertNext(response -> {
+                        assertThat(response.found()).isFalse();
+                        assertThat(response.message()).contains("No account found");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should handle unknown school fallback in single guardian match")
+        void shouldHandleUnknownSchoolFallbackForSingleGuardian() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.CheckAccountRequest("+2348012345678");
+            StudentGuardian g1 = StudentGuardian.builder().id(UUID.randomUUID()).schoolId(SCHOOL_ID).firstName(null).lastName(null).build();
+
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678")).thenReturn(Flux.just(g1));
+            when(schoolRepository.findById(SCHOOL_ID)).thenReturn(Mono.empty());
+            when(guardianLinkRepository.findByGuardianIdAndDeletedAtIsNull(g1.getId())).thenReturn(Flux.empty());
+
+            Mono<com.fee.app.schoolfeeapp.auth.dto.response.CheckAccountResponse> result = userManagementService.checkAccount(request);
+
+            StepVerifier.create(result)
+                    .assertNext(response -> {
+                        assertThat(response.found()).isTrue();
+                        assertThat(response.schoolName()).isEqualTo("Unknown School");
+                        assertThat(response.guardianName()).isEmpty();
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should handle unknown school fallback in multiple guardians options")
+        void shouldHandleUnknownSchoolFallbackForMultipleGuardians() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.CheckAccountRequest("+2348012345678");
+            UUID schoolId2 = UUID.randomUUID();
+            StudentGuardian g1 = StudentGuardian.builder().id(UUID.randomUUID()).schoolId(SCHOOL_ID).firstName("John").lastName("Doe").build();
+            StudentGuardian g2 = StudentGuardian.builder().id(UUID.randomUUID()).schoolId(schoolId2).firstName("Jane").lastName("Doe").build();
+
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678")).thenReturn(Flux.just(g1, g2));
+            when(schoolRepository.findById(SCHOOL_ID)).thenReturn(Mono.empty());
+            when(schoolRepository.findById(schoolId2)).thenReturn(Mono.empty());
+
+            Mono<com.fee.app.schoolfeeapp.auth.dto.response.CheckAccountResponse> result = userManagementService.checkAccount(request);
+
+            StepVerifier.create(result)
+                    .assertNext(response -> {
+                        assertThat(response.found()).isTrue();
+                        assertThat(response.options()).hasSize(2);
+                        assertThat(response.options()).extracting("schoolName")
+                                .containsExactly("Unknown School", "Unknown School");
+                    })
+                    .verifyComplete();
+        }
     }
 
     // ========================================================================
@@ -888,6 +949,199 @@ class UserManagementServiceImplTest {
                     .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("MULTIPLE_ACCOUNTS_FOUND"))
                     .verify();
         }
+
+        @Test
+        @DisplayName("Should return GUARDIAN_NOT_FOUND when schoolId is missing and no guardian exists")
+        void shouldReturn400IfNoGuardianExistsForMissingSchoolId() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348012345678", "000000", null);
+
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.empty());
+
+            Mono<java.util.Map<String, String>> result = userManagementService.verifyOtpAndCreateAccount(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("GUARDIAN_NOT_FOUND"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return INVALID_OTP when OTP code is incorrect")
+        void shouldReturn400ForIncorrectOtp() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348012345678", "999999", SCHOOL_ID);
+
+            Mono<java.util.Map<String, String>> result = userManagementService.verifyOtpAndCreateAccount(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("INVALID_OTP"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should create local user and Keycloak user if new (no schoolId in request, single guardian)")
+        void shouldCreateAccountIfNewWithoutSchoolId() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348012345678", "000000", null);
+
+            StudentGuardian guardian = StudentGuardian.builder()
+                    .id(UUID.randomUUID())
+                    .schoolId(SCHOOL_ID)
+                    .userId(null)
+                    .firstName("John")
+                    .lastName("Doe")
+                    .phone("2348012345678")
+                    .email("john@test.com")
+                    .build();
+
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.just(guardian));
+            
+            when(keycloakAdminService.findByUsername("2348012345678")).thenReturn(Optional.empty());
+            
+            UUID kcId = UUID.randomUUID();
+            when(keycloakAdminService.createUser(any(), anyString(), any())).thenReturn(Mono.just(new KeycloakUserResult(kcId, "tempPassword")));
+
+            User savedUser = User.builder().id(UUID.randomUUID()).build();
+            when(userRepository.save(any(User.class))).thenReturn(Mono.just(savedUser));
+            when(guardianRepository.save(any(StudentGuardian.class))).thenReturn(Mono.just(guardian));
+            when(roleRepository.save(any(UserSchoolRole.class))).thenReturn(Mono.just(UserSchoolRole.builder().id(UUID.randomUUID()).build()));
+
+            Mono<java.util.Map<String, String>> result = userManagementService.verifyOtpAndCreateAccount(request);
+
+            StepVerifier.create(result)
+                    .assertNext(res -> {
+                        assertThat(res).containsEntry("message", "Account created. Set your password to continue.");
+                        assertThat(res).containsEntry("phoneNumber", "2348012345678");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should handle Keycloak user representation with existing school attributes")
+        void shouldHandleKeycloakExistingSchoolAttributes() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348012345678", "000000", SCHOOL_ID);
+
+            StudentGuardian guardian = StudentGuardian.builder()
+                    .id(UUID.randomUUID())
+                    .schoolId(SCHOOL_ID)
+                    .userId(null)
+                    .firstName("John")
+                    .lastName("Doe")
+                    .phone("2348012345678")
+                    .email("john@test.com")
+                    .build();
+
+            when(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull("2348012345678", SCHOOL_ID))
+                    .thenReturn(Mono.just(guardian));
+            
+            org.keycloak.representations.idm.UserRepresentation kcUser = new org.keycloak.representations.idm.UserRepresentation();
+            kcUser.setId(UUID.randomUUID().toString());
+            Map<String, List<String>> attributes = new java.util.HashMap<>();
+            attributes.put("school_id", List.of(SCHOOL_ID.toString()));
+            kcUser.setAttributes(attributes);
+            
+            when(keycloakAdminService.findByUsername("2348012345678")).thenReturn(Optional.of(kcUser));
+
+            User savedUser = User.builder().id(UUID.randomUUID()).build();
+            when(userRepository.save(any(User.class))).thenReturn(Mono.just(savedUser));
+            when(guardianRepository.save(any(StudentGuardian.class))).thenReturn(Mono.just(guardian));
+            when(roleRepository.save(any(UserSchoolRole.class))).thenReturn(Mono.just(UserSchoolRole.builder().id(UUID.randomUUID()).build()));
+
+            Mono<java.util.Map<String, String>> result = userManagementService.verifyOtpAndCreateAccount(request);
+
+            StepVerifier.create(result)
+                    .assertNext(res -> {
+                        assertThat(res).containsEntry("message", "Account created. Set your password to continue.");
+                    })
+                    .verifyComplete();
+            
+            verify(keycloakAdminService, never()).updateUserAttributes(anyString(), any());
+        }
+
+        @Test
+        @DisplayName("Should successfully verify and create account using a cached OTP generated via sendOtp")
+        void shouldVerifyAndCreateAccountWithValidCachedOtp() {
+            var sendRequest = new com.fee.app.schoolfeeapp.auth.dto.request.SendOtpRequest("+2348012345678");
+            StudentGuardian guardian = StudentGuardian.builder()
+                    .id(UUID.randomUUID())
+                    .schoolId(SCHOOL_ID)
+                    .userId(null)
+                    .firstName("John")
+                    .lastName("Doe")
+                    .phone("2348012345678")
+                    .email("john@test.com")
+                    .build();
+
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.just(guardian));
+            
+            ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+            when(smsService.send(eq("2348012345678"), messageCaptor.capture())).thenReturn(Mono.empty());
+
+            StepVerifier.create(userManagementService.sendOtp(sendRequest)).verifyComplete();
+
+            String message = messageCaptor.getValue();
+            String otpCode = message.replaceAll(".*verification code is: (\\d+).*", "$1");
+
+            var verifyRequest = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348012345678", otpCode, SCHOOL_ID);
+            when(guardianRepository.findByPhoneAndSchoolIdAndDeletedAtIsNull("2348012345678", SCHOOL_ID))
+                    .thenReturn(Mono.just(guardian));
+            when(keycloakAdminService.findByUsername("2348012345678")).thenReturn(Optional.empty());
+            UUID kcId = UUID.randomUUID();
+            when(keycloakAdminService.createUser(any(), anyString(), any())).thenReturn(Mono.just(new KeycloakUserResult(kcId, "tempPassword")));
+            User savedUser = User.builder().id(UUID.randomUUID()).build();
+            when(userRepository.save(any(User.class))).thenReturn(Mono.just(savedUser));
+            when(guardianRepository.save(any(StudentGuardian.class))).thenReturn(Mono.just(guardian));
+            when(roleRepository.save(any(UserSchoolRole.class))).thenReturn(Mono.just(UserSchoolRole.builder().id(UUID.randomUUID()).build()));
+
+            StepVerifier.create(userManagementService.verifyOtpAndCreateAccount(verifyRequest))
+                    .assertNext(res -> {
+                        assertThat(res).containsEntry("message", "Account created. Set your password to continue.");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        @DisplayName("Should return INVALID_OTP when OTP is expired in cache")
+        @SuppressWarnings("unchecked")
+        void shouldReturnInvalidOtpWhenExpired() throws Exception {
+            String phone = "2348012345678";
+            
+            var cacheField = UserManagementServiceImpl.class.getDeclaredField("otpCache");
+            cacheField.setAccessible(true);
+            java.util.Map<String, Object> cache = (java.util.Map<String, Object>) cacheField.get(userManagementService);
+
+            Class<?> otpDetailsClass = Class.forName("com.fee.app.schoolfeeapp.auth.service.impl.UserManagementServiceImpl$OtpDetails");
+            var constructor = otpDetailsClass.getDeclaredConstructor(String.class, Instant.class);
+            constructor.setAccessible(true);
+            Object expiredOtp = constructor.newInstance("654321", Instant.now().minusSeconds(10));
+
+            cache.put(phone, expiredOtp);
+
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("+2348012345678", "654321", SCHOOL_ID);
+            StepVerifier.create(userManagementService.verifyOtpAndCreateAccount(request))
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("INVALID_OTP"))
+                    .verify();
+
+            assertThat(cache).doesNotContainKey(phone);
+        }
+
+        @Test
+        @DisplayName("Should return INVALID_PHONE_NUMBER when phone is empty in VerifyOtpRequest")
+        void shouldReturn400VerifyPhoneEmpty() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("", "123456", SCHOOL_ID);
+            StepVerifier.create(userManagementService.verifyOtpAndCreateAccount(request))
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("INVALID_PHONE_NUMBER"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return INVALID_PHONE_NUMBER when phone is invalid in VerifyOtpRequest")
+        void shouldReturn400VerifyPhoneInvalid() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.response.VerifyOtpRequest("invalid", "123456", SCHOOL_ID);
+            StepVerifier.create(userManagementService.verifyOtpAndCreateAccount(request))
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("INVALID_PHONE_NUMBER"))
+                    .verify();
+        }
     }
 
     // ========================================================================
@@ -955,6 +1209,42 @@ class UserManagementServiceImplTest {
 
             StepVerifier.create(result)
                     .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("ACCOUNT_NOT_READY"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return INVALID_PHONE_NUMBER when phone is empty in SetPasswordRequest")
+        void shouldReturn400SetPasswordPhoneEmpty() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest("", "NewPassword123!");
+            StepVerifier.create(userManagementService.setPassword(request))
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("INVALID_PHONE_NUMBER"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return INVALID_PHONE_NUMBER when phone is invalid in SetPasswordRequest")
+        void shouldReturn400SetPasswordPhoneInvalid() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest("invalid", "NewPassword123!");
+            StepVerifier.create(userManagementService.setPassword(request))
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("INVALID_PHONE_NUMBER"))
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("Should return USER_NOT_FOUND when user record is corrupted/missing")
+        void shouldReturn400IfUserNotFound() {
+            var request = new com.fee.app.schoolfeeapp.auth.dto.request.SetPasswordRequest("+2348012345678", "NewPassword123!");
+
+            UUID userId = UUID.randomUUID();
+            StudentGuardian guardian = StudentGuardian.builder().userId(userId).build();
+            when(guardianRepository.findAllByPhoneAndDeletedAtIsNull("2348012345678"))
+                    .thenReturn(Flux.just(guardian));
+            when(userRepository.findById(userId)).thenReturn(Mono.empty());
+
+            Mono<java.util.Map<String, String>> result = userManagementService.setPassword(request);
+
+            StepVerifier.create(result)
+                    .expectErrorMatches(e -> e instanceof SchoolFeeException && ((SchoolFeeException) e).getErrorCode().equals("USER_NOT_FOUND"))
                     .verify();
         }
     }
