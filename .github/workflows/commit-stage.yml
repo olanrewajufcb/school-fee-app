@@ -1,13 +1,13 @@
 name: Commit Stage
 on:
   push:
-    branches: [main, develop]
+    branches: [main, development]
   pull_request:
     branches: [main]
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: olanrewajufcb/school-fee-app/backend
+  IMAGE_NAME: sm-isa/school-management/backend
 
 jobs:
   build:
