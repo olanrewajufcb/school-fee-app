@@ -3,7 +3,7 @@ on:
   push:
     branches: [main, development]
   pull_request:
-    branches: [main]
+    branches: [main, development]
 
 env:
   REGISTRY: ghcr.io
@@ -93,7 +93,7 @@ jobs:
 
   package:
     name: Package and Publish
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development') }}
     needs: [build]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
@@ -118,15 +118,25 @@ jobs:
         run: |
           echo "VERSION=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
           echo "GIT_REF=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_OUTPUT
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            echo "CHANNEL=prod" >> $GITHUB_OUTPUT
+          else
+            echo "CHANNEL=dev" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build container image
         run: |
           chmod +x gradlew
           ./gradlew bootBuildImage \
-            --imageName ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }} \
-            --buildpack io.buildpacks.spring-boot
+            --imageName ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
         
+      - name: Tag channel image
+        run: |
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.CHANNEL }}
+
       - name: Tag latest image
+        if: ${{ github.ref == 'refs/heads/main' }}
         run: |
           docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
@@ -154,8 +164,12 @@ jobs:
 
       - name: Publish container image (versioned)
         run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
+
+      - name: Publish container image (channel)
+        run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.CHANNEL }}
       
       - name: Publish container image (latest)
+        if: ${{ github.ref == 'refs/heads/main' }}
         run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
       - name: Generate SBOM
