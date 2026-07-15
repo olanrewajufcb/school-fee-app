@@ -1,0 +1,154 @@
+# Google Cloud Run service template for the School Fee App backend.
+#
+# Replace every ${...} placeholder before applying:
+#   envsubst < deploy/gcp/cloud-run-backend.yaml > /tmp/schoolfee-backend.yaml
+#   gcloud run services replace /tmp/schoolfee-backend.yaml --region "$REGION"
+#
+# The canonical first-deployment procedure is deploy/gcp/DEPLOYMENT_GUIDE.md.
+# This template is an optional equivalent for the backend service only. The
+# outbox processor is deployed separately as a Cloud Run Job.
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: schoolfee-backend-${ENVIRONMENT}
+  labels:
+    app: schoolfee
+    component: backend
+    environment: ${ENVIRONMENT}
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/invoker-iam-disabled: "true"
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "${MIN_INSTANCES}"
+        autoscaling.knative.dev/maxScale: "${MAX_INSTANCES}"
+        run.googleapis.com/cpu-throttling: "true"
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/startup-cpu-boost: "true"
+        run.googleapis.com/network-interfaces: '[{"network":"${VPC_NETWORK}","subnetwork":"${VPC_SUBNET}"}]'
+        run.googleapis.com/vpc-access-egress: private-ranges-only
+        run.googleapis.com/secrets: >-
+          schoolfee-db-password-${ENVIRONMENT}:projects/${GCP_PROJECT_NUMBER}/secrets/schoolfee-db-password-${ENVIRONMENT},
+          schoolfee-keycloak-client-secret-${ENVIRONMENT}:projects/${GCP_PROJECT_NUMBER}/secrets/schoolfee-keycloak-client-secret-${ENVIRONMENT},
+          schoolfee-keycloak-admin-password-${ENVIRONMENT}:projects/${GCP_PROJECT_NUMBER}/secrets/schoolfee-keycloak-admin-password-${ENVIRONMENT},
+          schoolfee-paystack-secret-key-${ENVIRONMENT}:projects/${GCP_PROJECT_NUMBER}/secrets/schoolfee-paystack-secret-key-${ENVIRONMENT},
+          schoolfee-paystack-public-key-${ENVIRONMENT}:projects/${GCP_PROJECT_NUMBER}/secrets/schoolfee-paystack-public-key-${ENVIRONMENT},
+          schoolfee-mail-username-${ENVIRONMENT}:projects/${GCP_PROJECT_NUMBER}/secrets/schoolfee-mail-username-${ENVIRONMENT},
+          schoolfee-mail-password-${ENVIRONMENT}:projects/${GCP_PROJECT_NUMBER}/secrets/schoolfee-mail-password-${ENVIRONMENT}
+    spec:
+      serviceAccountName: schoolfee-backend-${ENVIRONMENT}@${GCP_PROJECT_ID}.iam.gserviceaccount.com
+      containerConcurrency: ${CONTAINER_CONCURRENCY}
+      timeoutSeconds: 300
+      containers:
+        - image: ${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/schoolfee/backend:${IMAGE_TAG}
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: "${CPU_LIMIT}"
+              memory: ${MEMORY_LIMIT}
+          env:
+            - name: SERVER_PORT
+              value: "8080"
+            - name: SPRING_PROFILES_ACTIVE
+              value: prod,cloud
+            - name: DB_HOST
+              value: ${DB_HOST}
+            - name: SPRING_R2DBC_POOL_INITIAL_SIZE
+              value: "${R2DBC_POOL_INITIAL_SIZE}"
+            - name: SPRING_R2DBC_POOL_MAX_SIZE
+              value: "${R2DBC_POOL_MAX_SIZE}"
+            - name: SPRING_FLYWAY_ENABLED
+              value: "true"
+            - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI
+              value: ${KEYCLOAK_ISSUER_URI}
+            - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI
+              value: ${KEYCLOAK_JWK_SET_URI}
+            - name: KEYCLOAK_URL
+              value: ${KEYCLOAK_URL}
+            - name: KEYCLOAK_REALM
+              value: schoolfee
+            - name: KEYCLOAK_ADMIN_USER
+              value: ${KEYCLOAK_ADMIN_USER}
+            - name: PAYSTACK_CALLBACK_URL
+              value: ${BACKEND_URL}/api/v1/webhooks/paystack/callback
+            - name: FRONTEND_URL
+              value: ${FRONTEND_URL}
+            - name: APP_CORS_ALLOWED_ORIGINS
+              value: ${CORS_ALLOWED_ORIGINS}
+            - name: APP_SCHEDULER_OUTBOX_ENABLED
+              value: "false"
+            - name: MAIL_HOST
+              value: ${MAIL_HOST}
+            - name: MAIL_PORT
+              value: "${MAIL_PORT}"
+            - name: MAIL_SMTP_AUTH
+              value: "${MAIL_SMTP_AUTH}"
+            - name: MAIL_SMTP_STARTTLS
+              value: "${MAIL_SMTP_STARTTLS}"
+            - name: SMS_ENABLED
+              value: "${SMS_ENABLED}"
+            - name: WHATSAPP_ENABLED
+              value: "${WHATSAPP_ENABLED}"
+            - name: SCHOOL_FEE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: schoolfee-db-password-${ENVIRONMENT}
+                  key: latest
+            - name: FLYWAY_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: schoolfee-db-password-${ENVIRONMENT}
+                  key: latest
+            - name: KEYCLOAK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: schoolfee-keycloak-client-secret-${ENVIRONMENT}
+                  key: latest
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: schoolfee-keycloak-admin-password-${ENVIRONMENT}
+                  key: latest
+            - name: PAYSTACK_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: schoolfee-paystack-secret-key-${ENVIRONMENT}
+                  key: latest
+            - name: PAYSTACK_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: schoolfee-paystack-public-key-${ENVIRONMENT}
+                  key: latest
+            - name: MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: schoolfee-mail-username-${ENVIRONMENT}
+                  key: latest
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: schoolfee-mail-password-${ENVIRONMENT}
+                  key: latest
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 20
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            timeoutSeconds: 5
+            periodSeconds: 30
+            failureThreshold: 3
+  traffic:
+    - percent: 100
+      latestRevision: true

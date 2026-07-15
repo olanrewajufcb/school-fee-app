@@ -1,0 +1,25 @@
+# Cloud Build template for building and pushing the backend image.
+# Service and Job deployment are separate, explicit steps so the first build
+# does not depend on an already-existing Cloud Run service.
+#
+# Example:
+#   gcloud builds submit . \
+#     --config deploy/gcp/cloudbuild-backend.yaml \
+#     --substitutions=_REGION=europe-west1,_IMAGE_TAG=$(git rev-parse --short HEAD)
+
+substitutions:
+  _REGION: europe-west1
+  _IMAGE_TAG: manual
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/schoolfee/backend:${_IMAGE_TAG}
+      - -f
+      - backend/Dockerfile
+      - .
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/schoolfee/backend:${_IMAGE_TAG}

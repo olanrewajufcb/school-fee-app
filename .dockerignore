@@ -1,0 +1,14 @@
+.git
+.github
+.gradle
+.idea
+.vscode
+.DS_Store
+**/build
+**/node_modules
+frontend
+deploy
+*.md
+backend/*.md
+backend/init-scripts
+backend/keycloak

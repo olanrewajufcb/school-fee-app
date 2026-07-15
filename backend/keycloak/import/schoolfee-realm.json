@@ -3,6 +3,15 @@
   "realm": "schoolfee",
   "displayName": "SchoolFee",
   "enabled": true,
+  "smtpServer": {
+    "host": "mailhog",
+    "port": "1025",
+    "from": "noreply@schoolfee.app",
+    "fromDisplayName": "SchoolFee",
+    "auth": "false",
+    "ssl": "false",
+    "starttls": "false"
+  },
   "sslRequired": "external",
   "registrationAllowed": false,
   "registrationEmailAsUsername": false,

@@ -54,7 +54,7 @@ logging:
 notification:
   sms:
     provider: AFRICAS_TALKING
-    api-key: ${AFRICAS_TALKING_API_KEY:atsk_6fdf4d83564f871c7f00c41ba6f6abf58a541b4ccc56d23c4c6a9fb200f23680de05484e}
+    api-key: ${AFRICAS_TALKING_API_KEY:}
     username: ${AFRICAS_TALKING_USERNAME:sandbox}
     sender-id: ${AFRICAS_TALKING_SENDER_ID:SCHOOLFEE}
     enabled: ${SMS_ENABLED:true}
@@ -82,11 +82,13 @@ keycloak:
 
 payment:
   paystack:
-    secret-key: ${PAYSTACK_SECRET_KEY:sk_test_44e35083ad3aebf5a33ea349b4c62dc2b3a823ac}
-    public-key: ${PAYSTACK_PUBLIC_KEY:pk_test_f24d08f3095b7c18ebca8e06e57d5f9fb5ff81fd}
+    secret-key: ${PAYSTACK_SECRET_KEY:}
+    public-key: ${PAYSTACK_PUBLIC_KEY:}
     base-url: https://api.paystack.co
-    callback-url: ${PAYSTACK_CALLBACK_URL:https://reverb-impale-daytime.ngrok-free.dev/api/v1/webhooks/paystack/callback}
+    callback-url: ${PAYSTACK_CALLBACK_URL:http://localhost:8080/api/v1/webhooks/paystack/callback}
 
 app:
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
-
+  scheduler:
+    outbox-enabled: ${APP_SCHEDULER_OUTBOX_ENABLED:true}
+    outbox-delay: 5000
