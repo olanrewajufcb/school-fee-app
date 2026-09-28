@@ -325,7 +325,22 @@ Verify OpenID discovery:
 ```bash
 curl -fsS "${KEYCLOAK_URL}/realms/edtech/.well-known/openid-configuration" | head -n 10
 ```
+# Allow public access to Keycloak
+gcloud run services add-iam-policy-binding edtech-keycloak-test \
+--region=europe-west1 \
+--member="allUsers" \
+--role="roles/run.invoker" \
+--project=edtech-project-510010
 
+# Allow public access to Backend API
+gcloud run services add-iam-policy-binding edtech-backend-test \
+--region=europe-west1 \
+--member="allUsers" \
+--role="roles/run.invoker" \
+--project=edtech-project-510010
+
+
+curl -s "https://auth-test.smartbridgeedu.com/realms/edtech/.well-known/openid-configuration" | head -n 10
 ---
 
 ## 10. Deploy Backend API
