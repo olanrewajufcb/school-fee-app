@@ -2,6 +2,7 @@ package com.fee.app.schoolfeeapp.auth.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
@@ -34,6 +35,9 @@ import java.util.Set;
 @EnableReactiveMethodSecurity
 public class SecurityConfig {
 
+        @Value("${app.cors.allowed-origins:http://localhost:5173,http://localhost:3000,https://schoolfee.app}")
+        private String allowedCorsOrigins;
+
 
         @Bean
         public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
@@ -59,6 +63,8 @@ public class SecurityConfig {
                             .pathMatchers("/api/v1/auth/verify-otp").permitAll()
                             .pathMatchers("/api/v1/auth/set-password").permitAll()
                             .pathMatchers("/api/public/**").permitAll()
+                            .pathMatchers("/api/v1/subscriptions/plans").permitAll()
+                            .pathMatchers("/api/v1/subscriptions/calculate-price").permitAll()
                             .pathMatchers("/api/health").permitAll()
                             .pathMatchers("/actuator/health").permitAll()
                             // 1. Whitelist Swagger UI and OpenAPI docs
@@ -144,11 +150,7 @@ public class SecurityConfig {
         @Bean
         public CorsConfigurationSource corsConfigurationSource() {
             CorsConfiguration configuration = new CorsConfiguration();
-            configuration.setAllowedOrigins(List.of(
-                    "http://localhost:5173",
-                    "http://localhost:3000",
-                    "https://schoolfee.app"
-            ));
+            configuration.setAllowedOrigins(resolveAllowedOrigins());
             configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
             configuration.setAllowedHeaders(List.of("*"));
             configuration.setAllowCredentials(true);
@@ -165,11 +167,7 @@ public class SecurityConfig {
                 new UrlBasedCorsConfigurationSource();
 
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of(
-                "http://localhost:3000",
-                "http://localhost:5173",
-                "https://schoolfee.app"
-        ));
+        config.setAllowedOrigins(resolveAllowedOrigins());
         config.setAllowedMethods(List.of("*"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
@@ -177,6 +175,14 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/**", config);
 
         return new CorsWebFilter(source);
+    }
+
+    private List<String> resolveAllowedOrigins() {
+        return Arrays.stream(allowedCorsOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isBlank())
+                .distinct()
+                .toList();
     }
 
   /**

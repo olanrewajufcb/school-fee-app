@@ -141,4 +141,94 @@ public class EmailServiceImpl implements EmailService {
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
+    @Override
+    public Mono<Void> sendGuardianInvitationEmail(String toEmail, String guardianName, String schoolName, String invitationLink) {
+        return Mono.fromCallable(() -> {
+            log.info("Sending guardian invitation email to: {} for school: {}", toEmail, schoolName);
+
+            MimeMessage message = javaMailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            String sender = fromEmail;
+            if (sender == null || sender.isBlank()) {
+                sender = "noreply@schoolfee.app";
+            }
+            helper.setFrom(sender);
+            helper.setTo(toEmail);
+            helper.setSubject("Invitation to Join " + schoolName + " Parent Portal");
+
+            String htmlContent = String.format("""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px; color: #1e293b; }
+                        .card { max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+                        .header { text-align: center; margin-bottom: 24px; }
+                        .header h1 { font-size: 22px; color: #0f172a; margin: 8px 0 0 0; }
+                        .school-badge { display: inline-block; background-color: #eff6ff; color: #2563eb; font-size: 13px; font-weight: 600; padding: 4px 12px; border-radius: 20px; margin-bottom: 8px; }
+                        .content { font-size: 15px; line-height: 1.6; color: #334155; }
+                        .feature-list { background-color: #f8fafc; border-radius: 8px; padding: 16px 20px; margin: 20px 0; }
+                        .feature-list ul { margin: 0; padding-left: 18px; }
+                        .feature-list li { margin-bottom: 6px; font-size: 14px; }
+                        .btn-container { text-align: center; margin: 28px 0; }
+                        .btn { background-color: #2563eb; color: #ffffff !important; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block; }
+                        .link-fallback { font-size: 12px; color: #64748b; word-break: break-all; margin-top: 16px; }
+                        .footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center; }
+                    </style>
+                </head>
+                <body>
+                    <div class="card">
+                        <div class="header">
+                            <span class="school-badge">%s</span>
+                            <h1>Parent Portal Invitation</h1>
+                        </div>
+                        <div class="content">
+                            <p>Hello <strong>%s</strong>,</p>
+                            <p>You have been invited by <strong>%s</strong> to set up your account on the <strong>SchoolFee Parent Portal</strong>.</p>
+                            
+                            <div class="feature-list">
+                                <p style="margin: 0 0 8px 0; font-weight: 600; color: #0f172a;">With your parent account, you can:</p>
+                                <ul>
+                                    <li>Pay school fees seamlessly online and obtain instant receipts</li>
+                                    <li>Access terminal exam results & academic report cards</li>
+                                    <li>Monitor daily attendance and punctuality in real-time</li>
+                                    <li>Receive important school broadcast announcements</li>
+                                </ul>
+                            </div>
+
+                            <div class="btn-container">
+                                <a href="%s" class="btn">Set Up Parent Account</a>
+                            </div>
+
+                            <p class="link-fallback">
+                                If the button above does not work, copy and paste this link into your browser:<br/>
+                                <a href="%s" style="color: #2563eb;">%s</a>
+                            </p>
+                        </div>
+                        <div class="footer">
+                            <p>&copy; %s. Powered by SchoolFee.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """,
+                schoolName,
+                guardianName != null && !guardianName.isBlank() ? guardianName : "Parent/Guardian",
+                schoolName,
+                invitationLink,
+                invitationLink,
+                invitationLink,
+                schoolName
+            );
+
+            helper.setText(htmlContent, true);
+            javaMailSender.send(message);
+
+            log.info("Guardian invitation email sent successfully to: {}", toEmail);
+            return null;
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
 }
+

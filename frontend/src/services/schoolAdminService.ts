@@ -281,6 +281,7 @@ export interface StudentDetail {
     guardianId?: string;
     name: string;
     phoneNumber?: string;
+    email?: string;
     relationship?: string;
     isPrimaryContact?: boolean;
   }>;

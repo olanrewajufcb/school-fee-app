@@ -19,6 +19,10 @@ repositories {
     mavenCentral()
 }
 
+jar {
+    enabled = false
+}
+
 ext {
     set('springCloudVersion', "2025.0.0")
 }
@@ -89,9 +93,14 @@ dependencyManagement {
 
 tasks.named('test') {
     useJUnitPlatform()
-    environment 'DOCKER_HOST', System.getenv('DOCKER_HOST') ?: 'unix:///Users/sulaiman/.docker/run/docker.sock'
+    if (System.getenv('DOCKER_HOST') != null) {
+        environment 'DOCKER_HOST', System.getenv('DOCKER_HOST')
+    } else if (new File('/var/run/docker.sock').exists()) {
+        environment 'DOCKER_HOST', 'unix:///var/run/docker.sock'
+    } else if (new File('/Users/sulaiman/.docker/run/docker.sock').exists()) {
+        environment 'DOCKER_HOST', 'unix:///Users/sulaiman/.docker/run/docker.sock'
+    }
     environment 'TESTCONTAINERS_RYUK_DISABLED', 'true'
-    environment 'DOCKER_API_VERSION', '1.44'   // <-- ADD THIS
     finalizedBy jacocoTestReport
 }
 

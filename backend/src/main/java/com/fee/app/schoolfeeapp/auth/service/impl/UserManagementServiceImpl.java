@@ -101,7 +101,7 @@ public class UserManagementServiceImpl implements UserManagementService {
                         request.children().size(),
                         true,
                         null,
-                        "Guardian added. Invitation sent via SMS."));
+                        "Guardian added. Invitation sent via email."));
     }
 
 

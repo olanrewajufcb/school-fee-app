@@ -34,9 +34,21 @@ public record StudentDetailResponse(
             UUID guardianId,
             String name,
             String phoneNumber,
+            String email,
             String relationship,
             boolean isPrimaryContact
-    ) {}
+    ) {
+        public ParentInfo(
+                UUID userId,
+                UUID guardianId,
+                String name,
+                String phoneNumber,
+                String relationship,
+                boolean isPrimaryContact
+        ) {
+            this(userId, guardianId, name, phoneNumber, null, relationship, isPrimaryContact);
+        }
+    }
 
     public record FeeSummary(
             String termName,

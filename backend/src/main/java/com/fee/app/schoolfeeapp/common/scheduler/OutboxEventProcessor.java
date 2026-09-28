@@ -22,7 +22,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.keycloak.representations.idm.UserRepresentation;
 import com.fee.app.schoolfeeapp.auth.dto.response.KeycloakUserResult;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -53,13 +52,12 @@ public class OutboxEventProcessor {
     private static final int MAX_RETRIES = 3;
 
     /**
-     * Process pending outbox events every 5 seconds.
+     * Process one pending outbox batch.
      * ATOMIC CLAIM PATTERN:
      * - Uses FOR UPDATE SKIP LOCKED to prevent race conditions
      * - Multiple pods can run this simultaneously without conflicts
      * - Each event is processed by exactly ONE pod
      */
-    @Scheduled(fixedDelay = 5000)
     public void processPendingEvents() {
         log.debug("Starting outbox event processing...");
 
@@ -68,6 +66,13 @@ public class OutboxEventProcessor {
                 .onErrorContinue((error, obj) ->
                         log.error("Failed processing event {}", obj, error))
                 .subscribe();
+    }
+
+    public Mono<Void> processPendingEventsSync() {
+        log.info("Starting synchronous outbox event processing batch...");
+        return outboxRepository.claimPendingEvents(Instant.now(), BATCH_SIZE)
+                .flatMap(this::processClaimedEvent)
+                .then();
     }
 
 

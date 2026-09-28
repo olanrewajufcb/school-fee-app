@@ -1,8 +1,17 @@
 {
-  "id": "schoolfee",
-  "realm": "schoolfee",
-  "displayName": "SchoolFee",
+  "id": "edtech",
+  "realm": "edtech",
+  "displayName": "edtech",
   "enabled": true,
+  "smtpServer": {
+    "host": "mailhog",
+    "port": "1025",
+    "from": "noreply@edtech.app",
+    "fromDisplayName": "edtech",
+    "auth": "false",
+    "ssl": "false",
+    "starttls": "false"
+  },
   "sslRequired": "external",
   "registrationAllowed": false,
   "registrationEmailAsUsername": false,
@@ -27,11 +36,11 @@
   "offlineSessionIdleTimeout": 2592000,
 
   "defaultRole": {
-    "name": "default-roles-schoolfee",
-    "description": "Default role for all SchoolFee users",
+    "name": "default-roles-edtech",
+    "description": "Default role for all edtech users",
     "composite": true,
     "clientRole": false,
-    "containerId": "schoolfee"
+    "containerId": "edtech"
   },
 
   "requiredCredentials": ["password"],
@@ -73,8 +82,8 @@
   "clients": [
     {
       "id": "f8c3de3d-1fea-4d7c-a8b0-29f63c4c3454",
-      "clientId": "schoolfee-backend",
-      "name": "SchoolFee Backend API",
+      "clientId": "edtech-backend",
+      "name": "edtech Backend API",
       "description": "Spring Boot resource server",
       "enabled": true,
       "clientAuthenticatorType": "client-secret",
@@ -179,8 +188,8 @@
 
     {
       "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "clientId": "schoolfee-web",
-      "name": "SchoolFee Web Application",
+      "clientId": "edtech-web",
+      "name": "edtech Web Application",
       "description": "React PWA frontend",
       "enabled": true,
       "clientAuthenticatorType": "client-secret",
@@ -188,12 +197,20 @@
       "redirectUris": [
         "http://localhost:5173/*",
         "http://localhost:3000/*",
-        "https://schoolfee.app/*"
+        "https://edtech.app/*",
+        "https://test.smartbridgeedu.com/*",
+        "https://smartbridgeedu.com/*",
+        "https://*.smartbridgeedu.com/*",
+        "https://*.run.app/*",
+        "https://*.vercel.app/*"
       ],
       "webOrigins": [
         "http://localhost:5173",
         "http://localhost:3000",
-        "https://schoolfee.app"
+        "https://edtech.app",
+        "https://test.smartbridgeedu.com",
+        "https://smartbridgeedu.com",
+        "+"
       ],
       "bearerOnly": false,
       "consentRequired": false,
@@ -205,7 +222,7 @@
       "frontchannelLogout": true,
       "protocol": "openid-connect",
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:3000/*##https://schoolfee.app/*",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:3000/*##https://edtech.app/*##https://test.smartbridgeedu.com/*##https://smartbridgeedu.com/*##https://*.run.app/*##https://*.vercel.app/*",
         "pkce.code.challenge.method": "S256",
         "display.on.consent.screen": "false"
       },
@@ -392,7 +409,7 @@
   "users": [
     {
       "username": "superadmin",
-      "email": "superadmin@schoolfee.app",
+      "email": "superadmin@edtech.app",
       "firstName": "Super",
       "lastName": "Admin",
       "enabled": true,

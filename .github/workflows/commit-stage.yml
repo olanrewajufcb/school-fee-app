@@ -1,174 +1,200 @@
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 name: Commit Stage
 on:
   push:
-    branches: [main, develop]
+    branches: [main, development]
+    paths:
+      - 'backend/**'
+      - 'deploy/**'
+      - '.github/workflows/commit-stage.yml'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'settings.gradle'
+      - 'gradle.properties'
   pull_request:
-    branches: [main]
+    branches: [main, development]
+    paths:
+      - 'backend/**'
+      - 'deploy/**'
+      - '.github/workflows/commit-stage.yml'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'settings.gradle'
+      - 'gradle.properties'
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: olanrewajufcb/school-fee-app/backend
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'edtech-project-510010' }}
+  REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
+  GAR_REPOSITORY: edtech
+  IMAGE_NAME: backend
+
 
 jobs:
   build:
     name: Build and Test
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write
 
-    # PostgreSQL service container for integration tests
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: school_fee_test
-          POSTGRES_USER: test_user
-          POSTGRES_PASSWORD: test_pass
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up JDK
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
+          cache: gradle
 
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      - name: Code vulnerability scanning
-        uses: anchore/scan-action@v3
-        id: scan
-        with:
-          path: "${{ github.workspace }}"
-          fail-build: false
-          severity-cutoff: high
-          sarif: true
-
-      - name: Upload vulnerability report
-        uses: github/codeql-action/upload-sarif@v3
-        if: success() || failure()
-        with:
-          sarif_file: ${{ steps.scan.outputs.sarif}}
+      - name: Pre-pull Testcontainers image
+        run: docker pull postgres:16-alpine --quiet
 
       - name: Build, unit tests and integration tests
         run: |
           chmod +x ./gradlew
-          ./gradlew build jacocoTestCoverageVerification
+          ./gradlew build jacocoTestCoverageVerification --build-cache
         env:
-          SPRING_R2DBC_URL: r2dbc:postgresql://localhost:5432/school_fee_test
-          SPRING_R2DBC_USERNAME: test_user
-          SPRING_R2DBC_PASSWORD: test_pass
+          DOCKER_HOST: unix:///var/run/docker.sock
+          TESTCONTAINERS_RYUK_DISABLED: "true"
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: build/test-results/**/TEST-*.xml
+          path: backend/build/test-results/**/TEST-*.xml
           retention-days: 7
 
-      - name: Upload coverage report
-        uses: codecov/codecov-action@v3
+      - name: Upload compiled JAR artifact
+        uses: actions/upload-artifact@v4
         with:
-          file: build/reports/jacoco/test/jacocoTestReport.xml
-          fail_ci_if_error: false
+          name: backend-jar
+          path: backend/build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 1
 
   package:
-    name: Package and Publish
-    if: ${{ github.ref == 'refs/heads/main' }}
+    name: Package and Publish and deploy
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development' || github.ref == 'refs/heads/developement') }}
     needs: [build]
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
+      actions: read
       contents: read
-      packages: write
+      id-token: write
       security-events: write
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0  # Fetch full history for proper versioning
+        uses: actions/checkout@v4
 
-      - name: Set up JDK
-        uses: actions/setup-java@v3
-        with:
-          distribution: temurin
-          java-version: 21
+      - name: Determine Target Environment
+        id: target-env
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "ENVIRONMENT=prod" >> $GITHUB_ENV
+            echo "Deploying to PRODUCTION environment"
+          else
+            echo "ENVIRONMENT=test" >> $GITHUB_ENV
+            echo "Deploying to TEST environment"
+          fi
 
       - name: Generate version tag
         id: version
         run: |
-          echo "VERSION=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
-          echo "GIT_REF=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_OUTPUT
+          VERSION="${GITHUB_SHA::8}"
+          IMAGE_URI="${{ env.REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}"
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "IMAGE_URI=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "IMAGE_TAG=${VERSION}" >> $GITHUB_ENV
 
+      # 1. Download pre-built JAR from build job
+      - name: Download compiled JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-jar
+          path: backend/build/libs/
+
+      # 2. Prepare JAR for Docker build
+      - name: Prepare JAR for Docker build
+        run: |
+          JAR_FILE=$(find backend/build/libs/ -name "*.jar" ! -name "*plain.jar" | head -n 1)
+          if [ -z "$JAR_FILE" ]; then
+            echo "Error: No executable Spring Boot JAR found in backend/build/libs/!"
+            ls -la backend/build/libs/
+            exit 1
+          fi
+          echo "Found executable Spring Boot JAR: $JAR_FILE"
+          cp "$JAR_FILE" app.jar
+          ls -lh app.jar
+
+      # 3. Authenticate with GCP
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # 4. Set up Cloud SDK & Docker authentication
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # 5. Build Spring Boot container image using fast pre-built JAR Dockerfile
       - name: Build container image
         run: |
-          chmod +x gradlew
-          ./gradlew bootBuildImage \
-            --imageName ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }} \
-            --buildpack io.buildpacks.spring-boot
-        
-      - name: Tag latest image
-        run: |
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker pull ${{ steps.version.outputs.IMAGE_URI }}:latest --quiet || true
+          docker build \
+            --cache-from ${{ steps.version.outputs.IMAGE_URI }}:latest \
+            -t ${{ steps.version.outputs.IMAGE_URI }}:${{ steps.version.outputs.VERSION }} \
+            -t ${{ steps.version.outputs.IMAGE_URI }}:latest \
+            -f backend/Dockerfile.ci .
+          docker push ${{ steps.version.outputs.IMAGE_URI }}:${{ steps.version.outputs.VERSION }}
+          docker push ${{ steps.version.outputs.IMAGE_URI }}:latest
 
+      # 6. Continuous Deployment to Cloud Run
+      - name: Deploy to Cloud Run (${{ env.ENVIRONMENT }})
+        if: ${{ vars.AUTO_DEPLOY != 'false' }}
+        run: |
+          chmod +x ./deploy/deploy-backend.sh
+          ./deploy/deploy-backend.sh "${{ env.ENVIRONMENT }}"
+
+      # 7. OCI image vulnerability scanning (production only)
       - name: OCI image vulnerability scanning
-        uses: anchore/scan-action@v3
-        id: scan
+        if: ${{ github.ref == 'refs/heads/main' }}
+        uses: anchore/scan-action@v6
+        continue-on-error: true
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
+          image: ${{ steps.version.outputs.IMAGE_URI }}:${{ steps.version.outputs.VERSION }}
           fail-build: false
           severity-cutoff: high
-          sarif: true
-      - name: Upload vulnerability report
-        uses: github/codeql-action/upload-sarif@v3
-        if: success() || failure()
-        with:
-          sarif_file: ${{ steps.scan.outputs.sarif }}
+          output-format: table
 
-      - name: Log into container registry
-        uses: docker/login-action@v2
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish container image (versioned)
-        run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
-      
-      - name: Publish container image (latest)
-        run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-
+      # 8. Generate SBOM (production only)
       - name: Generate SBOM
+        if: ${{ github.ref == 'refs/heads/main' }}
         uses: anchore/sbom-action@v0
+        continue-on-error: true
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
+          image: ${{ steps.version.outputs.IMAGE_URI }}:${{ steps.version.outputs.VERSION }}
           format: spdx-json
           output-file: sbom.json
-      
+
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v3
+        if: ${{ github.ref == 'refs/heads/main' }}
+        uses: actions/upload-artifact@v4
         with:
           name: sbom
           path: sbom.json
           retention-days: 90
-

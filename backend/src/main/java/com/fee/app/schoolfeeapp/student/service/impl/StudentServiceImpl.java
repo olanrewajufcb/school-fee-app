@@ -857,6 +857,7 @@ class StudentServiceImpl implements StudentService {
                                                 guardian.getId(),
                                                 guardianFullName(guardian),
                                                 guardian.getPhone(),
+                                                guardian.getEmail(),
                                                 link.getRelationship(),
                                                 Boolean.TRUE.equals(link.getIsPrimaryContact())))
                         )

@@ -77,6 +77,13 @@ export const LoginPage: React.FC = () => {
                 <Users className="mr-2 h-5 w-5" />
                 New Parent? Setup Account
               </Button>
+              <Button
+                  variant="ghost"
+                  onClick={() => navigate('/')}
+                  className="w-full text-slate-500 hover:text-slate-800"
+              >
+                ← Back to Home Page
+              </Button>
             </div>
 
             <p className="text-xs text-center text-gray-500 pt-4">

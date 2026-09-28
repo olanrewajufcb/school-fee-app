@@ -1,12 +1,10 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
-    container_name: schoolfee-db
+    container_name: edtech-db
     environment:
-      POSTGRES_DB: schoolfee_db
+      POSTGRES_DB: edtech
       POSTGRES_USER: sch_fee_user
       POSTGRES_PASSWORD: sch_pwd
     ports:
@@ -20,11 +18,11 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - schoolfee-network
+      - edtech-network
 
   keycloak:
     image: quay.io/keycloak/keycloak:24.0.5
-    container_name: schoolfee-keycloak
+    container_name: edtech-keycloak
     command: start-dev
     environment:
       KC_DB: postgres
@@ -42,7 +40,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - schoolfee-network
+      - edtech-network
     volumes:
       - ./backend/keycloak/import:/opt/keycloak/data/import
     entrypoint: >
@@ -53,9 +51,9 @@ services:
   # Backend API
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: schoolfee-backend
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: edtech-backend
     environment:
       SPRING_PROFILES_ACTIVE: prod
       DB_HOST: postgres
@@ -76,7 +74,7 @@ services:
       keycloak:
         condition: service_started
     networks:
-      - schoolfee-network
+      - edtech-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
@@ -89,7 +87,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: schoolfee-frontend
+    container_name: edtech-frontend
     environment:
       VITE_API_URL: http://localhost:8080/api
     ports:
@@ -97,23 +95,23 @@ services:
     depends_on:
       - backend
     networks:
-      - schoolfee-network
+      - edtech-network
     restart: unless-stopped
 
   # Mailpit (modern MailHog replacement for testing email notifications, natively supports arm64)
   mailhog:
     image: axllent/mailpit:latest
-    container_name: schoolfee-mailpit
+    container_name: edtech-mailpit
     ports:
       - "1025:1025"  # SMTP
       - "8025:8025"  # Web UI
     networks:
-      - schoolfee-network
+      - edtech-network
 
 volumes:
   postgres_data:
 
 networks:
-  schoolfee-network:
+  edtech-network:
     driver: bridge
 #    internal: true
