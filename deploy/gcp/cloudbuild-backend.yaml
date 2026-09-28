@@ -16,10 +16,10 @@ steps:
     args:
       - build
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/schoolfee/backend:${_IMAGE_TAG}
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/edtech/backend:${_IMAGE_TAG}
       - -f
       - backend/Dockerfile
       - .
 
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/schoolfee/backend:${_IMAGE_TAG}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/edtech/backend:${_IMAGE_TAG}

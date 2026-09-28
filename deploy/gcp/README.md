@@ -1,57 +1,43 @@
-# Google Cloud deployment assets
+# Google Cloud Deployment Assets
 
-Use [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) as the canonical deployment
-procedure. It covers test and production projects, private networking, Cloud
-SQL, Keycloak, Secret Manager, the backend service, the outbox job, Cloud
-Scheduler, Vercel and Paystack.
+This directory contains configuration files and automation scripts for deploying the platform to Google Cloud Platform (GCP).
 
-## Files
+Refer to [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) for the end-to-end setup and operations guide.
 
-- `DEPLOYMENT_GUIDE.md` — complete first-deployment and operations guide.
-- `cloudbuild-backend.yaml` — builds and pushes the backend image only.
-- `cloud-run-backend.yaml` — optional backend service template equivalent to
-  the guide's `gcloud run deploy` command.
-- `keycloak/Dockerfile` — optimized, pinned Keycloak image.
-- `test.env` and `prod.env` — non-secret placeholders for rendering the
-  optional backend service template.
+---
 
-## Build the backend
+## Directory Contents
 
-Run from the repository root because `gradlew`, `settings.gradle`, and
-`gradle/wrapper` live there:
+| File / Directory | Purpose |
+| :--- | :--- |
+| `DEPLOYMENT_GUIDE.md` | Complete runbook for initial GCP setup (VPC, Cloud SQL, IAM, Secrets). |
+| `cloud-run-backend.yaml` | Declarative Cloud Run service manifest for Spring Boot API. |
+| `cloudbuild-backend.yaml` | Cloud Build config to compile & push backend container to Artifact Registry. |
+| `test.env` | Environment configuration for testing (`edtech-project-510010`). |
+| `prod.env` | Environment configuration for production. |
+| `keycloak/` | Dockerfile and Cloud Run manifest (`cloud-run-keycloak.yml`) for Keycloak. |
+| `../deploy-backend.sh` | Automated deployment script for backend Cloud Run service. |
+| `../deploy-keycloak.sh` | Automated deployment script for Keycloak Cloud Run service. |
 
+---
+
+## Automated Deployment Scripts
+
+### Backend API
+The backend deployment is automated by GitHub Actions (`.github/workflows/commit-stage.yml`) on branch push.
+
+To trigger deployment manually from your local terminal:
 ```bash
-export REGION=europe-west1
-export IMAGE_TAG="$(git rev-parse --short HEAD)-$(date +%Y%m%d%H%M%S)"
-
-gcloud builds submit . \
-  --config=deploy/gcp/cloudbuild-backend.yaml \
-  --substitutions="_REGION=${REGION},_IMAGE_TAG=${IMAGE_TAG}"
+./deploy/deploy-backend.sh test
 ```
 
-The build configuration deliberately does not deploy Cloud Run. This allows
-the first image build to succeed before a service exists and keeps deployment
-configuration changes explicit.
-
-## Optional service-template deployment
-
-Populate the environment file first. Never place secret values in it:
-
+### Keycloak Identity Provider
+Keycloak deployment is automated via:
 ```bash
-source "deploy/gcp/${ENVIRONMENT}.env"
+# 1. Build image once
+gcloud builds submit deploy/gcp/keycloak \
+  --tag="europe-west1-docker.pkg.dev/edtech-project-510010/edtech/keycloak:26.6.4"
 
-envsubst < deploy/gcp/cloud-run-backend.yaml \
-  > "/tmp/schoolfee-backend-${ENVIRONMENT}.yaml"
-
-if grep -n '\${' "/tmp/schoolfee-backend-${ENVIRONMENT}.yaml"; then
-  echo "Unresolved deployment placeholders remain"
-  exit 1
-fi
-
-gcloud run services replace \
-  "/tmp/schoolfee-backend-${ENVIRONMENT}.yaml" \
-  --region="$REGION"
+# 2. Deploy service
+./deploy/deploy-keycloak.sh test
 ```
-
-The service account, VPC/subnet, Artifact Registry image and every referenced
-Secret Manager secret must already exist. The complete guide creates them.

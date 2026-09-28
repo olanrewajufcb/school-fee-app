@@ -328,8 +328,14 @@ export const StudentDetailsView: React.FC<StudentDetailsProps> = ({ studentId, o
                     <div className="space-y-1 text-sm text-gray-600">
                       {guardian.phoneNumber && (
                         <div className="flex items-center gap-2">
-                          <Phone className="w-3 h-3" />
+                          <Phone className="w-3 h-3 text-slate-400" />
                           <span>{guardian.phoneNumber}</span>
+                        </div>
+                      )}
+                      {guardian.email && (
+                        <div className="flex items-center gap-2">
+                          <Mail className="w-3 h-3 text-slate-400" />
+                          <span>{guardian.email}</span>
                         </div>
                       )}
                     </div>
@@ -344,24 +350,28 @@ export const StudentDetailsView: React.FC<StudentDetailsProps> = ({ studentId, o
                       <div className="mt-3">
                         <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded flex items-start gap-2 mb-2">
                           <Mail className="w-3 h-3 mt-0.5" />
-                          <span>No account yet — Send invitation to create portal access</span>
+                          <span>
+                            {guardian.email
+                              ? 'No account yet — Send invitation email to create portal access'
+                              : 'No email address registered — Email required to send invitation'}
+                          </span>
                         </div>
                         <Button
                           size="sm"
                           variant="outline"
                           className="w-full text-xs"
-                          disabled={invitingGuardianId === guardian.guardianId}
+                          disabled={invitingGuardianId === guardian.guardianId || !guardian.email}
                           onClick={() => void handleInviteGuardian(guardian.guardianId!, guardian.name)}
                         >
                           {invitingGuardianId === guardian.guardianId ? (
                             <>
                               <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                              Sending…
+                              Sending Email…
                             </>
                           ) : (
                             <>
                               <Send className="w-3 h-3 mr-1" />
-                              Send Invitation SMS
+                              Send Invitation Email
                             </>
                           )}
                         </Button>

@@ -1,0 +1,91 @@
+# cloud-run-keycloak.yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: edtech-keycloak-${ENVIRONMENT}
+  labels:
+    app: edtech
+    component: keycloak
+    environment: ${ENVIRONMENT}
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/invoker-iam-disabled: "true"
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "1"
+        run.googleapis.com/network-interfaces: '[{"network":"${VPC_NETWORK}","subnetwork":"${VPC_SUBNET}"}]'
+        run.googleapis.com/vpc-access-egress: private-ranges-only
+    spec:
+      serviceAccountName: edtech-keycloak-${ENVIRONMENT}@${GCP_PROJECT_ID}.iam.gserviceaccount.com
+      containerConcurrency: 40
+      timeoutSeconds: 300
+      containers:
+        - image: ${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/edtech/keycloak:26.6.4
+          args:
+            - "start"
+            - "--optimized"
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          env:
+            # Database configuration
+            - name: KC_DB
+              value: "postgres"
+            - name: KC_DB_URL
+              value: "jdbc:postgresql://${DB_HOST}:5432/edtech_keycloak"
+            - name: KC_DB_USERNAME
+              value: "keycloak_user"
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: edtech-keycloak-db-password-${ENVIRONMENT}
+                  key: latest
+            # HTTP configuration
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_PROXY_HEADERS
+              value: "xforwarded"
+            - name: KC_HOSTNAME
+              value: ${KEYCLOAK_URL}
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            # Health and metrics (served on management port 9000)
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_METRICS_ENABLED
+              value: "true"
+            - name: KC_HTTP_MANAGEMENT_PORT
+              value: "9000"
+            # Bootstrap admin
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: "superadmin"
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: edtech-keycloak-admin-password-${ENVIRONMENT}
+                  key: latest
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 9000
+            timeoutSeconds: 5
+            periodSeconds: 30
+            failureThreshold: 3
+  traffic:
+    - percent: 100
+      latestRevision: true

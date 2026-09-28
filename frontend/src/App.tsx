@@ -7,6 +7,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import LoginPage from "@/pages/auth/LoginPage";
 import ParentJoinPage from "@/pages/auth/ParentJoinPage";
 import UnauthorizedPage from "@/pages/auth/UnAuthorizedPage";
+import LandingPage from "@/pages/LandingPage";
 
 // Lazy-loaded pages (loaded only when needed)
 const AdminDashboard = React.lazy(() => import('@/components/admin/AdminDashboard'));
@@ -28,6 +29,7 @@ export const App: React.FC = () => {
                 >
                     <Routes>
                         {/* Public routes */}
+                        <Route path="/landing" element={<LandingPage />} />
                         <Route path="/login" element={<LoginPage />} />
                         <Route path="/join" element={<ParentJoinPage />} />
                         <Route path="/join/:inviteToken" element={<ParentJoinPage />} />
@@ -113,7 +115,7 @@ const RoleBasedRedirect: React.FC = () => {
     }
 
     if (!isAuthenticated) {
-        return <Navigate to="/login" replace />;
+        return <LandingPage />;
     }
 
     if (isSuperAdmin) return <Navigate to="/super-admin" replace />;

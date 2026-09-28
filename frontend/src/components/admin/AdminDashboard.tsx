@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ClipboardList,
   CircleDollarSign,
+  CreditCard,
   Download,
   GraduationCap,
   LayoutDashboard,
@@ -67,8 +68,9 @@ import {
 } from '@/services/schoolAdminService';
 import { StudentDetailsView } from '@/components/admin/students/StudentDetailsView';
 import { AttendanceMonitoringSection } from '@/components/admin/AttendanceMonitoringSection';
+import { SubscriptionManagementSection } from '@/components/admin/SubscriptionManagementSection';
 
-type Section = 'overview' | 'setup' | 'classes' | 'people' | 'students' | 'attendance' | 'fees' | 'notifications' | 'subjects' | 'results';
+type Section = 'overview' | 'setup' | 'classes' | 'people' | 'students' | 'attendance' | 'fees' | 'notifications' | 'subjects' | 'results' | 'subscription';
 type StaffRole = 'TEACHER' | 'ACCOUNTANT' | 'SCHOOL_ADMIN';
 
 interface SubjectForm {
@@ -226,6 +228,7 @@ const sections: Array<{ id: Section; label: string; icon: React.ComponentType<{ 
   { id: 'results', label: 'Results', icon: ShieldCheck },
   { id: 'fees', label: 'Fees', icon: Banknote },
   { id: 'notifications', label: 'Notifications', icon: BellRing },
+  { id: 'subscription', label: 'Subscription', icon: CreditCard },
 ];
 
 export const AdminDashboard: React.FC = () => {
@@ -1600,6 +1603,10 @@ export const AdminDashboard: React.FC = () => {
                   reportCardJob={reportCardJob}
                   isSaving={isSaving}
                 />
+              )}
+
+              {activeSection === 'subscription' && (routeSchoolId || school?.schoolId || user?.schoolId) && (
+                <SubscriptionManagementSection schoolId={routeSchoolId || school?.schoolId || user?.schoolId || ''} />
               )}
             </>
           )}

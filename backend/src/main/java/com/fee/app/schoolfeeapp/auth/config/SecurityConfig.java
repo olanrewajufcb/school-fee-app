@@ -63,6 +63,8 @@ public class SecurityConfig {
                             .pathMatchers("/api/v1/auth/verify-otp").permitAll()
                             .pathMatchers("/api/v1/auth/set-password").permitAll()
                             .pathMatchers("/api/public/**").permitAll()
+                            .pathMatchers("/api/v1/subscriptions/plans").permitAll()
+                            .pathMatchers("/api/v1/subscriptions/calculate-price").permitAll()
                             .pathMatchers("/api/health").permitAll()
                             .pathMatchers("/actuator/health").permitAll()
                             // 1. Whitelist Swagger UI and OpenAPI docs

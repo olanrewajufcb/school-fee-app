@@ -6,4 +6,6 @@ public interface EmailService {
     Mono<Void> sendAdminWelcomeEmail(String toEmail, String schoolName, String temporaryPassword);
     Mono<Void> sendStaffWelcomeEmail(String toEmail, String schoolName, String temporaryPassword);
     Mono<Void> sendAttendanceNotificationEmail(String toEmail, String schoolName, String message);
+    Mono<Void> sendGuardianInvitationEmail(String toEmail, String guardianName, String schoolName, String invitationLink);
 }
+
