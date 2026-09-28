@@ -56,7 +56,6 @@ gcloud config configurations describe "edtech-${ENVIRONMENT}" >/dev/null 2>&1 \
 gcloud config configurations activate "edtech-${ENVIRONMENT}"
 gcloud config set project "$GCP_PROJECT_ID"
 gcloud config set run/region "$REGION"
-gcloud config set compute/region "$REGION"
 
 # Verify active project:
 gcloud config get-value project
@@ -82,6 +81,7 @@ gcloud services enable \
   servicenetworking.googleapis.com \
   sqladmin.googleapis.com
 ```
+gcloud config set compute/region "$REGION"
 
 Create the Docker repository in Google Artifact Registry:
 ```bash
@@ -146,9 +146,9 @@ Create databases and users:
 gcloud sql databases create "$DB_NAME" --instance="$DB_INSTANCE"
 gcloud sql databases create edtech_keycloak --instance="$DB_INSTANCE"
 
-# 2. Prompt for database passwords
-read -rsp "Enter Backend DB Password: " APP_DB_PASSWORD; echo
-read -rsp "Enter Keycloak DB Password: " KC_DB_PASSWORD; echo
+# 2. Prompt for database passwords (works in bash and zsh)
+echo -n "Enter Backend DB Password: "; read -rs APP_DB_PASSWORD; echo
+echo -n "Enter Keycloak DB Password: "; read -rs KC_DB_PASSWORD; echo
 
 # 3. Create database users
 gcloud sql users create "$DB_USER" \
@@ -186,20 +186,20 @@ put_secret "edtech-db-password-${ENVIRONMENT}" "$APP_DB_PASSWORD"
 put_secret "edtech-keycloak-db-password-${ENVIRONMENT}" "$KC_DB_PASSWORD"
 
 # 2. Keycloak credentials
-read -rsp "Enter Keycloak superadmin password: " KC_ADMIN_PASSWORD; echo
+echo -n "Enter Keycloak superadmin password: "; read -rs KC_ADMIN_PASSWORD; echo
 put_secret "edtech-keycloak-admin-password-${ENVIRONMENT}" "$KC_ADMIN_PASSWORD"
 # Initial placeholder for backend client secret (updated after realm import)
 put_secret "edtech-keycloak-client-secret-${ENVIRONMENT}" "backend-secret-change-in-production"
 
 # 3. Paystack API Keys
-read -rsp "Enter Paystack Secret Key: " PAYSTACK_SECRET; echo
-read -rsp "Enter Paystack Public Key: " PAYSTACK_PUBLIC; echo
+echo -n "Enter Paystack Secret Key: "; read -rs PAYSTACK_SECRET; echo
+echo -n "Enter Paystack Public Key: "; read -rs PAYSTACK_PUBLIC; echo
 put_secret "edtech-paystack-secret-key-${ENVIRONMENT}" "$PAYSTACK_SECRET"
 put_secret "edtech-paystack-public-key-${ENVIRONMENT}" "$PAYSTACK_PUBLIC"
 
-# 4. SMTP Mail credentials (e.g. Resend, Sendgrid, AWS SES)
-read -rsp "Enter SMTP username: " MAIL_USER; echo
-read -rsp "Enter SMTP password: " MAIL_PASS; echo
+# 4. SMTP Mail credentials (e.g. Resend)
+echo -n "Enter SMTP username: "; read -rs MAIL_USER; echo
+echo -n "Enter SMTP password: "; read -rs MAIL_PASS; echo
 put_secret "edtech-mail-username-${ENVIRONMENT}" "$MAIL_USER"
 put_secret "edtech-mail-password-${ENVIRONMENT}" "$MAIL_PASS"
 ```
@@ -299,7 +299,25 @@ gcloud run services add-iam-policy-binding "edtech-keycloak-${ENVIRONMENT}" \
 4. Navigate to **Clients** -> `edtech-backend` -> **Credentials** tab.
 5. Copy the Client Secret and update it in Secret Manager:
    ```bash
-   read -rsp "Enter Keycloak edtech-backend client secret: " KC_CLIENT_SECRET; echo
+   
+   
+   # 1. Get an admin token
+TOKEN=$(curl -s -d "client_id=admin-cli" \
+-d "username=superadmin" \
+-d "password=$KC_ADMIN_PASSWORD" \
+-d "grant_type=password" \
+"https://auth-test.smartbridgeedu.com/realms/master/protocol/openid-connect/token" | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
+
+# 2. Import the edtech realm
+curl -s -X POST "https://auth-test.smartbridgeedu.com/admin/realms" \
+-H "Authorization: Bearer $TOKEN" \
+-H "Content-Type: application/json" \
+-d @backend/keycloak/import/edtech-realm.json
+
+echo "Realm import complete!"
+
+
+   echo -n "Enter Keycloak edtech-backend client secret: "; read -rs KC_CLIENT_SECRET; echo
    put_secret "edtech-keycloak-client-secret-${ENVIRONMENT}" "$KC_CLIENT_SECRET"
    ```
 
