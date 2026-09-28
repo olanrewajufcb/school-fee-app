@@ -124,13 +124,13 @@ jobs:
       # 2. Prepare JAR for Docker build
       - name: Prepare JAR for Docker build
         run: |
-          JAR_FILE=$(find backend/build/libs/ -name "*.jar" | head -n 1)
+          JAR_FILE=$(find backend/build/libs/ -name "*.jar" ! -name "*plain.jar" | head -n 1)
           if [ -z "$JAR_FILE" ]; then
-            echo "Error: No JAR file found in backend/build/libs/!"
-            find . -name "*.jar"
+            echo "Error: No executable Spring Boot JAR found in backend/build/libs/!"
+            ls -la backend/build/libs/
             exit 1
           fi
-          echo "Found JAR: $JAR_FILE"
+          echo "Found executable Spring Boot JAR: $JAR_FILE"
           cp "$JAR_FILE" app.jar
           ls -lh app.jar
 
@@ -151,23 +151,17 @@ jobs:
         run: |
           gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
-      # 5. Check if image exists, or build using cached layers
-      - name: Build or Reuse container image
+      # 5. Build Spring Boot container image using fast pre-built JAR Dockerfile
+      - name: Build container image
         run: |
-          echo "Checking if container image already exists in Artifact Registry..."
-          if gcloud artifacts docker images describe "${{ steps.version.outputs.IMAGE_URI }}:${{ steps.version.outputs.VERSION }}" --quiet >/dev/null 2>&1; then
-            echo "Image ${{ steps.version.outputs.IMAGE_URI }}:${{ steps.version.outputs.VERSION }} already exists in Artifact Registry! Reusing existing image."
-          else
-            echo "Image does not exist yet. Pulling cache and building..."
-            docker pull ${{ steps.version.outputs.IMAGE_URI }}:latest --quiet || true
-            docker build \
-              --cache-from ${{ steps.version.outputs.IMAGE_URI }}:latest \
-              -t ${{ steps.version.outputs.IMAGE_URI }}:${{ steps.version.outputs.VERSION }} \
-              -t ${{ steps.version.outputs.IMAGE_URI }}:latest \
-              -f backend/Dockerfile.ci .
-            docker push ${{ steps.version.outputs.IMAGE_URI }}:${{ steps.version.outputs.VERSION }}
-            docker push ${{ steps.version.outputs.IMAGE_URI }}:latest
-          fi
+          docker pull ${{ steps.version.outputs.IMAGE_URI }}:latest --quiet || true
+          docker build \
+            --cache-from ${{ steps.version.outputs.IMAGE_URI }}:latest \
+            -t ${{ steps.version.outputs.IMAGE_URI }}:${{ steps.version.outputs.VERSION }} \
+            -t ${{ steps.version.outputs.IMAGE_URI }}:latest \
+            -f backend/Dockerfile.ci .
+          docker push ${{ steps.version.outputs.IMAGE_URI }}:${{ steps.version.outputs.VERSION }}
+          docker push ${{ steps.version.outputs.IMAGE_URI }}:latest
 
       # 6. Continuous Deployment to Cloud Run
       - name: Deploy to Cloud Run (${{ env.ENVIRONMENT }})
